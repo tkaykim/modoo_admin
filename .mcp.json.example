@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "comment": ".mcp.json 을 로컬에 복사한 뒤 SUPABASE_ACCESS_TOKEN 만 채워 사용하세요. GitHub 에 절대 푸시하지 마세요.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--project-ref=YOUR_PROJECT_REF"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": ""
+      }
+    }
+  }
+}
