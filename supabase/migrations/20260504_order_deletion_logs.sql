@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS public.order_deletion_logs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id uuid NOT NULL,
+  order_id text NOT NULL,
   deleted_by uuid NOT NULL REFERENCES auth.users(id),
   reason text NOT NULL,
   snapshot jsonb NOT NULL,
