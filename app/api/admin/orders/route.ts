@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
+import { isAdminLike, isBackofficeOperatorRole, isSuperAdmin } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { sendFactoryAssignmentEmail } from '@/lib/gmail';
@@ -588,6 +588,135 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ data: finalOrder || data });
   } catch (error) {
     const message = error instanceof Error ? error.message : '주문 업데이트에 실패했습니다.';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError) {
+      return NextResponse.json({ error: authError.message }, { status: 401 });
+    }
+    if (!user) {
+      return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError) {
+      return NextResponse.json({ error: profileError.message }, { status: 403 });
+    }
+    if (!profile || !isSuperAdmin(profile.role)) {
+      return NextResponse.json({ error: '슈퍼 관리자 권한이 필요합니다.' }, { status: 403 });
+    }
+
+    const url = new URL(request.url);
+    const queryOrderId = url.searchParams.get('orderId');
+    const body = await request.json().catch(() => null);
+    const orderId = (body?.orderId as string | undefined) ?? queryOrderId ?? null;
+    const reason = typeof body?.reason === 'string' ? body.reason.trim() : '';
+    const confirmPaidOrder = body?.confirmPaidOrder === true;
+
+    if (!orderId) {
+      return NextResponse.json({ error: '주문 ID가 필요합니다.' }, { status: 400 });
+    }
+    if (reason.length < 5) {
+      return NextResponse.json({ error: '삭제 사유를 5자 이상 입력하세요.' }, { status: 400 });
+    }
+
+    const adminClient = createAdminClient();
+
+    const { data: existingOrder, error: fetchError } = await adminClient
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
+
+    if (fetchError || !existingOrder) {
+      return NextResponse.json({ error: '주문을 찾을 수 없습니다.' }, { status: 404 });
+    }
+
+    if (
+      existingOrder.payment_status === 'completed' &&
+      !confirmPaidOrder
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            '결제 완료 주문입니다. 환불 후 삭제하거나 confirmPaidOrder 플래그를 보내세요.',
+        },
+        { status: 409 },
+      );
+    }
+
+    const { data: existingItems } = await adminClient
+      .from('order_items')
+      .select('*')
+      .eq('order_id', orderId);
+
+    const { error: logError } = await adminClient.from('order_deletion_logs').insert({
+      order_id: orderId,
+      deleted_by: user.id,
+      reason,
+      snapshot: {
+        order: existingOrder,
+        order_items: existingItems ?? [],
+      },
+    });
+
+    if (logError) {
+      return NextResponse.json(
+        { error: `감사 로그 기록 실패: ${logError.message}` },
+        { status: 500 },
+      );
+    }
+
+    const { error: couponError } = await adminClient
+      .from('coupon_usages')
+      .update({ order_id: null, used_at: null })
+      .eq('order_id', orderId);
+
+    if (couponError) {
+      console.error('coupon_usages 정리 실패:', couponError);
+    }
+
+    const { error: itemsError } = await adminClient
+      .from('order_items')
+      .delete()
+      .eq('order_id', orderId);
+
+    if (itemsError) {
+      return NextResponse.json(
+        { error: `주문 항목 삭제 실패: ${itemsError.message}` },
+        { status: 500 },
+      );
+    }
+
+    const { error: deleteError } = await adminClient
+      .from('orders')
+      .delete()
+      .eq('id', orderId);
+
+    if (deleteError) {
+      return NextResponse.json(
+        { error: `주문 삭제 실패: ${deleteError.message}` },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json({ data: { orderId, deleted: true } });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '주문 삭제에 실패했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

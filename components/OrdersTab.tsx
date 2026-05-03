@@ -4,11 +4,12 @@ import { useState, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import { Factory, Order } from '@/types/types';
-import { Package, Calendar, Clock, Plus, Factory as FactoryIcon, RotateCcw, Search, X, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { Package, Calendar, Clock, Plus, Factory as FactoryIcon, RotateCcw, Search, X, ArrowUp, ArrowDown, ArrowUpDown, Trash2 } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import AdminOrderCreator from '@/components/orders/AdminOrderCreator';
 import FactoryAllocationModal from '@/components/orders/FactoryAllocationModal';
 import RefundModal from '@/components/orders/RefundModal';
+import DeleteOrderModal from '@/components/orders/DeleteOrderModal';
 import { formatKstDateLong, formatKstDateShort, formatKstMonthDay } from '@/lib/kst';
 import { orderCategoryLabel } from '@/lib/order-category';
 import { isAdminLike } from '@/lib/auth-helpers';
@@ -57,6 +58,8 @@ export default function OrdersTab() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [allocationOrder, setAllocationOrder] = useState<OrderWithItemCount | null>(null);
   const [refundOrder, setRefundOrder] = useState<OrderWithItemCount | null>(null);
+  const [deleteOrder, setDeleteOrder] = useState<OrderWithItemCount | null>(null);
+  const isSuperAdmin = user?.role === 'super_admin';
 
   const isFactoryUser = user?.role === 'factory';
 
@@ -965,6 +968,16 @@ export default function OrdersTab() {
                               환불
                             </button>
                           )}
+                          {isSuperAdmin && (
+                            <button
+                              onClick={() => setDeleteOrder(order)}
+                              className="flex items-center gap-1 px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                              title="주문 영구 삭제 (super-admin)"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              삭제
+                            </button>
+                          )}
                         </div>
                       </td>
                     </>
@@ -1209,6 +1222,16 @@ export default function OrdersTab() {
                           환불
                         </button>
                       )}
+                      {isSuperAdmin && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteOrder(order); }}
+                          className="flex items-center gap-1 px-2 py-1 text-[11px] bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                          title="주문 영구 삭제 (super-admin)"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          삭제
+                        </button>
+                      )}
                     </div>
                   </div>
                 </>
@@ -1266,6 +1289,18 @@ export default function OrdersTab() {
           onClose={() => setRefundOrder(null)}
           onSuccess={() => {
             setRefundOrder(null);
+            mutateOrders();
+          }}
+        />
+      )}
+
+      {/* Delete Order Modal (super_admin only) */}
+      {deleteOrder && (
+        <DeleteOrderModal
+          order={deleteOrder}
+          onClose={() => setDeleteOrder(null)}
+          onSuccess={() => {
+            setDeleteOrder(null);
             mutateOrders();
           }}
         />
