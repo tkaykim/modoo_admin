@@ -16,8 +16,10 @@ import {
   Link2,
   Copy,
   Check,
+  FileText,
+  Image as ImageIcon,
 } from 'lucide-react';
-import { PartnerMall, PartnerMallProduct } from '@/types/types';
+import { PartnerMall, PartnerMallProduct, PartnerMallAsset } from '@/types/types';
 import PartnerMallInfoEditor from './PartnerMallInfoEditor';
 import SingleProductPlacementEditor from './SingleProductPlacementEditor';
 import AddProductsModal from './AddProductsModal';
@@ -150,6 +152,19 @@ export default function PartnerMallDetail({
   const [linkCopied, setLinkCopied] = useState(false);
 
   const products = partnerMall.partner_mall_products || [];
+  const assets = partnerMall.partner_mall_assets || [];
+  const assetsByType = {
+    logo: assets.filter((a) => a.asset_type === 'logo'),
+    image: assets.filter((a) => a.asset_type === 'image'),
+    document: assets.filter((a) => a.asset_type === 'document'),
+    reference: assets.filter((a) => a.asset_type === 'reference'),
+  };
+  const assetTypeLabel: Record<PartnerMallAsset['asset_type'], string> = {
+    logo: '로고',
+    image: '이미지',
+    document: '문서',
+    reference: '참고자료',
+  };
 
   // Toggle active status
   const toggleActive = async () => {
@@ -459,8 +474,72 @@ export default function PartnerMallDetail({
           </div>
         </div>
 
-        {/* Products Section */}
+        {/* Products + Assets */}
         <div className="lg:col-span-2 space-y-3 sm:space-y-4">
+          {/* Assets Section — 영업사원이 modoo_salesman 앱에서 업로드한 로고/이미지/문서/참고자료 */}
+          <div className="bg-white rounded-lg border border-gray-200 p-2.5 sm:p-6">
+            <div className="flex items-center justify-between mb-2.5 sm:mb-4">
+              <h2 className="text-xs sm:text-lg font-semibold text-gray-800">
+                에셋
+                <span className="ml-1.5 sm:ml-2 text-[10px] sm:text-sm font-normal text-gray-500">
+                  ({assets.length}개)
+                </span>
+              </h2>
+            </div>
+            {assets.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-4 sm:py-8 bg-gray-50 rounded-lg">
+                <ImageIcon className="w-7 h-7 sm:w-10 sm:h-10 text-gray-300 mb-1 sm:mb-2" />
+                <p className="text-[11px] sm:text-sm text-gray-500">업로드된 에셋이 없습니다.</p>
+              </div>
+            ) : (
+              <div className="space-y-3 sm:space-y-4">
+                {(['logo', 'image', 'document', 'reference'] as const).map((type) => {
+                  const items = assetsByType[type];
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={type}>
+                      <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-1 sm:mb-1.5">
+                        {assetTypeLabel[type]} ({items.length})
+                      </div>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-1.5 sm:gap-2">
+                        {items.map((asset) => (
+                          <a
+                            key={asset.id}
+                            href={asset.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="group relative block aspect-square bg-gray-50 rounded border border-gray-200 overflow-hidden hover:border-blue-400 transition-colors"
+                            title={asset.name || asset.url}
+                          >
+                            {(type === 'logo' || type === 'image' || type === 'reference') && asset.url ? (
+                              <img
+                                src={asset.url}
+                                alt={asset.name || assetTypeLabel[type]}
+                                className="w-full h-full object-contain"
+                              />
+                            ) : (
+                              <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 p-1">
+                                <FileText className="w-5 h-5 sm:w-6 sm:h-6 mb-0.5" />
+                                <span className="text-[9px] sm:text-[10px] truncate max-w-full">
+                                  {asset.name || '문서'}
+                                </span>
+                              </div>
+                            )}
+                            {asset.is_primary && (
+                              <span className="absolute top-1 left-1 px-1 py-0.5 text-[8px] sm:text-[9px] bg-emerald-100 text-emerald-700 rounded">
+                                기본
+                              </span>
+                            )}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="bg-white rounded-lg border border-gray-200 p-2.5 sm:p-6">
             <div className="flex items-center justify-between mb-2.5 sm:mb-4">
               <h2 className="text-xs sm:text-lg font-semibold text-gray-800">

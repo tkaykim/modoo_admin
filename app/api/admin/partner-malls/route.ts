@@ -46,6 +46,18 @@ export async function GET() {
       .select(`
         *,
         attributed_salesman:salesman_profiles!salesman_id(id,display_name,salesman_code),
+        partner_mall_assets (
+          id,
+          asset_type,
+          url,
+          name,
+          description,
+          file_size,
+          mime_type,
+          is_primary,
+          sort_order,
+          created_at
+        ),
         partner_mall_products (
           id,
           product_id,

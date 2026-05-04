@@ -790,6 +790,23 @@ export interface PartnerMall {
   updated_at: string;
   // Joined relations
   partner_mall_products?: PartnerMallProduct[];
+  partner_mall_assets?: PartnerMallAsset[];
+}
+
+export type PartnerMallAssetType = 'logo' | 'image' | 'document' | 'reference';
+
+export interface PartnerMallAsset {
+  id: string;
+  partner_mall_id?: string;
+  asset_type: PartnerMallAssetType;
+  url: string;
+  name: string | null;
+  description: string | null;
+  file_size: number | null;
+  mime_type: string | null;
+  is_primary: boolean | null;
+  sort_order: number | null;
+  created_at: string;
 }
 
 export interface PartnerMallProduct {
