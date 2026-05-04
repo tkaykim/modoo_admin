@@ -74,14 +74,19 @@ export function useAdminAuth(options: UseAdminAuthOptions = {}): UseAdminAuthRes
 
     let isActive = true;
 
-    const checkAdminAuth = async () => {
+    const checkAdminAuth = async (didRetry = false): Promise<void> => {
       try {
         const supabase = createClient();
         const { data: { user: supabaseUser }, error: getUserError } = await supabase.auth.getUser();
 
-        // 세션이 없을 때 SDK가 AuthSessionMissingError를 throw하지 않고 error로 반환하도록 처리.
-        // 세션 부재는 정상적인 비로그인 상태이므로 콘솔 에러로 남기지 않고 조용히 로그인으로 보낸다.
+        // 세션이 없거나 오류가 발생한 경우 — 리프레시 토큰이 살아있을 수 있으므로 1회 갱신을 시도한다.
         if (getUserError || !supabaseUser) {
+          if (!didRetry) {
+            const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+            if (!refreshError && refreshed?.session) {
+              return checkAdminAuth(true);
+            }
+          }
           if (isActive) setAuthStatus('unauthenticated');
           router.push('/login');
           return;
@@ -146,8 +151,18 @@ export function useAdminAuth(options: UseAdminAuthOptions = {}): UseAdminAuthRes
           });
         }
       } catch (error) {
-        // AuthSessionMissingError는 비로그인 상태의 정상 흐름이므로 에러 로그를 남기지 않는다.
         const isSessionMissing = error instanceof Error && /Auth session missing/i.test(error.message);
+        if (isSessionMissing && !didRetry) {
+          try {
+            const supabase = createClient();
+            const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+            if (!refreshError && refreshed?.session) {
+              return checkAdminAuth(true);
+            }
+          } catch {
+            // fall through to logout
+          }
+        }
         if (!isSessionMissing) {
           console.error('Error checking admin auth:', error);
         }
@@ -163,6 +178,22 @@ export function useAdminAuth(options: UseAdminAuthOptions = {}): UseAdminAuthRes
       isActive = false;
     };
   }, [skip, isHydrated, authStatus, router, setUser, setAuthStatus, logout]);
+
+  // 다른 탭에서의 로그아웃 / 리프레시 토큰 폐기 등 인증 상태 변화 구독
+  useEffect(() => {
+    if (skip) return;
+    const supabase = createClient();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: string) => {
+      if (event === 'SIGNED_OUT') {
+        logout();
+        setAuthStatus('unauthenticated');
+        router.push('/login');
+      }
+    });
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [skip, router, logout, setAuthStatus]);
 
   // Handle role-based route access
   useEffect(() => {
