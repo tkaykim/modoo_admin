@@ -396,7 +396,8 @@ function ComposeModal({
         .gte('created_at', start)
         .lt('created_at', end);
       if (error) throw error;
-      const sum = (data ?? []).reduce((s, o) => s + (Number((o as { total_amount: number | null }).total_amount) || 0), 0);
+      const rows = (data ?? []) as Array<{ total_amount: number | null }>;
+      const sum = rows.reduce((s: number, o) => s + (Number(o.total_amount) || 0), 0);
       setGrossRevenue(String(sum));
     } catch (err) {
       setError('자동 집계 실패: ' + (err as Error).message);

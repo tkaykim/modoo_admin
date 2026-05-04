@@ -179,10 +179,13 @@ export async function getCartItemsWithDesigns(): Promise<CartItemWithDesign[]> {
     }
 
     // Transform the data to include design information
-    const itemsWithDesigns: CartItemWithDesign[] = (cartItems || []).map((item) => ({
-      ...item,
-      designName: (item as { saved_designs?: { title?: string } }).saved_designs?.title,
-      canvasState: (item as { saved_designs?: { canvas_state?: Record<string, string> } }).saved_designs?.canvas_state,
+    const rows = (cartItems || []) as Array<Record<string, unknown> & {
+      saved_designs?: { title?: string; canvas_state?: Record<string, string> } | null;
+    }>;
+    const itemsWithDesigns: CartItemWithDesign[] = rows.map((item) => ({
+      ...(item as unknown as CartItemWithDesign),
+      designName: item.saved_designs?.title,
+      canvasState: item.saved_designs?.canvas_state,
     }));
 
     return itemsWithDesigns;
