@@ -8,6 +8,7 @@ import SingleSideCanvas from './canvas/SingleSideCanvas';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import { Canvas as FabricCanvas } from 'fabric';
 import { formatKstDateLong } from '@/lib/kst';
+import { calculatePixelToMmRatio } from '@/lib/canvasUtils';
 
 type ImageUrlEntry = { url: string; path?: string; uploadedAt?: string };
 type ImageUrlsBySide = Record<string, ImageUrlEntry[]>;
@@ -402,7 +403,7 @@ export default function DesignDetail({ design, onBack }: DesignDetailProps) {
     }
   }, []);
 
-  const handleCanvasReady = useCallback((canvas: FabricCanvas, sideId: string, canvasScale: number) => {
+  const handleCanvasReady = useCallback((canvas: FabricCanvas, sideId: string) => {
     const currentSide = product?.configuration.find(s => s.id === sideId);
     if (!currentSide) return;
 
@@ -437,13 +438,27 @@ export default function DesignDetail({ design, onBack }: DesignDetailProps) {
       }
     });
 
-    const printArea = currentSide.printArea;
-
-    let pixelToMmRatio = 1;
-    const productWidthMm = currentSide.realLifeDimensions?.productWidthMm || 0;
-    if (productWidthMm > 0 && printArea.width > 0) {
-      pixelToMmRatio = productWidthMm / printArea.width;
-    }
+    // Match the customer editor's formula: ratio is in scaled-canvas px units,
+    // applied to obj.getBoundingRect() directly. Calibration (mm-per-original-px
+    // / displayScale) wins when present; otherwise productWidthMm / scaledImageWidth.
+    const realWorldProductWidth = currentSide.realLifeDimensions?.productWidthMm || 500;
+    const canvasWithMeta = canvas as FabricCanvas & {
+      scaledImageWidth?: number;
+      originalImageWidth?: number;
+      calibrationNativeMmPerPx?: number;
+    };
+    const scaledImageWidth = canvasWithMeta.scaledImageWidth ?? 0;
+    const originalImageWidth = canvasWithMeta.originalImageWidth ?? 0;
+    const calibrationNative = canvasWithMeta.calibrationNativeMmPerPx ?? 0;
+    const calibratedRatio =
+      calibrationNative > 0 && originalImageWidth > 0 && scaledImageWidth > 0
+        ? calibrationNative / (scaledImageWidth / originalImageWidth)
+        : 0;
+    const pixelToMmRatio = calculatePixelToMmRatio(
+      scaledImageWidth,
+      realWorldProductWidth,
+      calibratedRatio > 0 ? calibratedRatio : null
+    );
 
     // Track seen objectIds to prevent duplicates
     const seenObjectIds = new Set<string>();
@@ -534,30 +549,28 @@ export default function DesignDetail({ design, onBack }: DesignDetailProps) {
         console.error('Error generating object preview:', error);
       }
 
-      const objWidthOnCanvas = (obj.width || 0) * (obj.scaleX || 1);
-      const objHeightOnCanvas = (obj.height || 0) * (obj.scaleY || 1);
-
-      const objWidthOriginal = objWidthOnCanvas / canvasScale;
-      const objHeightOriginal = objHeightOnCanvas / canvasScale;
-
+      // Live recompute from the rendered canvas using the canonical formula.
+      // Stored widthMm is only a fallback (e.g., when ratio is unavailable),
+      // since legacy designs may have outdated values written by the prior
+      // (incorrect) formula.
+      const boundingRect = obj.getBoundingRect();
       const objWithMm = obj as unknown as {
         widthMm?: number;
         heightMm?: number;
       };
-
-      const objectWidthMm = typeof objWithMm.widthMm === 'number'
+      const storedWidthMm = typeof objWithMm.widthMm === 'number'
         ? objWithMm.widthMm
         : stateInfo?.widthMm;
-      const objectHeightMm = typeof objWithMm.heightMm === 'number'
+      const storedHeightMm = typeof objWithMm.heightMm === 'number'
         ? objWithMm.heightMm
         : stateInfo?.heightMm;
 
-      const resolvedWidthMm = typeof objectWidthMm === 'number'
-        ? objectWidthMm
-        : objWidthOriginal * pixelToMmRatio;
-      const resolvedHeightMm = typeof objectHeightMm === 'number'
-        ? objectHeightMm
-        : objHeightOriginal * pixelToMmRatio;
+      const resolvedWidthMm = pixelToMmRatio > 0
+        ? boundingRect.width * pixelToMmRatio
+        : (typeof storedWidthMm === 'number' ? storedWidthMm : 0);
+      const resolvedHeightMm = pixelToMmRatio > 0
+        ? boundingRect.height * pixelToMmRatio
+        : (typeof storedHeightMm === 'number' ? storedHeightMm : 0);
 
       let objectType = obj.type || 'Object';
       objectType = objectType.charAt(0).toUpperCase() + objectType.slice(1);

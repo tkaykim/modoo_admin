@@ -64,6 +64,34 @@ export function pixelsToMm(
 }
 
 /**
+ * Canonical px↔mm ratio for canvas dimension calculations.
+ * Mirrors `modoo_app/lib/canvasUtils.calculatePixelToMmRatio` — the customer
+ * editor's formula, treated as the source of truth.
+ *
+ * Reference frame: scaled canvas px (not original-image px). Apply the returned
+ * ratio to `obj.getBoundingRect().width` directly.
+ *
+ * - If `mmPerPxOverride` (already in scaled-canvas-px units) is provided, it
+ *   wins. Compute it from `nativeMmPerPx / displayScale` via
+ *   `calibrationToCanvasMmPerPx` from `lib/calibrationFetch`.
+ * - Otherwise: `productWidthMm / scaledImageWidth` — assumes the product
+ *   visually spans the mockup's image width.
+ */
+export function calculatePixelToMmRatio(
+  scaledImageWidth: number,
+  realWorldProductWidth: number = 500,
+  mmPerPxOverride?: number | null
+): number {
+  if (mmPerPxOverride && Number.isFinite(mmPerPxOverride) && mmPerPxOverride > 0) {
+    return mmPerPxOverride;
+  }
+  if (!scaledImageWidth || !Number.isFinite(scaledImageWidth) || scaledImageWidth <= 0) {
+    return 0;
+  }
+  return realWorldProductWidth / scaledImageWidth;
+}
+
+/**
  * Converts real-world millimeters to canvas pixels
  *
  * @param mmValue - The value in millimeters

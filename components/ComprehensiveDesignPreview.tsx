@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Canvas as FabricCanvas } from 'fabric';
 import { OrderItem, Product, ProductSide, ExtractedColor, CanvasState } from '@/types/types';
 import SingleSideCanvas from './canvas/SingleSideCanvas';
+import { calculatePixelToMmRatio } from '@/lib/canvasUtils';
 
 interface DesignElement {
   sideId: string;
@@ -65,7 +66,7 @@ export default function ComprehensiveDesignPreview({
     setSizeQuantities(mockSizes);
   }, [orderItem]);
 
-  const handleCanvasReady = useCallback((canvas: FabricCanvas, sideId: string, canvasScale: number) => {
+  const handleCanvasReady = useCallback((canvas: FabricCanvas, sideId: string) => {
     const currentSide = product.configuration.find(s => s.id === sideId);
     if (!currentSide) return;
 
@@ -73,13 +74,24 @@ export default function ComprehensiveDesignPreview({
     const colors: ExtractedColor[] = [];
     const elements: DesignElement[] = [];
 
-    const printArea = currentSide.printArea;
-
-    let pixelToMmRatio = 1;
-    const productWidthMm = currentSide.realLifeDimensions?.productWidthMm || 0;
-    if (productWidthMm > 0 && printArea.width > 0) {
-      pixelToMmRatio = productWidthMm / printArea.width;
-    }
+    const realWorldProductWidth = currentSide.realLifeDimensions?.productWidthMm || 500;
+    const canvasWithMeta = canvas as FabricCanvas & {
+      scaledImageWidth?: number;
+      originalImageWidth?: number;
+      calibrationNativeMmPerPx?: number;
+    };
+    const scaledImageWidth = canvasWithMeta.scaledImageWidth ?? 0;
+    const originalImageWidth = canvasWithMeta.originalImageWidth ?? 0;
+    const calibrationNative = canvasWithMeta.calibrationNativeMmPerPx ?? 0;
+    const calibratedRatio =
+      calibrationNative > 0 && originalImageWidth > 0 && scaledImageWidth > 0
+        ? calibrationNative / (scaledImageWidth / originalImageWidth)
+        : 0;
+    const pixelToMmRatio = calculatePixelToMmRatio(
+      scaledImageWidth,
+      realWorldProductWidth,
+      calibratedRatio > 0 ? calibratedRatio : null
+    );
 
     objects.forEach((obj) => {
       const objData = obj as { data?: { id?: string } };
@@ -105,15 +117,10 @@ export default function ComprehensiveDesignPreview({
         }
       }
 
-      // Calculate dimensions
-      const objWidthOnCanvas = (obj.width || 0) * (obj.scaleX || 1);
-      const objHeightOnCanvas = (obj.height || 0) * (obj.scaleY || 1);
-
-      const objWidthOriginal = objWidthOnCanvas / canvasScale;
-      const objHeightOriginal = objHeightOnCanvas / canvasScale;
-
-      const widthMm = objWidthOriginal * pixelToMmRatio;
-      const heightMm = objHeightOriginal * pixelToMmRatio;
+      // Live recompute via canonical formula (scaled-canvas px × ratio).
+      const boundingRect = obj.getBoundingRect();
+      const widthMm = boundingRect.width * pixelToMmRatio;
+      const heightMm = boundingRect.height * pixelToMmRatio;
 
       let objectType = obj.type || 'Object';
       objectType = objectType.charAt(0).toUpperCase() + objectType.slice(1);

@@ -216,22 +216,23 @@ export default function DesignsTab() {
                       href={`/editor/${design.product_id}?mode=design&designId=${design.id}`}
                       className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-0"
                     >
-                      {/* Preview Image */}
-                      <div className="w-14 h-14 sm:w-20 sm:h-20 bg-gray-100 rounded flex items-center justify-center shrink-0">
+                      {/* Preview Image — show only the actual design preview.
+                          When preview_url is missing we render an explicit
+                          placeholder rather than the product mockup, which
+                          previously made customer-designed items look like
+                          they had no design at all. */}
+                      <div className="w-14 h-14 sm:w-20 sm:h-20 bg-gray-100 rounded flex flex-col items-center justify-center shrink-0">
                         {design.preview_url ? (
                           <img
                             src={design.preview_url}
                             alt={design.title || '디자인 미리보기'}
                             className="w-full h-full object-contain rounded"
                           />
-                        ) : design.product?.thumbnail_image_link?.[0] ? (
-                          <img
-                            src={design.product.thumbnail_image_link[0]}
-                            alt={design.product.title}
-                            className="w-full h-full object-contain opacity-50 rounded"
-                          />
                         ) : (
-                          <Palette className="w-6 h-6 sm:w-8 sm:h-8 text-gray-300" />
+                          <>
+                            <Palette className="w-5 h-5 sm:w-7 sm:h-7 text-gray-300" />
+                            <span className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">미리보기 없음</span>
+                          </>
                         )}
                       </div>
 
