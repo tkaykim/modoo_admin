@@ -392,7 +392,7 @@ function ComposeModal({
       const { data, error } = await supabase
         .from('orders')
         .select('total_amount')
-        .eq('attributed_salesman_id', salesmanId)
+        .eq('salesman_id', salesmanId)
         .gte('created_at', start)
         .lt('created_at', end);
       if (error) throw error;

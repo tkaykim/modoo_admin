@@ -656,6 +656,7 @@ export default function OrdersTab() {
                     { key: 'design_title', label: '디자인 제목' },
                     { key: 'id', label: '주문 ID' },
                     { key: 'order_source', label: '주문 경로' },
+                    { key: 'assignee', label: '영업담당자' },
                     { key: 'customer_name', label: '고객 정보' },
                     { key: 'created_at', label: '주문 일시' },
                     { key: 'total_amount', label: '금액' },
@@ -861,6 +862,21 @@ export default function OrdersTab() {
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${src.color}`}>
                               {src.label}
                             </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {(() => {
+                          const salesmanName = order.attributed_salesman?.display_name;
+                          const code = order.attributed_salesman?.salesman_code;
+                          if (!salesmanName) {
+                            return <span className="text-xs text-gray-400">미지정</span>;
+                          }
+                          return (
+                            <div className="text-xs leading-tight">
+                              <div className="text-gray-900">{salesmanName}</div>
+                              {code && <div className="text-[10px] text-gray-500">{code}</div>}
+                            </div>
                           );
                         })()}
                       </td>

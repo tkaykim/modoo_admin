@@ -21,6 +21,7 @@ import { PartnerMall, PartnerMallProduct } from '@/types/types';
 import PartnerMallInfoEditor from './PartnerMallInfoEditor';
 import SingleProductPlacementEditor from './SingleProductPlacementEditor';
 import AddProductsModal from './AddProductsModal';
+import AssigneePicker from '@/components/common/AssigneePicker';
 import { formatKstDateLong } from '@/lib/kst';
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://modoouniform.com';
@@ -175,6 +176,26 @@ export default function PartnerMallDetail({
       alert(err instanceof Error ? err.message : '상태 변경에 실패했습니다.');
     } finally {
       setTogglingActive(false);
+    }
+  };
+
+  const updateAssignee = async (next: string | null) => {
+    try {
+      const response = await fetch('/api/admin/partner-malls', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: partnerMall.id, salesman_id: next }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(json?.error || '담당자 변경에 실패했습니다.');
+      }
+      if (json?.data) {
+        onMallUpdate(json.data as PartnerMall);
+      }
+      onUpdate();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '담당자 변경에 실패했습니다.');
     }
   };
 
@@ -398,6 +419,23 @@ export default function PartnerMallDetail({
                   <Package className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   <span>{products.length}개</span>
                 </div>
+              </div>
+              <div>
+                <label className="block text-[10px] sm:text-sm font-medium text-gray-500 mb-0.5 sm:mb-1">
+                  영업담당자
+                </label>
+                <AssigneePicker
+                  value={
+                    partnerMall.attributed_salesman
+                      ? {
+                          id: partnerMall.attributed_salesman.id,
+                          label: partnerMall.attributed_salesman.display_name || '영업사원',
+                          sub: partnerMall.attributed_salesman.salesman_code,
+                        }
+                      : null
+                  }
+                  onChange={(next) => updateAssignee(next)}
+                />
               </div>
               <div>
                 <label className="block text-[10px] sm:text-sm font-medium text-gray-500 mb-0.5 sm:mb-1">

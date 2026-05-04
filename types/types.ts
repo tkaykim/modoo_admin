@@ -259,8 +259,20 @@ export interface Order {
   // Joined order items (for list views)
   order_items?: OrderItem[];
 
+  // 영업담당자 (실적 귀속)
+  salesman_id?: string | null;
+  /** Joined: salesman_profiles row */
+  attributed_salesman?: AssigneeSalesman | null;
+
   created_at: string;
   updated_at: string;
+}
+
+export interface AssigneeSalesman {
+  id: string;
+  display_name: string | null;
+  salesman_code: string | null;
+  status?: string | null;
 }
 
 export interface OrderItem {
@@ -768,6 +780,12 @@ export interface PartnerMall {
   original_logo_url: string | null;
   is_active: boolean;
   share_token: string | null;
+  /** 영업담당자 — partner_malls.salesman_id (modoo_salesman 단체 소유주) */
+  salesman_id?: string | null;
+  /** Joined: salesman_profiles via salesman_id */
+  attributed_salesman?: AssigneeSalesman | null;
+  /** modoo_salesman 단체 메타데이터 (의사결정권자 등) */
+  team_meta?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   // Joined relations

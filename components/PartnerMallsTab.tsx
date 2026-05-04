@@ -206,6 +206,9 @@ export default function PartnerMallsTab() {
                     상태
                   </th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">
+                    영업담당자
+                  </th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">
                     생성일
                   </th>
                   <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">
@@ -264,6 +267,21 @@ export default function PartnerMallsTab() {
                         )}
                         {mall.is_active ? '활성' : '비활성'}
                       </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const salesmanName = mall.attributed_salesman?.display_name;
+                        const code = mall.attributed_salesman?.salesman_code;
+                        if (!salesmanName) {
+                          return <span className="text-xs text-gray-400">미지정</span>;
+                        }
+                        return (
+                          <div className="text-xs leading-tight">
+                            <div className="text-gray-900">{salesmanName}</div>
+                            {code && <div className="text-[10px] text-gray-500">{code}</div>}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-gray-600 text-sm">
                       {formatKstDateOnly(mall.created_at)}

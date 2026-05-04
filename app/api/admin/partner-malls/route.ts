@@ -45,6 +45,7 @@ export async function GET() {
       .from('partner_malls')
       .select(`
         *,
+        attributed_salesman:salesman_profiles!salesman_id(id,display_name,salesman_code),
         partner_mall_products (
           id,
           product_id,
@@ -190,6 +191,26 @@ export async function PATCH(request: Request) {
       updateData.slug = payload.slug ?? null;
     }
 
+    // 영업담당자 (partner_malls.salesman_id)
+    if (payload?.salesman_id !== undefined) {
+      const next = payload.salesman_id;
+      if (next !== null && typeof next !== 'string') {
+        return NextResponse.json({ error: '영업사원 ID 형식이 올바르지 않습니다.' }, { status: 400 });
+      }
+      if (next) {
+        const adminClientCheck = createAdminClient();
+        const { data: salesman, error: serr } = await adminClientCheck
+          .from('salesman_profiles')
+          .select('id')
+          .eq('id', next)
+          .single();
+        if (serr || !salesman) {
+          return NextResponse.json({ error: '영업사원을 찾을 수 없습니다.' }, { status: 400 });
+        }
+      }
+      updateData.salesman_id = next ?? null;
+    }
+
     if (Object.keys(updateData).length === 1) {
       return NextResponse.json({ error: '업데이트할 항목이 없습니다.' }, { status: 400 });
     }
@@ -212,7 +233,7 @@ export async function PATCH(request: Request) {
       .from('partner_malls')
       .update(updateData)
       .eq('id', partnerId)
-      .select('*')
+      .select('*, attributed_salesman:salesman_profiles!salesman_id(id,display_name,salesman_code)')
       .single();
 
     if (error) {

@@ -12,6 +12,7 @@ import OrderProfitSection from '@/components/orders/OrderProfitSection';
 import { extractVariants } from '@/lib/orderUtils';
 import { formatKstDateLong, formatKstDateTimeMedium, getKstYYYYMMDD } from '@/lib/kst';
 import { orderCategoryBadgeClass, orderCategoryLabel } from '@/lib/order-category';
+import AssigneePicker from '@/components/common/AssigneePicker';
 
 type CoBuyParticipantSummary = Pick<
   CoBuyParticipant,
@@ -155,6 +156,26 @@ export default function OrderDetail({
       }
     } catch (error) {
       console.error('Error fetching share token:', error);
+    }
+  };
+
+  const updateAssignee = async (next: string | null) => {
+    try {
+      const response = await fetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: order.id, salesman_id: next }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(json?.error || '담당자 변경에 실패했습니다.');
+      }
+      if (json?.data) {
+        onOrderUpdate(json.data as Order);
+      }
+      onUpdate();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '담당자 변경에 실패했습니다.');
     }
   };
 
@@ -826,6 +847,13 @@ export default function OrderDetail({
             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${orderCategoryBadgeClass(order.order_category)}`}>
               {orderCategoryLabel(order.order_category)}
             </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">영업담당자</span>
+            <AssigneePicker
+              value={order.attributed_salesman ? { id: order.attributed_salesman.id, label: order.attributed_salesman.display_name || '영업사원', sub: order.attributed_salesman.salesman_code } : null}
+              onChange={(next) => updateAssignee(next)}
+            />
           </div>
           <div className="ml-auto text-xs text-gray-400">
             {formatKstDateLong(order.created_at)}
