@@ -685,8 +685,8 @@ export default function AdminCoBuyForm({
           )}
         </section>
 
-        {/* Size-based Pricing (survey mode) */}
-        {paymentMode === 'survey' && (() => {
+        {/* Size-based Pricing */}
+        {(() => {
           const availableSizes = isImageMode && !product
             ? sizeOptions
             : (product?.size_options || []).map((opt) =>
@@ -696,7 +696,7 @@ export default function AdminCoBuyForm({
             <section className="space-y-3">
               <h3 className="text-sm font-semibold text-gray-900">사이즈별 가격 (선택)</h3>
               <p className="text-xs text-gray-500">
-                사이즈마다 다른 가격을 설정할 수 있습니다. 비워두면 가격 구간의 기본 단가가 적용됩니다.
+                사이즈마다 다른 가격을 설정할 수 있습니다. 비워두면 기본 단가(가격 구간)가 적용됩니다.
               </p>
               <div className="space-y-2">
                 {availableSizes.map((size) => (
