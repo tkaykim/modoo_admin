@@ -266,13 +266,27 @@ export async function POST(request: Request) {
       const canvasState = normalizeJson<Record<string, unknown>>(design.canvas_state ?? null, {});
       const productColor = resolveProductColor(colorSelections);
 
+      const usedVariantIds = new Set<string>();
       const orderVariants = (ceq ? item.variants : item.variants.filter(v => v.quantity > 0))
-        .map(variant => ({
-          size_id: variant.sizeCode,
-          size_name: variant.sizeLabel,
-          quantity: variant.quantity,
-          color_hex: productColor || undefined,
-        }));
+        .map((variant, idx) => {
+          let sid = (variant.sizeCode || '').trim();
+          if (!sid || usedVariantIds.has(sid)) {
+            const labelKey = (variant.sizeLabel || '').trim() || `size`;
+            sid = `${labelKey}-${idx}`;
+            let suffix = idx;
+            while (usedVariantIds.has(sid)) {
+              suffix += 1;
+              sid = `${labelKey}-${suffix}`;
+            }
+          }
+          usedVariantIds.add(sid);
+          return {
+            size_id: sid,
+            size_name: variant.sizeLabel,
+            quantity: variant.quantity,
+            color_hex: productColor || undefined,
+          };
+        });
 
       const itemOptions: Record<string, unknown> = { variants: orderVariants };
       if (orderVariants.length === 1) {
