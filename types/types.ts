@@ -264,6 +264,14 @@ export interface Order {
   /** Joined: salesman_profiles row */
   attributed_salesman?: AssigneeSalesman | null;
 
+  // 파트너몰 경유 주문 (실적 자동 귀속의 근거)
+  partner_mall_id?: string | null;
+
+  // 비로그인 게스트 주문(예: /mall/[slug] 원클릭)
+  guest_email?: string | null;
+  guest_phone?: string | null;
+  guest_name?: string | null;
+
   created_at: string;
   updated_at: string;
 }
@@ -800,6 +808,8 @@ export interface PartnerMall {
 
 export type PartnerMallAssetType = 'logo' | 'image' | 'document' | 'reference';
 
+export type PartnerMallActorRole = 'salesman' | 'admin' | 'guest' | 'owner';
+
 export interface PartnerMallAsset {
   id: string;
   partner_mall_id?: string;
@@ -811,6 +821,8 @@ export interface PartnerMallAsset {
   mime_type: string | null;
   is_primary: boolean | null;
   sort_order: number | null;
+  created_by_role?: PartnerMallActorRole | null;
+  created_by_fingerprint?: string | null;
   created_at: string;
 }
 
@@ -827,6 +839,8 @@ export interface PartnerMallProduct {
   canvas_state: Record<string, unknown>;
   preview_url: string | null;
   price: number | null;
+  created_by_role?: PartnerMallActorRole | null;
+  created_by_fingerprint?: string | null;
   created_at: string;
   updated_at: string;
   // Joined relations
