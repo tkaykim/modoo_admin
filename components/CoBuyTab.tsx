@@ -55,6 +55,42 @@ const paymentStatusColors: Record<CoBuyParticipant['payment_status'], string> = 
   not_required: 'bg-blue-100 text-blue-800',
 };
 
+// survey 모드에서는 payment_status가 "참여자 → 대표자 입금" 상태를 의미한다.
+const surveyPaymentStatusLabels: Record<CoBuyParticipant['payment_status'], string> = {
+  pending: '대표자 입금 대기',
+  not_required: '대표자 입금 대기',
+  completed: '대표자 입금 완료',
+  failed: '실패',
+  refunded: '환불',
+};
+
+const surveyPaymentStatusColors: Record<CoBuyParticipant['payment_status'], string> = {
+  pending: 'bg-yellow-100 text-yellow-800',
+  not_required: 'bg-yellow-100 text-yellow-800',
+  completed: 'bg-green-100 text-green-800',
+  failed: 'bg-red-100 text-red-800',
+  refunded: 'bg-gray-100 text-gray-800',
+};
+
+const getPaymentChip = (
+  status: CoBuyParticipant['payment_status'],
+  paymentMode: CoBuySession['payment_mode'] | undefined
+) => ({
+  label: paymentMode === 'survey' ? surveyPaymentStatusLabels[status] : paymentStatusLabels[status],
+  color: paymentMode === 'survey' ? surveyPaymentStatusColors[status] : paymentStatusColors[status],
+});
+
+// 세션 헤더용: 대표자 → 본사(모두의유니폼) 결제 여부
+const ORDER_COMPLETED_STATUSES: CoBuyStatus[] = [
+  'order_complete', 'manufacturing', 'manufacture_complete', 'delivering', 'delivery_complete'
+];
+const getBulkPaymentChip = (session: Pick<CoBuySession, 'bulk_order_id' | 'status'>) => {
+  const completed = !!session.bulk_order_id || ORDER_COMPLETED_STATUSES.includes(session.status);
+  return completed
+    ? { label: '본사 결제 완료', color: 'bg-blue-100 text-blue-800' }
+    : { label: '본사 결제 대기', color: 'bg-gray-100 text-gray-700' };
+};
+
 const pickupStatusLabels: Record<string, string> = {
   pending: '미수령',
   picked_up: '수령완료',
@@ -462,12 +498,23 @@ export default function CoBuyTab() {
                     {selectedSession.profiles?.email || 'creator@unknown'}
                   </p>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
                     selectedSession.payment_mode === 'survey' ? 'bg-purple-100 text-purple-800' : 'bg-teal-100 text-teal-800'
                   }`}>
                     {selectedSession.payment_mode === 'survey' ? '대표자 일괄결제' : '개별결제'}
                   </span>
+                  {selectedSession.payment_mode === 'survey' && (() => {
+                    const bulkChip = getBulkPaymentChip(selectedSession);
+                    return (
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${bulkChip.color}`}
+                        title="대표자가 모두의유니폼(본사)에 결제했는지 여부"
+                      >
+                        {bulkChip.label}
+                      </span>
+                    );
+                  })()}
                   <span
                     className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[selectedSession.status]}`}
                   >
@@ -818,9 +865,14 @@ export default function CoBuyTab() {
                                 )}
                               </td>
                               <td className="px-3 py-3">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${paymentStatusColors[participant.payment_status]}`}>
-                                  {paymentStatusLabels[participant.payment_status]}
-                                </span>
+                                {(() => {
+                                  const chip = getPaymentChip(participant.payment_status, selectedSession.payment_mode);
+                                  return (
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${chip.color}`}>
+                                      {chip.label}
+                                    </span>
+                                  );
+                                })()}
                                 <div className="text-xs text-gray-600 mt-0.5">
                                   {formatCurrency(participant.payment_amount ?? undefined)}
                                 </div>
@@ -897,9 +949,14 @@ export default function CoBuyTab() {
                               <div className="text-[11px] text-gray-500">{participant.email}</div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${paymentStatusColors[participant.payment_status]}`}>
-                                {paymentStatusLabels[participant.payment_status]}
-                              </span>
+                              {(() => {
+                                const chip = getPaymentChip(participant.payment_status, selectedSession.payment_mode);
+                                return (
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${chip.color}`}>
+                                    {chip.label}
+                                  </span>
+                                );
+                              })()}
                               <button
                                 onClick={() => handleTogglePickupStatus(participant)}
                                 disabled={isUpdatingPickup}
