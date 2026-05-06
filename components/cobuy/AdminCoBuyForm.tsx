@@ -65,6 +65,14 @@ export default function AdminCoBuyForm({
   const [paymentMode, setPaymentMode] = useState<'individual' | 'survey'>('individual');
   const [sizePrices, setSizePrices] = useState<Record<string, string>>({});
 
+  // Delivery settings
+  // enabled=false (기본): 대표자가 일괄 수령. enabled=true: 참여자가 개별 배송(+5,000원)도
+  // 선택 가능. deliveryAddress(일괄 수령지)는 비워두고 배송 직전에 입력 가능.
+  const [allowIndividual, setAllowIndividual] = useState(false);
+  const [bulkPostalCode, setBulkPostalCode] = useState('');
+  const [bulkRoadAddress, setBulkRoadAddress] = useState('');
+  const [bulkAddressDetail, setBulkAddressDetail] = useState('');
+
   // Custom fields
   const [customFields, setCustomFields] = useState<CoBuyCustomField[]>([]);
 
@@ -284,6 +292,20 @@ export default function AdminCoBuyForm({
       };
 
       payload.paymentMode = paymentMode;
+
+      const bulkAddress = bulkRoadAddress.trim();
+      const deliverySettings: Record<string, unknown> = {
+        enabled: allowIndividual,
+        deliveryFee: allowIndividual ? 5000 : 0,
+      };
+      if (bulkAddress) {
+        deliverySettings.deliveryAddress = {
+          roadAddress: bulkAddress,
+          postalCode: bulkPostalCode.trim(),
+          addressDetail: bulkAddressDetail.trim() || undefined,
+        };
+      }
+      payload.deliverySettings = deliverySettings;
 
       const parsedSizePrices: Record<string, number> = {};
       for (const [size, price] of Object.entries(sizePrices)) {
@@ -722,6 +744,56 @@ export default function AdminCoBuyForm({
             </section>
           ) : null;
         })()}
+
+        {/* Delivery Settings */}
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold text-gray-900">배송 방식</h3>
+          <p className="text-xs text-gray-500">
+            기본은 대표자가 일괄 수령합니다. 개별 배송을 허용하면 참여자는 본인 주소를 입력하고 배송비 5,000원이 추가됩니다.
+          </p>
+
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={allowIndividual}
+              onChange={(e) => setAllowIndividual(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span className="text-sm text-gray-700">
+              참여자별 개별 배송 허용 (1인당 +5,000원)
+            </span>
+          </label>
+
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-gray-700">일괄 수령지 (선택)</label>
+              <span className="text-[11px] text-gray-400">배송 직전까지 입력 가능</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                value={bulkPostalCode}
+                onChange={(e) => setBulkPostalCode(e.target.value)}
+                placeholder="우편번호"
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <input
+                type="text"
+                value={bulkRoadAddress}
+                onChange={(e) => setBulkRoadAddress(e.target.value)}
+                placeholder="도로명/지번 주소"
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <input
+              type="text"
+              value={bulkAddressDetail}
+              onChange={(e) => setBulkAddressDetail(e.target.value)}
+              placeholder="상세주소 (동/호수 등)"
+              className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </section>
 
         {/* Custom Fields */}
         <section className="space-y-3">

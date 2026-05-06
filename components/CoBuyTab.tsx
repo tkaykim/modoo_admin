@@ -6,6 +6,7 @@ import useSWR from 'swr';
 import { AlertCircle, Calendar, Check, ChevronLeft, ChevronRight, ClipboardList, Copy, Download, ExternalLink, MapPin, Pencil, Plus, RefreshCw, RotateCcw, Search, Trash2, Truck, UserPlus } from 'lucide-react';
 import { CoBuyCustomField, CoBuyParticipant, CoBuySession, CoBuyStatus } from '@/types/types';
 import AdminCoBuyCreator from './cobuy/AdminCoBuyCreator';
+import AdminDeliverySettingsCard from './cobuy/AdminDeliverySettingsCard';
 import CoBuyParticipantModal, { ParticipantFormData } from './cobuy/CoBuyParticipantModal';
 import CoBuyRefundModal from './cobuy/CoBuyRefundModal';
 import { addParticipantLineItemsToSizeCounts } from '@/lib/cobuyParticipantSizes';
@@ -573,6 +574,20 @@ export default function CoBuyTab() {
                 </div>
               </div>
             </div>
+
+            <AdminDeliverySettingsCard
+              sessionId={selectedSession.id}
+              settings={selectedSession.delivery_settings ?? null}
+              participantCount={selectedSession.current_participant_count || 0}
+              onSaved={(next) => {
+                const updated = { ...selectedSession, delivery_settings: next };
+                setSelectedSession(updated);
+                mutateSessions((prev) =>
+                  (prev || []).map((s) => (s.id === updated.id ? updated : s)),
+                  { revalidate: false }
+                );
+              }}
+            />
 
             {/* Image / Design Preview + Size Stats */}
             {((selectedSession.cobuy_image_urls?.length || selectedSession.saved_design_screenshots?.preview_url) || sizeStats.length > 0) && (

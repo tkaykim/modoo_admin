@@ -1,6 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase-admin';
 
+const INDIVIDUAL_DELIVERY_FEE = 5000;
+
+function normalizeDeliverySettings(input: unknown): Record<string, unknown> | null {
+  if (!input || typeof input !== 'object') return null;
+  const ds = input as Record<string, unknown>;
+  const enabled = ds.enabled === true;
+  const out: Record<string, unknown> = {
+    enabled,
+    deliveryFee: enabled ? INDIVIDUAL_DELIVERY_FEE : 0,
+  };
+  const addr = ds.deliveryAddress as Record<string, unknown> | undefined;
+  if (addr && typeof addr.roadAddress === 'string' && addr.roadAddress.trim()) {
+    out.deliveryAddress = {
+      roadAddress: String(addr.roadAddress).trim(),
+      postalCode: typeof addr.postalCode === 'string' ? addr.postalCode.trim() : '',
+      addressDetail: typeof addr.addressDetail === 'string' && addr.addressDetail.trim()
+        ? addr.addressDetail.trim()
+        : undefined,
+    };
+  }
+  return out;
+}
+
 export async function POST(request: NextRequest) {
   const supabase = createAdminClient();
 
@@ -23,6 +46,7 @@ export async function POST(request: NextRequest) {
       customFields,
       paymentMode,
       sizePrices,
+      deliverySettings,
     } = body;
 
     const isImageOnly = Array.isArray(cobuyImageUrls) && cobuyImageUrls.length > 0;
@@ -164,7 +188,7 @@ export async function POST(request: NextRequest) {
       max_participants: null,
       pricing_tiers: pricingTiers || [],
       custom_fields: customFields || [],
-      delivery_settings: null,
+      delivery_settings: normalizeDeliverySettings(deliverySettings),
       payment_mode: paymentMode || 'individual',
       size_prices: sizePrices || null,
       status: 'gathering',

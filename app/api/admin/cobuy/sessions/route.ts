@@ -92,6 +92,29 @@ function extractStoragePath(url: string, bucket: string): string | null {
   return url.slice(idx + marker.length);
 }
 
+const INDIVIDUAL_DELIVERY_FEE = 5000;
+
+function normalizeDeliverySettings(input: unknown): Record<string, unknown> | null {
+  if (!input || typeof input !== 'object') return null;
+  const ds = input as Record<string, unknown>;
+  const enabled = ds.enabled === true;
+  const out: Record<string, unknown> = {
+    enabled,
+    deliveryFee: enabled ? INDIVIDUAL_DELIVERY_FEE : 0,
+  };
+  const addr = ds.deliveryAddress as Record<string, unknown> | undefined;
+  if (addr && typeof addr.roadAddress === 'string' && addr.roadAddress.trim()) {
+    out.deliveryAddress = {
+      roadAddress: String(addr.roadAddress).trim(),
+      postalCode: typeof addr.postalCode === 'string' ? addr.postalCode.trim() : '',
+      addressDetail: typeof addr.addressDetail === 'string' && addr.addressDetail.trim()
+        ? addr.addressDetail.trim()
+        : undefined,
+    };
+  }
+  return out;
+}
+
 export async function PATCH(request: Request) {
   try {
     const authResult = await requireAdmin();
@@ -100,16 +123,60 @@ export async function PATCH(request: Request) {
     const payload = await request.json().catch(() => null);
     const sessionId = payload?.sessionId;
     const status = payload?.status;
+    const deliverySettings = payload?.deliverySettings;
 
     if (!sessionId || typeof sessionId !== 'string') {
       return NextResponse.json({ error: '세션 ID가 필요합니다.' }, { status: 400 });
     }
 
-    if (!status || typeof status !== 'string' || !allowedStatuses.has(status)) {
+    const isStatusUpdate = status !== undefined;
+    const isDeliveryUpdate = deliverySettings !== undefined;
+
+    if (!isStatusUpdate && !isDeliveryUpdate) {
+      return NextResponse.json({ error: '변경할 필드가 없습니다.' }, { status: 400 });
+    }
+
+    if (isStatusUpdate && (typeof status !== 'string' || !allowedStatuses.has(status))) {
       return NextResponse.json({ error: '유효한 상태 값이 필요합니다.' }, { status: 400 });
     }
 
     const adminClient = createAdminClient();
+
+    if (isDeliveryUpdate) {
+      const next = normalizeDeliverySettings(deliverySettings);
+      // Lock allowIndividual (enabled) once any participant has joined
+      const { data: existing, error: existingError } = await adminClient
+        .from('cobuy_sessions')
+        .select('current_participant_count, delivery_settings')
+        .eq('id', sessionId)
+        .single();
+      if (existingError || !existing) {
+        return NextResponse.json({ error: '세션을 찾을 수 없습니다.' }, { status: 404 });
+      }
+      const currentEnabled = (existing.delivery_settings as { enabled?: boolean } | null)?.enabled ?? false;
+      const nextEnabled = next?.enabled === true;
+      if ((existing.current_participant_count || 0) > 0 && currentEnabled !== nextEnabled) {
+        return NextResponse.json(
+          { error: '이미 참여자가 있어 개별 배송 허용 여부는 변경할 수 없습니다.' },
+          { status: 400 }
+        );
+      }
+      const updateFields: Record<string, unknown> = {
+        delivery_settings: next,
+        updated_at: new Date().toISOString(),
+      };
+      if (isStatusUpdate) updateFields.status = status;
+      const { data, error } = await adminClient
+        .from('cobuy_sessions')
+        .update(updateFields)
+        .eq('id', sessionId)
+        .select('*, profiles(email, phone_number), saved_design_screenshots(preview_url, price_per_item)')
+        .single();
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      return NextResponse.json({ data });
+    }
 
     // When cancelling, clean up uploaded images from storage
     if (status === 'cancelled') {

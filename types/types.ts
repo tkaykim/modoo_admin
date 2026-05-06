@@ -493,20 +493,24 @@ export interface CoBuyPricingTier {
   pricePerItem: number;
 }
 
+// Address information for CoBuy delivery settings (aligned with modoo_app)
+export interface CoBuyAddressInfo {
+  roadAddress: string;
+  jibunAddress?: string;
+  postalCode: string;
+  addressDetail?: string;
+}
+
 // Delivery settings for cobuy sessions
+// `enabled` doubles as "allowIndividualDelivery": when true, participants can
+// choose individual delivery (+5,000원). When false (default), all participants
+// receive goods via the organizer's bulk shipment to `deliveryAddress`.
 export interface CoBuyDeliverySettings {
-  deliveryAddress?: {
-    address: string;
-    addressDetail?: string;
-    postalCode?: string;
-  };
-  pickupAddress?: {
-    address: string;
-    addressDetail?: string;
-    postalCode?: string;
-  };
-  enableIndividualDelivery?: boolean;
-  deliveryFee?: number;
+  enabled: boolean;
+  deliveryFee: number;
+  pickupLocation?: string;
+  deliveryAddress?: CoBuyAddressInfo;
+  pickupAddress?: CoBuyAddressInfo;
 }
 
 export interface CoBuyCustomField {
@@ -534,6 +538,7 @@ export interface CoBuySession {
   cobuy_image_urls: string[] | null;
   payment_mode: 'individual' | 'survey';
   size_prices: Record<string, number> | null;
+  delivery_settings: CoBuyDeliverySettings | null;
   bulk_order_id: string | null;
   created_at: string;
   updated_at: string;
