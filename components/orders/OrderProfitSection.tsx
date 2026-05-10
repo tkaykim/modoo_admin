@@ -364,8 +364,9 @@ function ItemCard({
   const lookupCostFromMaster = useCallback(async () => {
     setAutoLookup({ unit_cost: null, loading: true });
     try {
-      // Try first variant's size, no specific color (color_id null = NULL)
-      const firstSize = variants[0]?.size_id || null;
+      // 고객 모달이 미선택(quantity=0) 사이즈도 함께 저장하므로 quantity>0인 첫 사이즈 사용
+      const firstOrdered = variants.find((v: any) => Number(v?.quantity || 0) > 0);
+      const firstSize = firstOrdered?.size_id || variants[0]?.size_id || null;
       const orderTime = item.purchase_ordered_at || (item as any).created_at || new Date().toISOString();
       const { data, error } = await supabase.rpc('get_product_unit_cost', {
         p_product_id: item.product_id,
