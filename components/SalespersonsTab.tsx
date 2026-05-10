@@ -1,46 +1,41 @@
 'use client';
 
 import { useState } from 'react';
-import { BookOpen, LayoutDashboard, Wallet } from 'lucide-react';
-import SalespersonsDashboard from './SalespersonsDashboard';
-import SalespersonsGuide from './SalespersonsGuide';
-import SalespersonsSettlements from './SalespersonsSettlements';
+import { Users, UserPlus, Award } from 'lucide-react';
+import SalesmenList from './salesmen/SalesmenList';
+import SalesmanInviteOrPromote from './salesmen/SalesmanInviteOrPromote';
+import GradeLevelTable from './salesmen/GradeLevelTable';
 
-type View = 'guide' | 'dashboard' | 'settlements';
+type View = 'list' | 'invite' | 'grades';
 
 export default function SalespersonsTab() {
-  const [view, setView] = useState<View>('guide');
+  const [view, setView] = useState<View>('list');
 
   return (
     <div className="space-y-4 max-w-[1400px]">
       <header className="border-b border-gray-200 pb-4">
-        <div className="flex items-baseline gap-2">
-          <h1 className="text-2xl font-bold text-gray-900">영업사원 관리</h1>
-          <span className="text-xs px-2 py-0.5 rounded bg-yellow-100 text-yellow-800 font-semibold">
-            PROTOTYPE · 더미 데이터
-          </span>
-        </div>
+        <h1 className="text-2xl font-bold text-gray-900">영업사원 관리</h1>
         <p className="text-sm text-gray-600 mt-1">
-          모두의 유니폼 위촉직 영업조직(RD→BM→TL→UC) · 28% 수당 매트릭스. 실제 DB 미연동.
+          영업사원 지정·등급·실적·정산 관리. modoo_salesman 앱은 active 상태 영업사원만 접근 가능.
         </p>
       </header>
 
       <div className="flex gap-1 border-b border-gray-200 -mt-1 overflow-x-auto">
-        <TabButton active={view === 'guide'} onClick={() => setView('guide')} icon={BookOpen}>
-          사업 구조 이해 가이드
+        <TabButton active={view === 'list'} onClick={() => setView('list')} icon={Users}>
+          영업사원 목록
         </TabButton>
-        <TabButton active={view === 'dashboard'} onClick={() => setView('dashboard')} icon={LayoutDashboard}>
-          운영 현황 대시보드
+        <TabButton active={view === 'invite'} onClick={() => setView('invite')} icon={UserPlus}>
+          지정·초대
         </TabButton>
-        <TabButton active={view === 'settlements'} onClick={() => setView('settlements')} icon={Wallet}>
-          정산 관리
+        <TabButton active={view === 'grades'} onClick={() => setView('grades')} icon={Award}>
+          등급 정책
         </TabButton>
       </div>
 
       <div className="pt-2">
-        {view === 'guide' && <SalespersonsGuide />}
-        {view === 'dashboard' && <SalespersonsDashboard />}
-        {view === 'settlements' && <SalespersonsSettlements />}
+        {view === 'list' && <SalesmenList />}
+        {view === 'invite' && <SalesmanInviteOrPromote onSuccess={() => setView('list')} />}
+        {view === 'grades' && <GradeLevelTable />}
       </div>
     </div>
   );
