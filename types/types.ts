@@ -785,10 +785,53 @@ export interface DesignTemplate {
   // Legacy single-template slot manifests
   image_slots: ImageSlot[];
   text_slots: TextSlot[];
-  // Group-template placement (where composition slots land on this product)
+  /** @deprecated */
   placement_map: PlacementMap;
+  /** Which side of the product this instance places the group on. */
+  side_id: string | null;
+  /** Group transform on product canvas (normalized 0-1 within printArea). */
+  transform: GroupTransform | null;
   created_at: string;
   updated_at: string;
+}
+
+// ============================================================================
+// Slot Manifest — entries inside the group artwork that customers can replace.
+// ============================================================================
+export interface SlotManifestTextEntry {
+  object_id: string;
+  kind: 'text';
+  label: string;
+  placeholder?: string;
+  max_length?: number;
+  lock_style: boolean;
+}
+
+export interface SlotManifestImageEntry {
+  object_id: string;
+  kind: 'image';
+  label: string;
+  aspect_ratio?: number;
+  accepts: 'photo' | 'logo';
+  bg_removal_default?: boolean;
+  print_method_id?: string;
+}
+
+export type SlotManifestEntry = SlotManifestTextEntry | SlotManifestImageEntry;
+
+export interface ArtworkCanvasSize {
+  width: number;
+  height: number;
+}
+
+export interface GroupTransform {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  angle?: number;
+  origin_x?: 'left' | 'center' | 'right';
+  origin_y?: 'top' | 'center' | 'bottom';
 }
 
 export interface TemplateGroup {
@@ -801,8 +844,12 @@ export interface TemplateGroup {
   is_active: boolean;
   is_featured: boolean;
   sort_order: number;
-  /** Reusable design composition: text/image slots shared across all instances */
-  design_composition: DesignComposition;
+  /** Fabric.js canvas JSON of the group's actual artwork. */
+  artwork_state: Record<string, unknown>;
+  artwork_canvas_size: ArtworkCanvasSize;
+  slot_manifest: SlotManifestEntry[];
+  /** @deprecated */
+  design_composition?: DesignComposition;
   created_at: string;
   updated_at: string;
 }

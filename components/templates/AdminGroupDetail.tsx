@@ -16,15 +16,11 @@ import {
   X,
 } from 'lucide-react';
 import ProductPickerModal from './ProductPickerModal';
-import CompositionEditor from './CompositionEditor';
 import {
   TEMPLATE_CATEGORIES,
   TEMPLATE_CATEGORY_LABELS,
   type TemplateCategory,
 } from '@/lib/templateCategories';
-import type { DesignComposition } from '@/types/types';
-
-const EMPTY_COMPOSITION: DesignComposition = { slots: [] };
 
 interface InstanceRow {
   id: string;
@@ -51,7 +47,6 @@ interface GroupRow {
   is_active: boolean;
   is_featured: boolean;
   sort_order: number;
-  design_composition: DesignComposition | null;
   templates: InstanceRow[];
 }
 
@@ -76,7 +71,6 @@ export default function AdminGroupDetail({ groupId }: Props) {
   const [previewUrl, setPreviewUrl] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [isFeatured, setIsFeatured] = useState(false);
-  const [composition, setComposition] = useState<DesignComposition>(EMPTY_COMPOSITION);
 
   const fetchGroup = async () => {
     setLoading(true);
@@ -94,11 +88,6 @@ export default function AdminGroupDetail({ groupId }: Props) {
       setPreviewUrl(g.preview_url ?? '');
       setIsActive(g.is_active);
       setIsFeatured(g.is_featured);
-      setComposition(
-        g.design_composition && Array.isArray(g.design_composition.slots)
-          ? g.design_composition
-          : EMPTY_COMPOSITION,
-      );
     } catch (e) {
       setError(e instanceof Error ? e.message : '그룹을 불러오지 못했습니다.');
     } finally {
@@ -111,7 +100,7 @@ export default function AdminGroupDetail({ groupId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId]);
 
-  const metaDirty = useMemo(() => {
+  const dirty = useMemo(() => {
     if (!group) return false;
     return (
       title !== group.title ||
@@ -123,13 +112,6 @@ export default function AdminGroupDetail({ groupId }: Props) {
       isFeatured !== group.is_featured
     );
   }, [group, title, description, category, tags, previewUrl, isActive, isFeatured]);
-
-  const compositionDirty = useMemo(() => {
-    if (!group) return false;
-    return JSON.stringify(composition) !== JSON.stringify(group.design_composition ?? EMPTY_COMPOSITION);
-  }, [group, composition]);
-
-  const dirty = metaDirty || compositionDirty;
 
   const saveAll = async () => {
     if (!group) return;
@@ -147,7 +129,6 @@ export default function AdminGroupDetail({ groupId }: Props) {
           preview_url: previewUrl || null,
           is_active: isActive,
           is_featured: isFeatured,
-          design_composition: composition,
         }),
       });
       const json = await res.json();
@@ -351,18 +332,31 @@ export default function AdminGroupDetail({ groupId }: Props) {
           </button>
         </aside>
 
-        {/* Right column: composition + instances */}
+        {/* Right column: artwork shortcut + instances */}
         <main className="space-y-6">
-          {/* Composition editor */}
+          {/* Artwork editor shortcut */}
           <section className="bg-white border border-gray-200 rounded-lg p-4">
-            <CompositionEditor
-              value={composition}
-              onChange={setComposition}
-            />
-            {compositionDirty && (
-              <p className="mt-2 text-[11px] text-amber-600">
-                ⚠️ 컴포지션 변경 사항은 좌측의 "변경 저장" 버튼으로 저장됩니다.
-              </p>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">아트워크</h3>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  Fabric 캔버스에서 텍스트·이미지를 자유롭게 디자인하고, 사용자 교체 가능 영역을 슬롯으로 등록합니다.
+                </p>
+              </div>
+              <button
+                onClick={() => router.push(`/templates/group/${groupId}/artwork`)}
+                className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-black text-white text-xs font-medium hover:bg-gray-800"
+              >
+                아트워크 편집 →
+              </button>
+            </div>
+            {group.preview_url ? (
+              <div className="mt-3 max-w-[240px]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={group.preview_url} alt={group.title} className="w-full rounded border border-gray-200" />
+              </div>
+            ) : (
+              <p className="mt-3 text-[11px] text-gray-400">아직 아트워크가 없습니다.</p>
             )}
           </section>
 

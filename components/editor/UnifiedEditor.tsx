@@ -4,8 +4,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import * as fabric from 'fabric';
 import { useCanvasStore } from '@/store/useCanvasStore';
-import { DesignTemplate, CanvasState, TemplateGroup, PlacementMap } from '@/types/types';
-import PlacementPanel from '@/components/templates/PlacementPanel';
+import { DesignTemplate, CanvasState, TemplateGroup, PlacementMap, GroupTransform } from '@/types/types';
+import GroupPlacementPanel from '@/components/templates/GroupPlacementPanel';
 import { useEditorMode, EditorMode } from './hooks/useEditorMode';
 import { useEditorData } from './hooks/useEditorData';
 import { useEditorSave } from './hooks/useEditorSave';
@@ -139,8 +139,11 @@ export default function UnifiedEditor({
   const [templateTextSlots, setTemplateTextSlots] = useState<Record<string, unknown>[]>([]);
   // Group binding: from URL ?groupId or from selected template's existing group
   const [templateGroupId, setTemplateGroupId] = useState<string | null>(groupId ?? null);
-  // Active template's placement_map (for group-bound templates)
+  // Active template's placement_map (for group-bound templates) — DEPRECATED, kept for legacy compat
   const [templatePlacementMap, setTemplatePlacementMap] = useState<Record<string, unknown>>({});
+  // New: per-instance group placement (which side + how transformed)
+  const [templateSideId, setTemplateSideId] = useState<string | null>(null);
+  const [templateTransform, setTemplateTransform] = useState<GroupTransform | null>(null);
   // Group fetched for placement editor
   const [activeGroup, setActiveGroup] = useState<TemplateGroup | null>(null);
   const [savingPlacement, setSavingPlacement] = useState(false);
@@ -381,6 +384,12 @@ export default function UnifiedEditor({
           ? (tmpl.placement_map as Record<string, unknown>)
           : {},
       );
+      setTemplateSideId(tmpl.side_id ?? null);
+      setTemplateTransform(
+        tmpl.transform && typeof tmpl.transform === 'object'
+          ? (tmpl.transform as GroupTransform)
+          : null,
+      );
       setIsCreatingTemplate(false);
       // Update canvas states for rendering
       const parsed: Record<string, CanvasState | string | null> = {};
@@ -412,10 +421,42 @@ export default function UnifiedEditor({
     templateTextSlots,
     templateGroupId,
     templatePlacementMap,
+    templateSideId,
+    templateTransform,
     presetType,
   });
 
-  // Save placement_map only — used by PlacementPanel after admin arranges slots.
+  // Save side_id + transform — used by GroupPlacementPanel.
+  const saveGroupPlacement = useCallback(async (sideId: string, transform: GroupTransform) => {
+    if (!editorData.selectedTemplate?.id) {
+      // No row yet — bake into local state; full template save will pick it up.
+      setTemplateSideId(sideId);
+      setTemplateTransform(transform);
+      return;
+    }
+    setSavingPlacement(true);
+    try {
+      const res = await fetch('/api/admin/design-templates', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editorData.selectedTemplate.id,
+          side_id: sideId,
+          transform,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || '배치 저장 실패');
+      setTemplateSideId(sideId);
+      setTemplateTransform(transform);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '배치 저장 실패');
+    } finally {
+      setSavingPlacement(false);
+    }
+  }, [editorData.selectedTemplate?.id]);
+
+  // (deprecated) Save placement_map — kept for any legacy callers
   const savePlacementMap = useCallback(async (next: PlacementMap) => {
     if (!editorData.selectedTemplate?.id) {
       // No row yet — bake into local state; full template save will pick it up.
@@ -756,6 +797,8 @@ export default function UnifiedEditor({
     setTemplateTextSlots([]);
     setTemplateGroupId(groupId ?? null); // honor URL ?groupId=
     setTemplatePlacementMap({});
+    setTemplateSideId(null);
+    setTemplateTransform(null);
     setCanvasStates({});
   }, [editorData, groupId]);
 
@@ -992,13 +1035,15 @@ export default function UnifiedEditor({
                 )
               )}
 
-              {mode === 'template' && activeGroup && (activeGroup.design_composition?.slots?.length ?? 0) > 0 && (
+              {/* New: group placement panel — appears when editing a group-bound template */}
+              {mode === 'template' && activeGroup && activeGroup.artwork_state && (
                 <div className="border-b">
-                  <PlacementPanel
-                    composition={activeGroup.design_composition}
+                  <GroupPlacementPanel
+                    group={activeGroup}
                     product={product}
-                    placementMap={templatePlacementMap as PlacementMap}
-                    onSave={savePlacementMap}
+                    initialSideId={templateSideId}
+                    initialTransform={templateTransform}
+                    onSave={saveGroupPlacement}
                     saving={savingPlacement}
                   />
                 </div>

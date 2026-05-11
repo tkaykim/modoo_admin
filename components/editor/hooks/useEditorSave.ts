@@ -30,6 +30,10 @@ interface UseEditorSaveParams {
   templateGroupId?: string | null;
   /** placement_map for group-bound templates (saved together). */
   templatePlacementMap?: Record<string, unknown>;
+  /** Which side of the product to place the group on (new model) */
+  templateSideId?: string | null;
+  /** Group transform on the product canvas (new model) */
+  templateTransform?: import('@/types/types').GroupTransform | null;
   presetType?: string;
 }
 
@@ -63,6 +67,8 @@ export function useEditorSave({
   templateTextSlots,
   templateGroupId,
   templatePlacementMap,
+  templateSideId,
+  templateTransform,
   presetType,
 }: UseEditorSaveParams): EditorSaveResult {
   const { canvasMap, productColor, layerColors } = useCanvasStore();
@@ -86,7 +92,7 @@ export function useEditorSave({
       console.error('Save error:', err);
       return { success: false, error: message };
     }
-  }, [mode, product, canvasMap, productColor, layerColors, orderItem, savedDesign, selectedTemplate, designTitle, templateTitle, templateDescription, templateSortOrder, templateIsActive, templateCategory, templateTags, templateIsFeatured, templateImageSlots, templateTextSlots, templateGroupId, templatePlacementMap, presetType]);
+  }, [mode, product, canvasMap, productColor, layerColors, orderItem, savedDesign, selectedTemplate, designTitle, templateTitle, templateDescription, templateSortOrder, templateIsActive, templateCategory, templateTags, templateIsFeatured, templateImageSlots, templateTextSlots, templateGroupId, templatePlacementMap, templateSideId, templateTransform, presetType]);
 
   async function saveDesignMode(sides: Product['configuration']): Promise<SaveResult> {
     // Serialize canvas state from all sides
@@ -270,6 +276,8 @@ export function useEditorSave({
       text_slots: templateTextSlots ?? [],
       template_group_id: templateGroupId ?? null,
       placement_map: templatePlacementMap ?? {},
+      side_id: templateSideId ?? null,
+      transform: templateTransform ?? null,
     };
     if (presetType) {
       body.type = presetType;

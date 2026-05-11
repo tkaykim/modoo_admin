@@ -89,10 +89,15 @@ export async function POST(request: Request) {
         is_active: payload?.is_active ?? true,
         is_featured: payload?.is_featured === true,
         sort_order: payload?.sort_order ?? 0,
-        design_composition:
-          payload?.design_composition && typeof payload.design_composition === 'object'
-            ? payload.design_composition
-            : { slots: [] },
+        artwork_state:
+          payload?.artwork_state && typeof payload.artwork_state === 'object'
+            ? payload.artwork_state
+            : {},
+        artwork_canvas_size:
+          payload?.artwork_canvas_size && typeof payload.artwork_canvas_size === 'object'
+            ? payload.artwork_canvas_size
+            : { width: 800, height: 800 },
+        slot_manifest: Array.isArray(payload?.slot_manifest) ? payload.slot_manifest : [],
       })
       .select('*')
       .single();
@@ -122,11 +127,18 @@ export async function PATCH(request: Request) {
     if (payload.is_active !== undefined) update.is_active = payload.is_active === true;
     if (payload.is_featured !== undefined) update.is_featured = payload.is_featured === true;
     if (payload.sort_order !== undefined) update.sort_order = payload.sort_order;
-    if (payload.design_composition !== undefined) {
-      update.design_composition =
-        payload.design_composition && typeof payload.design_composition === 'object'
-          ? payload.design_composition
-          : { slots: [] };
+    if (payload.artwork_state !== undefined) {
+      update.artwork_state =
+        payload.artwork_state && typeof payload.artwork_state === 'object' ? payload.artwork_state : {};
+    }
+    if (payload.artwork_canvas_size !== undefined) {
+      update.artwork_canvas_size =
+        payload.artwork_canvas_size && typeof payload.artwork_canvas_size === 'object'
+          ? payload.artwork_canvas_size
+          : { width: 800, height: 800 };
+    }
+    if (payload.slot_manifest !== undefined) {
+      update.slot_manifest = Array.isArray(payload.slot_manifest) ? payload.slot_manifest : [];
     }
 
     if (Object.keys(update).length === 1) {

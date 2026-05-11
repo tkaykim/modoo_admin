@@ -99,6 +99,9 @@ export async function POST(request: Request) {
       payload?.placement_map && typeof payload.placement_map === 'object'
         ? payload.placement_map
         : {};
+    const sideId = typeof payload?.side_id === 'string' ? payload.side_id : null;
+    const transformPayload =
+      payload?.transform && typeof payload.transform === 'object' ? payload.transform : null;
 
     if (!productId || typeof productId !== 'string') {
       return NextResponse.json({ error: '제품 ID가 필요합니다.' }, { status: 400 });
@@ -128,6 +131,8 @@ export async function POST(request: Request) {
         text_slots: textSlots,
         template_group_id: templateGroupId,
         placement_map: placementMap,
+        side_id: sideId,
+        transform: transformPayload,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -221,6 +226,15 @@ export async function PATCH(request: Request) {
     if (payload?.placement_map !== undefined) {
       updateData.placement_map =
         payload.placement_map && typeof payload.placement_map === 'object' ? payload.placement_map : {};
+    }
+
+    if (payload?.side_id !== undefined) {
+      updateData.side_id = typeof payload.side_id === 'string' ? payload.side_id : null;
+    }
+
+    if (payload?.transform !== undefined) {
+      updateData.transform =
+        payload.transform && typeof payload.transform === 'object' ? payload.transform : null;
     }
 
     if (Object.keys(updateData).length === 1) {
