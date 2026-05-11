@@ -4,7 +4,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import * as fabric from 'fabric';
 import { useCanvasStore } from '@/store/useCanvasStore';
-import { DesignTemplate, CanvasState } from '@/types/types';
+import { DesignTemplate, CanvasState, TemplateGroup, PlacementMap } from '@/types/types';
+import PlacementPanel from '@/components/templates/PlacementPanel';
 import { useEditorMode, EditorMode } from './hooks/useEditorMode';
 import { useEditorData } from './hooks/useEditorData';
 import { useEditorSave } from './hooks/useEditorSave';
@@ -60,6 +61,8 @@ interface UnifiedEditorProps {
   cobuyRequestId?: string;
   partnerMallAdd?: boolean;
   presetType?: string;
+  /** When set (URL ?groupId=...), saved templates are auto-bound to this group. */
+  groupId?: string;
 }
 
 export default function UnifiedEditor({
@@ -73,6 +76,7 @@ export default function UnifiedEditor({
   cobuyRequestId,
   partnerMallAdd,
   presetType,
+  groupId,
 }: UnifiedEditorProps) {
   const router = useRouter();
   const { user } = useAuthStore();
@@ -128,7 +132,23 @@ export default function UnifiedEditor({
   const [templateDescription, setTemplateDescription] = useState('');
   const [templateSortOrder, setTemplateSortOrder] = useState(0);
   const [templateIsActive, setTemplateIsActive] = useState(true);
-  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+  const [templateCategory, setTemplateCategory] = useState<string | null>(null);
+  const [templateTags, setTemplateTags] = useState<string[]>([]);
+  const [templateIsFeatured, setTemplateIsFeatured] = useState(false);
+  const [templateImageSlots, setTemplateImageSlots] = useState<Record<string, unknown>[]>([]);
+  const [templateTextSlots, setTemplateTextSlots] = useState<Record<string, unknown>[]>([]);
+  // Group binding: from URL ?groupId or from selected template's existing group
+  const [templateGroupId, setTemplateGroupId] = useState<string | null>(groupId ?? null);
+  // Active template's placement_map (for group-bound templates)
+  const [templatePlacementMap, setTemplatePlacementMap] = useState<Record<string, unknown>>({});
+  // Group fetched for placement editor
+  const [activeGroup, setActiveGroup] = useState<TemplateGroup | null>(null);
+  const [savingPlacement, setSavingPlacement] = useState(false);
+  // When entering with ?mode=template and no templateId (e.g. via /templates flow),
+  // start in "creating new template" state so admin can name + save right away.
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(
+    mode === 'template' && !templateId,
+  );
 
   // Canvas states for rendering (may come from order or template)
   const [canvasStates, setCanvasStates] = useState<Record<string, CanvasState | string | null>>({});
@@ -350,6 +370,17 @@ export default function UnifiedEditor({
       setTemplateDescription(tmpl.description || '');
       setTemplateSortOrder(tmpl.sort_order ?? 0);
       setTemplateIsActive(tmpl.is_active ?? true);
+      setTemplateCategory(tmpl.category ?? null);
+      setTemplateTags(Array.isArray(tmpl.tags) ? tmpl.tags : []);
+      setTemplateIsFeatured(!!tmpl.is_featured);
+      setTemplateImageSlots(Array.isArray(tmpl.image_slots) ? (tmpl.image_slots as unknown as Record<string, unknown>[]) : []);
+      setTemplateTextSlots(Array.isArray(tmpl.text_slots) ? (tmpl.text_slots as unknown as Record<string, unknown>[]) : []);
+      setTemplateGroupId(tmpl.template_group_id ?? null);
+      setTemplatePlacementMap(
+        tmpl.placement_map && typeof tmpl.placement_map === 'object'
+          ? (tmpl.placement_map as Record<string, unknown>)
+          : {},
+      );
       setIsCreatingTemplate(false);
       // Update canvas states for rendering
       const parsed: Record<string, CanvasState | string | null> = {};
@@ -374,8 +405,42 @@ export default function UnifiedEditor({
     templateDescription,
     templateSortOrder,
     templateIsActive,
+    templateCategory,
+    templateTags,
+    templateIsFeatured,
+    templateImageSlots,
+    templateTextSlots,
+    templateGroupId,
+    templatePlacementMap,
     presetType,
   });
+
+  // Save placement_map only — used by PlacementPanel after admin arranges slots.
+  const savePlacementMap = useCallback(async (next: PlacementMap) => {
+    if (!editorData.selectedTemplate?.id) {
+      // No row yet — bake into local state; full template save will pick it up.
+      setTemplatePlacementMap(next as unknown as Record<string, unknown>);
+      return;
+    }
+    setSavingPlacement(true);
+    try {
+      const res = await fetch('/api/admin/design-templates', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editorData.selectedTemplate.id,
+          placement_map: next,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'placement 저장 실패');
+      setTemplatePlacementMap(next as unknown as Record<string, unknown>);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'placement 저장 실패');
+    } finally {
+      setSavingPlacement(false);
+    }
+  }, [editorData.selectedTemplate?.id]);
 
   // Save to partner mall (override for partnerMallAdd mode)
   const handleSaveToPartnerMall = useCallback(async () => {
@@ -684,8 +749,37 @@ export default function UnifiedEditor({
     setTemplateDescription('');
     setTemplateSortOrder(editorData.templates.length);
     setTemplateIsActive(true);
+    setTemplateCategory(null);
+    setTemplateTags([]);
+    setTemplateIsFeatured(false);
+    setTemplateImageSlots([]);
+    setTemplateTextSlots([]);
+    setTemplateGroupId(groupId ?? null); // honor URL ?groupId=
+    setTemplatePlacementMap({});
     setCanvasStates({});
-  }, [editorData]);
+  }, [editorData, groupId]);
+
+  // Fetch group (for placement editor) when templateGroupId changes
+  useEffect(() => {
+    if (!templateGroupId) {
+      setActiveGroup(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/template-groups?id=${templateGroupId}`);
+        const json = await res.json();
+        if (cancelled) return;
+        if (res.ok && json?.data) setActiveGroup(json.data as TemplateGroup);
+        else setActiveGroup(null);
+      } catch (err) {
+        console.error('Failed to fetch group:', err);
+        if (!cancelled) setActiveGroup(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [templateGroupId]);
 
   // Template mode: delete
   const handleDeleteTemplate = useCallback(async (templateId: string) => {
@@ -898,6 +992,18 @@ export default function UnifiedEditor({
                 )
               )}
 
+              {mode === 'template' && activeGroup && (activeGroup.design_composition?.slots?.length ?? 0) > 0 && (
+                <div className="border-b">
+                  <PlacementPanel
+                    composition={activeGroup.design_composition}
+                    product={product}
+                    placementMap={templatePlacementMap as PlacementMap}
+                    onSave={savePlacementMap}
+                    saving={savingPlacement}
+                  />
+                </div>
+              )}
+
               {mode === 'template' && (
                 <TemplateModePanel
                   product={product}
@@ -914,6 +1020,16 @@ export default function UnifiedEditor({
                   onTemplateSortOrderChange={setTemplateSortOrder}
                   templateIsActive={templateIsActive}
                   onTemplateIsActiveChange={setTemplateIsActive}
+                  templateCategory={templateCategory}
+                  onTemplateCategoryChange={setTemplateCategory}
+                  templateTags={templateTags}
+                  onTemplateTagsChange={setTemplateTags}
+                  templateIsFeatured={templateIsFeatured}
+                  onTemplateIsFeaturedChange={setTemplateIsFeatured}
+                  templateImageSlots={templateImageSlots}
+                  onTemplateImageSlotsChange={setTemplateImageSlots}
+                  templateTextSlots={templateTextSlots}
+                  onTemplateTextSlotsChange={setTemplateTextSlots}
                   onSave={handleSave}
                   onDelete={handleDeleteTemplate}
                   isSaving={isSaving}

@@ -43,11 +43,15 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const productId = url.searchParams.get('productId');
     const type = url.searchParams.get('type');
+    const withProduct = url.searchParams.get('withProduct') === '1';
 
     const adminClient = createAdminClient();
+    const selectClause = withProduct
+      ? '*, products:product_id (id, title, thumbnail_image_link, base_price)'
+      : '*';
     let query = adminClient
       .from('design_templates')
-      .select('*')
+      .select(selectClause)
       .order('sort_order', { ascending: true });
 
     if (productId) {
@@ -85,6 +89,16 @@ export async function POST(request: Request) {
     const sortOrder = payload?.sort_order ?? 0;
     const isActive = payload?.is_active ?? true;
     const type = payload?.type ?? 'template';
+    const category = typeof payload?.category === 'string' ? payload.category : null;
+    const tags = Array.isArray(payload?.tags) ? payload.tags : [];
+    const isFeatured = payload?.is_featured === true;
+    const imageSlots = Array.isArray(payload?.image_slots) ? payload.image_slots : [];
+    const textSlots = Array.isArray(payload?.text_slots) ? payload.text_slots : [];
+    const templateGroupId = typeof payload?.template_group_id === 'string' ? payload.template_group_id : null;
+    const placementMap =
+      payload?.placement_map && typeof payload.placement_map === 'object'
+        ? payload.placement_map
+        : {};
 
     if (!productId || typeof productId !== 'string') {
       return NextResponse.json({ error: '제품 ID가 필요합니다.' }, { status: 400 });
@@ -107,6 +121,13 @@ export async function POST(request: Request) {
         sort_order: sortOrder,
         is_active: isActive,
         type,
+        category,
+        tags,
+        is_featured: isFeatured,
+        image_slots: imageSlots,
+        text_slots: textSlots,
+        template_group_id: templateGroupId,
+        placement_map: placementMap,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -170,6 +191,36 @@ export async function PATCH(request: Request) {
 
     if (typeof payload?.type === 'string') {
       updateData.type = payload.type;
+    }
+
+    if (payload?.category !== undefined) {
+      updateData.category = typeof payload.category === 'string' ? payload.category : null;
+    }
+
+    if (payload?.tags !== undefined) {
+      updateData.tags = Array.isArray(payload.tags) ? payload.tags : [];
+    }
+
+    if (payload?.is_featured !== undefined) {
+      updateData.is_featured = payload.is_featured === true;
+    }
+
+    if (payload?.image_slots !== undefined) {
+      updateData.image_slots = Array.isArray(payload.image_slots) ? payload.image_slots : [];
+    }
+
+    if (payload?.text_slots !== undefined) {
+      updateData.text_slots = Array.isArray(payload.text_slots) ? payload.text_slots : [];
+    }
+
+    if (payload?.template_group_id !== undefined) {
+      updateData.template_group_id =
+        typeof payload.template_group_id === 'string' ? payload.template_group_id : null;
+    }
+
+    if (payload?.placement_map !== undefined) {
+      updateData.placement_map =
+        payload.placement_map && typeof payload.placement_map === 'object' ? payload.placement_map : {};
     }
 
     if (Object.keys(updateData).length === 1) {

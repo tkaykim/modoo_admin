@@ -1,12 +1,14 @@
 'use client';
 
-import { Plus, Trash2, Eye, EyeOff, Save } from 'lucide-react';
+import { Plus, Trash2, Eye, EyeOff, Save, Tag, X } from 'lucide-react';
 import { DesignTemplate, Product, ProductSide } from '@/types/types';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import TextStylePanel from '@/components/canvas/TextStylePanel';
 import LayerColorSelector from '@/components/canvas/LayerColorSelector';
 import { isCurvedText } from '@/lib/curvedText';
 import * as fabric from 'fabric';
+import { TEMPLATE_CATEGORIES, TEMPLATE_CATEGORY_LABELS } from '@/lib/templateCategories';
+import { useState } from 'react';
 
 interface TemplateModePanelProps {
   product: Product;
@@ -23,6 +25,16 @@ interface TemplateModePanelProps {
   onTemplateSortOrderChange: (order: number) => void;
   templateIsActive: boolean;
   onTemplateIsActiveChange: (active: boolean) => void;
+  templateCategory: string | null;
+  onTemplateCategoryChange: (cat: string | null) => void;
+  templateTags: string[];
+  onTemplateTagsChange: (tags: string[]) => void;
+  templateIsFeatured: boolean;
+  onTemplateIsFeaturedChange: (v: boolean) => void;
+  templateImageSlots: Record<string, unknown>[];
+  onTemplateImageSlotsChange: (slots: Record<string, unknown>[]) => void;
+  templateTextSlots: Record<string, unknown>[];
+  onTemplateTextSlotsChange: (slots: Record<string, unknown>[]) => void;
   onSave: () => void;
   onDelete?: (templateId: string) => void;
   isSaving: boolean;
@@ -44,11 +56,28 @@ export default function TemplateModePanel({
   onTemplateSortOrderChange,
   templateIsActive,
   onTemplateIsActiveChange,
+  templateCategory,
+  onTemplateCategoryChange,
+  templateTags,
+  onTemplateTagsChange,
+  templateIsFeatured,
+  onTemplateIsFeaturedChange,
+  templateImageSlots,
+  onTemplateImageSlotsChange,
+  templateTextSlots,
+  onTemplateTextSlotsChange,
   onSave,
   onDelete,
   isSaving,
   isCreating,
 }: TemplateModePanelProps) {
+  const [tagInput, setTagInput] = useState('');
+  const [slotLabel, setSlotLabel] = useState('');
+  const [slotAspect, setSlotAspect] = useState('1');
+  const [slotPrintMethod, setSlotPrintMethod] = useState('');
+  const [slotAccepts, setSlotAccepts] = useState<'photo' | 'logo'>('photo');
+  const [slotBgRemove, setSlotBgRemove] = useState(true);
+
   const { activeSideId } = useCanvasStore();
 
   const sides: ProductSide[] = product.configuration || [];
@@ -62,6 +91,94 @@ export default function TemplateModePanel({
   );
 
   const isEditingTemplate = isCreating || !!selectedTemplate;
+
+  // Selected canvas object for slot tagging (activeSideId already destructured above)
+  const { canvasMap } = useCanvasStore();
+  const activeCanvas = activeSideId ? canvasMap[activeSideId] : null;
+  const selectedCanvasObject = (activeCanvas?.getActiveObject() as fabric.FabricObject & { data?: Record<string, unknown> }) || null;
+  const selectedIsImage = selectedCanvasObject?.type === 'image';
+  const selectedIsText = !!selectedCanvasObject && (
+    selectedCanvasObject.type === 'i-text' ||
+    selectedCanvasObject.type === 'text' ||
+    selectedCanvasObject.type === 'textbox'
+  );
+  const selectedSlotId = selectedCanvasObject?.data?.slot_id as string | undefined;
+  const selectedSlotEntry = selectedSlotId
+    ? [...templateImageSlots, ...templateTextSlots].find((s) => s.slot_id === selectedSlotId)
+    : null;
+
+  const generateSlotId = (): string =>
+    `slot_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+
+  const tagSelectedAsImageSlot = () => {
+    if (!selectedCanvasObject || !activeSideId) return;
+    if (!slotLabel.trim()) {
+      alert('슬롯 라벨을 입력해 주세요.');
+      return;
+    }
+    const slotId = (selectedSlotId as string) || generateSlotId();
+    if (!selectedCanvasObject.data) selectedCanvasObject.data = {};
+    selectedCanvasObject.data.slot_id = slotId;
+    activeCanvas?.requestRenderAll();
+
+    // capture default URL from current image src
+    const defaultUrl = (selectedCanvasObject as fabric.FabricImage).getSrc?.() ?? '';
+    const newSlot = {
+      slot_id: slotId,
+      side_id: activeSideId,
+      label: slotLabel.trim(),
+      default_image_url: defaultUrl,
+      aspect_ratio: parseFloat(slotAspect) || 1,
+      print_method_id: slotPrintMethod.trim(),
+      accepts: slotAccepts,
+      bg_removal_default: slotBgRemove,
+    };
+    const next = templateImageSlots.filter((s) => s.slot_id !== slotId);
+    next.push(newSlot);
+    onTemplateImageSlotsChange(next);
+    setSlotLabel('');
+  };
+
+  const tagSelectedAsTextSlot = () => {
+    if (!selectedCanvasObject || !activeSideId) return;
+    if (!slotLabel.trim()) {
+      alert('슬롯 라벨을 입력해 주세요.');
+      return;
+    }
+    const slotId = (selectedSlotId as string) || generateSlotId();
+    if (!selectedCanvasObject.data) selectedCanvasObject.data = {};
+    selectedCanvasObject.data.slot_id = slotId;
+    activeCanvas?.requestRenderAll();
+
+    const newSlot = {
+      slot_id: slotId,
+      side_id: activeSideId,
+      label: slotLabel.trim(),
+      lock_style: true,
+    };
+    const next = templateTextSlots.filter((s) => s.slot_id !== slotId);
+    next.push(newSlot);
+    onTemplateTextSlotsChange(next);
+    setSlotLabel('');
+  };
+
+  const removeSlot = (slotId: string) => {
+    onTemplateImageSlotsChange(templateImageSlots.filter((s) => s.slot_id !== slotId));
+    onTemplateTextSlotsChange(templateTextSlots.filter((s) => s.slot_id !== slotId));
+    // Also unstamp on canvas if visible
+    if (selectedSlotId === slotId && selectedCanvasObject?.data) {
+      delete selectedCanvasObject.data.slot_id;
+    }
+  };
+
+  const addTag = () => {
+    const v = tagInput.trim();
+    if (!v) return;
+    if (templateTags.includes(v)) { setTagInput(''); return; }
+    onTemplateTagsChange([...templateTags, v]);
+    setTagInput('');
+  };
+
 
   return (
     <>
@@ -137,6 +254,154 @@ export default function TemplateModePanel({
                 {templateIsActive ? '활성' : '비활성'}
               </button>
             </div>
+          </div>
+
+          {/* Category */}
+          <div>
+            <label className="block text-[10px] text-gray-400 mb-0.5">카테고리</label>
+            <select
+              value={templateCategory ?? ''}
+              onChange={(e) => onTemplateCategoryChange(e.target.value || null)}
+              className="w-full px-2 py-1.5 border rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">(없음)</option>
+              {TEMPLATE_CATEGORIES.map((c) => (
+                <option key={c} value={c}>{TEMPLATE_CATEGORY_LABELS[c]}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Tags */}
+          <div>
+            <label className="block text-[10px] text-gray-400 mb-0.5">태그</label>
+            <div className="flex gap-1 mb-1">
+              <input
+                type="text"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+                placeholder="태그 입력 후 Enter"
+                className="flex-1 px-2 py-1 border rounded text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button onClick={addTag} className="px-2 rounded bg-gray-100 hover:bg-gray-200 text-[11px]">추가</button>
+            </div>
+            {templateTags.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {templateTags.map((t) => (
+                  <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-[10px]">
+                    #{t}
+                    <button
+                      onClick={() => onTemplateTagsChange(templateTags.filter((x) => x !== t))}
+                      className="text-gray-400 hover:text-red-500"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Featured */}
+          <label className="flex items-center gap-1.5 text-[11px] text-gray-700">
+            <input
+              type="checkbox"
+              checked={templateIsFeatured}
+              onChange={(e) => onTemplateIsFeaturedChange(e.target.checked)}
+            />
+            홈/갤러리 상단 노출 (Featured)
+          </label>
+
+          {/* Slot manifest tagging */}
+          <div className="border-t pt-2 mt-2">
+            <h4 className="text-[11px] font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
+              <Tag className="w-3 h-3" />
+              교체 슬롯 ({templateImageSlots.length + templateTextSlots.length})
+            </h4>
+
+            {selectedCanvasObject ? (
+              <div className="space-y-1.5">
+                <input
+                  type="text"
+                  value={slotLabel}
+                  onChange={(e) => setSlotLabel(e.target.value)}
+                  placeholder="라벨 (예: 메인 사진)"
+                  className="w-full px-2 py-1 border rounded text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                {selectedIsImage && (
+                  <>
+                    <div className="flex gap-1">
+                      <input
+                        type="text"
+                        value={slotAspect}
+                        onChange={(e) => setSlotAspect(e.target.value)}
+                        placeholder="비율 W/H (예: 1)"
+                        className="flex-1 px-2 py-1 border rounded text-[11px]"
+                      />
+                      <select
+                        value={slotAccepts}
+                        onChange={(e) => setSlotAccepts(e.target.value as 'photo' | 'logo')}
+                        className="px-2 py-1 border rounded text-[11px]"
+                      >
+                        <option value="photo">사진</option>
+                        <option value="logo">로고</option>
+                      </select>
+                    </div>
+                    <input
+                      type="text"
+                      value={slotPrintMethod}
+                      onChange={(e) => setSlotPrintMethod(e.target.value)}
+                      placeholder="잠금 인쇄 방식 ID"
+                      className="w-full px-2 py-1 border rounded text-[11px]"
+                    />
+                    <label className="flex items-center gap-1.5 text-[10px] text-gray-700">
+                      <input type="checkbox" checked={slotBgRemove} onChange={(e) => setSlotBgRemove(e.target.checked)} />
+                      배경 제거 기본 ON
+                    </label>
+                    <button
+                      onClick={tagSelectedAsImageSlot}
+                      className="w-full py-1 bg-purple-600 text-white rounded text-[11px] font-medium hover:bg-purple-700"
+                    >
+                      {selectedSlotEntry ? '슬롯 정보 갱신' : '이미지 슬롯으로 지정'}
+                    </button>
+                  </>
+                )}
+                {selectedIsText && (
+                  <button
+                    onClick={tagSelectedAsTextSlot}
+                    className="w-full py-1 bg-purple-600 text-white rounded text-[11px] font-medium hover:bg-purple-700"
+                  >
+                    {selectedSlotEntry ? '슬롯 정보 갱신' : '텍스트 슬롯으로 지정'}
+                  </button>
+                )}
+                {!selectedIsImage && !selectedIsText && (
+                  <p className="text-[10px] text-gray-400">이미지 또는 텍스트 객체만 슬롯으로 지정할 수 있습니다.</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-[10px] text-gray-400">캔버스에서 객체를 선택하면 슬롯으로 지정할 수 있습니다.</p>
+            )}
+
+            {(templateImageSlots.length + templateTextSlots.length) > 0 && (
+              <div className="mt-2 space-y-1">
+                {templateImageSlots.map((s) => (
+                  <div key={String(s.slot_id)} className="flex items-center justify-between gap-1 px-2 py-1 bg-gray-50 rounded text-[10px]">
+                    <span className="truncate"><strong>📷</strong> {String(s.label)}</span>
+                    <button onClick={() => removeSlot(String(s.slot_id))} className="text-gray-400 hover:text-red-500">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+                {templateTextSlots.map((s) => (
+                  <div key={String(s.slot_id)} className="flex items-center justify-between gap-1 px-2 py-1 bg-gray-50 rounded text-[10px]">
+                    <span className="truncate"><strong>T</strong> {String(s.label)}</span>
+                    <button onClick={() => removeSlot(String(s.slot_id))} className="text-gray-400 hover:text-red-500">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <button

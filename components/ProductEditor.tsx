@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { Save, X, Plus, Trash2, Upload, ChevronLeft, ChevronRight, ChevronDown, Image as ImageIcon, Check, Loader2, Layers, GripVertical } from 'lucide-react';
 import LogoPlacementPreview from './LogoPlacementPreview';
 import KeywordsInput from './KeywordsInput';
+import ProductColorMockupModal from './products/ProductColorMockupModal';
 
 interface ProductEditorProps {
   product?: Product | null;
@@ -99,6 +100,7 @@ export default function ProductEditor({ product, onSave, onCancel }: ProductEdit
   const [productColors, setProductColors] = useState<ProductColor[]>([]);
   const [colorsLoading, setColorsLoading] = useState(false);
   const [deletingColorId, setDeletingColorId] = useState<string | null>(null);
+  const [mockupEditorColor, setMockupEditorColor] = useState<ProductColor | null>(null);
 
   // Linked manufacturer (saved to product)
   const [linkedManufacturerId, setLinkedManufacturerId] = useState<string>(product?.manufacturer_id || '');
@@ -1968,6 +1970,21 @@ export default function ProductEditor({ product, onSave, onCancel }: ProductEdit
                               title={mColor?.hex}
                             />
                             <span className="text-sm text-gray-700">{mColor?.name || '알 수 없음'}</span>
+                            {color.side_mockups && Object.keys(color.side_mockups).length > 0 && (
+                              <span
+                                className="text-[10px] bg-emerald-100 text-emerald-700 px-1 py-0.5 rounded"
+                                title="면별 목업 등록됨"
+                              >
+                                {Object.keys(color.side_mockups).length}면
+                              </span>
+                            )}
+                            <button
+                              onClick={() => setMockupEditorColor(color)}
+                              className="p-0.5 text-gray-500 hover:text-blue-600 rounded"
+                              title="면별 목업 편집"
+                            >
+                              <ImageIcon className="w-3.5 h-3.5" />
+                            </button>
                             <button
                               onClick={() => handleDeleteProductColor(color.id)}
                               disabled={deletingColorId === color.id}
@@ -2728,6 +2745,21 @@ export default function ProductEditor({ product, onSave, onCancel }: ProductEdit
         onChange={handleFileInputChange}
         className="hidden"
       />
+
+      {mockupEditorColor && product?.id && (
+        <ProductColorMockupModal
+          productId={product.id}
+          productColor={mockupEditorColor}
+          sides={sides}
+          onClose={() => setMockupEditorColor(null)}
+          onSaved={(updated) => {
+            setProductColors((prev) =>
+              prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
+            );
+            setMockupEditorColor(null);
+          }}
+        />
+      )}
     </div>
   );
 }

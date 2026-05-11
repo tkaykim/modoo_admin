@@ -21,6 +21,15 @@ interface UseEditorSaveParams {
   templateDescription?: string;
   templateSortOrder?: number;
   templateIsActive?: boolean;
+  templateCategory?: string | null;
+  templateTags?: string[];
+  templateIsFeatured?: boolean;
+  templateImageSlots?: unknown[];
+  templateTextSlots?: unknown[];
+  /** Bind the saved template to a specific design group. */
+  templateGroupId?: string | null;
+  /** placement_map for group-bound templates (saved together). */
+  templatePlacementMap?: Record<string, unknown>;
   presetType?: string;
 }
 
@@ -47,6 +56,13 @@ export function useEditorSave({
   templateDescription,
   templateSortOrder,
   templateIsActive,
+  templateCategory,
+  templateTags,
+  templateIsFeatured,
+  templateImageSlots,
+  templateTextSlots,
+  templateGroupId,
+  templatePlacementMap,
   presetType,
 }: UseEditorSaveParams): EditorSaveResult {
   const { canvasMap, productColor, layerColors } = useCanvasStore();
@@ -70,7 +86,7 @@ export function useEditorSave({
       console.error('Save error:', err);
       return { success: false, error: message };
     }
-  }, [mode, product, canvasMap, productColor, layerColors, orderItem, savedDesign, selectedTemplate, designTitle, templateTitle, templateDescription, templateSortOrder, templateIsActive, presetType]);
+  }, [mode, product, canvasMap, productColor, layerColors, orderItem, savedDesign, selectedTemplate, designTitle, templateTitle, templateDescription, templateSortOrder, templateIsActive, templateCategory, templateTags, templateIsFeatured, templateImageSlots, templateTextSlots, templateGroupId, templatePlacementMap, presetType]);
 
   async function saveDesignMode(sides: Product['configuration']): Promise<SaveResult> {
     // Serialize canvas state from all sides
@@ -247,6 +263,13 @@ export function useEditorSave({
       layer_colors: layerColors,
       sort_order: templateSortOrder ?? 0,
       is_active: templateIsActive ?? true,
+      category: templateCategory ?? null,
+      tags: templateTags ?? [],
+      is_featured: templateIsFeatured ?? false,
+      image_slots: templateImageSlots ?? [],
+      text_slots: templateTextSlots ?? [],
+      template_group_id: templateGroupId ?? null,
+      placement_map: templatePlacementMap ?? {},
     };
     if (presetType) {
       body.type = presetType;

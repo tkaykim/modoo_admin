@@ -49,6 +49,7 @@ export interface ProductColor {
   manufacturer_color_id: string;
   is_active: boolean | null;
   sort_order: number | null;
+  side_mockups?: Record<string, string> | null;
   created_at: string | null;
   updated_at: string | null;
   manufacturer_colors?: ManufacturerColor;
@@ -689,9 +690,87 @@ export interface CoBuyRequestComment {
   } | null;
 }
 
+// ============================================================================
+// Legacy slot types — used by single (no group) templates only.
+// New group-bound templates use CompositionSlot + PlacementMap below.
+// ============================================================================
+export interface ImageSlot {
+  slot_id: string;
+  side_id: string;
+  label: string;
+  default_image_url: string;
+  aspect_ratio: number;
+  print_method_id: string;
+  accepts: 'photo' | 'logo';
+  bg_removal_default?: boolean;
+}
+
+export interface TextSlot {
+  slot_id: string;
+  side_id: string;
+  label: string;
+  placeholder?: string;
+  max_length?: number;
+  lock_style: boolean;
+}
+
+// ============================================================================
+// Composition + Placement (group-based templates)
+// ============================================================================
+
+export interface CompositionTextSlot {
+  slot_id: string;
+  kind: 'text';
+  label: string;
+  default_text: string;
+  placeholder?: string;
+  max_length?: number;
+  lock_style: boolean;
+  font_family?: string;
+  font_weight?: string;
+  font_color?: string;
+  print_method_id?: string;
+}
+
+export interface CompositionImageSlot {
+  slot_id: string;
+  kind: 'image';
+  label: string;
+  default_image_url: string;
+  aspect_ratio: number;
+  accepts: 'photo' | 'logo';
+  bg_removal_default?: boolean;
+  print_method_id?: string;
+}
+
+export type CompositionSlot = CompositionTextSlot | CompositionImageSlot;
+
+export interface DesignComposition {
+  slots: CompositionSlot[];
+}
+
+/** Per-instance placement of a composition slot on a product canvas. Normalized 0-1. */
+export interface PlacementEntry {
+  side_id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  angle?: number;
+  origin_x?: 'left' | 'center' | 'right';
+  origin_y?: 'top' | 'center' | 'bottom';
+  print_method_id?: string;
+  font_family?: string;
+  font_color?: string;
+  font_weight?: string;
+}
+
+export type PlacementMap = Record<string, PlacementEntry>;
+
 export interface DesignTemplate {
   id: string;
   product_id: string;
+  template_group_id: string | null;
   title: string;
   description: string | null;
   canvas_state: Record<string, CanvasState | string>;
@@ -700,6 +779,30 @@ export interface DesignTemplate {
   sort_order: number | null;
   is_active: boolean | null;
   type: string; // 'template' | 'cobuy_preset'
+  category: string | null;
+  tags: string[];
+  is_featured: boolean;
+  // Legacy single-template slot manifests
+  image_slots: ImageSlot[];
+  text_slots: TextSlot[];
+  // Group-template placement (where composition slots land on this product)
+  placement_map: PlacementMap;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TemplateGroup {
+  id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  tags: string[];
+  preview_url: string | null;
+  is_active: boolean;
+  is_featured: boolean;
+  sort_order: number;
+  /** Reusable design composition: text/image slots shared across all instances */
+  design_composition: DesignComposition;
   created_at: string;
   updated_at: string;
 }

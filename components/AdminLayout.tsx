@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp } from 'lucide-react';
+import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp, LayoutTemplate } from 'lucide-react';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type AdminRole = 'admin' | 'factory' | 'super_admin';
@@ -55,6 +55,7 @@ const navGroups: NavGroup[] = [
     label: '상품 & 생산',
     items: [
       { type: 'link', href: '/designs', label: '디자인 관리', icon: Palette, roles: ['admin', 'super_admin'] },
+      { type: 'link', href: '/templates', label: '템플릿 관리', icon: LayoutTemplate, roles: ['admin', 'super_admin'] },
       // { type: 'link', href: '/print-methods', label: '인쇄 방식', icon: Printer, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/factories', label: '공장 관리', icon: Factory, roles: ['admin', 'super_admin'] },
     ],
