@@ -109,7 +109,7 @@ export default function CreateGroupModal({ isOpen, onClose, onCreated }: Props) 
 
         <div className="p-5 space-y-3">
           <p className="text-xs text-gray-500">
-            같은 디자인 컨셉(예: 가족사진 정중앙)으로 여러 제품에 적용할 묶음을 먼저 만듭니다. 다음 단계에서 첫 제품을 골라 디자인을 배치합니다.
+            제품과 무관한 디자인 묶음입니다. 메타 정보를 입력하면 곧장 아트워크 편집기로 이동해서 텍스트·이미지를 자유롭게 배치할 수 있습니다.
           </p>
 
           <div>
@@ -218,7 +218,7 @@ export default function CreateGroupModal({ isOpen, onClose, onCreated }: Props) 
             className="px-4 py-1.5 rounded bg-black text-white text-xs font-medium hover:bg-gray-800 disabled:bg-gray-300 inline-flex items-center gap-1.5"
           >
             {submitting && <Loader2 className="w-3 h-3 animate-spin" />}
-            그룹 생성 후 제품 선택
+            그룹 생성 후 디자인 시작
           </button>
         </div>
       </div>
