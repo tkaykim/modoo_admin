@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp, LayoutTemplate } from 'lucide-react';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import BugReportButton from '@/components/BugReportButton';
 
 type AdminRole = 'admin' | 'factory' | 'super_admin';
 
@@ -178,6 +179,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
 
           <div className="flex items-center gap-2">
+            <BugReportButton />
             <div className="hidden sm:block text-xs text-gray-600 truncate max-w-[40ch]">
               {user?.name || user?.email}
             </div>
