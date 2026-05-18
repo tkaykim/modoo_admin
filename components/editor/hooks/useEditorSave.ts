@@ -100,7 +100,7 @@ export function useEditorSave({
     for (const side of sides) {
       const canvas = canvasMap[side.id];
       if (canvas) {
-        canvasState[side.id] = serializeCanvasState(canvas, layerColors[side.id] || {});
+        canvasState[side.id] = serializeCanvasState(canvas, layerColors[side.id] || {}, productColor);
       }
     }
 

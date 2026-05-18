@@ -490,7 +490,7 @@ export default function UnifiedEditor({
     setSaveError(null);
 
     try {
-      const { canvasMap: currentCanvasMap, layerColors } = useCanvasStore.getState();
+      const { canvasMap: currentCanvasMap, layerColors, productColor: currentProductColor } = useCanvasStore.getState();
       const sides = editorData.product.configuration || [];
 
       // Serialize canvas state
@@ -498,7 +498,7 @@ export default function UnifiedEditor({
       for (const side of sides) {
         const canvas = currentCanvasMap[side.id];
         if (canvas) {
-          canvasState[side.id] = serializeCanvasState(canvas, layerColors[side.id] || {});
+          canvasState[side.id] = serializeCanvasState(canvas, layerColors[side.id] || {}, currentProductColor);
         }
       }
 

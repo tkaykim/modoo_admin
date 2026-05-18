@@ -29,6 +29,28 @@ const resolveProductColor = (colorSelections: Record<string, unknown>): string |
   return null;
 };
 
+/**
+ * canvas_state 의 각 side에서 productColor를 추출.
+ * 에디터(saveOrderMode)가 canvas_state[sideId].productColor에 최신 색을 저장하므로,
+ * 이를 권위 있는 source로 보고 color_selections / item_options에 전파한다.
+ *
+ * 모든 side의 productColor가 동일하면 그 값을, 다르면 첫 side 값을 반환.
+ * (단일 색상 제품 기준 — 멀티 레이어는 별도로 layerColors 처리)
+ */
+const extractProductColorFromCanvasState = (canvasState: unknown): string | null => {
+  if (!canvasState || typeof canvasState !== 'object') return null;
+  for (const raw of Object.values(canvasState as Record<string, unknown>)) {
+    const parsed = typeof raw === 'string'
+      ? (() => { try { return JSON.parse(raw); } catch { return null; } })()
+      : raw;
+    if (parsed && typeof parsed === 'object') {
+      const pc = (parsed as Record<string, unknown>).productColor;
+      if (typeof pc === 'string' && pc.startsWith('#')) return pc;
+    }
+  }
+  return null;
+};
+
 const requireAdmin = async () => {
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -350,6 +372,38 @@ export async function PATCH(request: Request) {
     };
     if (typeof thumbnailUrl === 'string') {
       updateData.thumbnail_url = thumbnailUrl;
+    }
+
+    // canvas_state 에 담긴 최신 productColor 를 color_selections / item_options 에도 동기화.
+    // 누락 시 useEditorData 가 stale 한 color_selections 를 우선 읽어 옛 색으로 표시되는 버그 방지.
+    const newProductColor = extractProductColorFromCanvasState(canvasState);
+    if (newProductColor) {
+      const { data: existing } = await adminClient
+        .from('order_items')
+        .select('color_selections, item_options')
+        .eq('id', orderItemId)
+        .single();
+
+      const prevColorSelections = normalizeJson<Record<string, unknown>>(
+        existing?.color_selections ?? null,
+        {}
+      );
+      updateData.color_selections = { ...prevColorSelections, productColor: newProductColor };
+
+      const prevItemOptions = normalizeJson<Record<string, unknown>>(
+        existing?.item_options ?? null,
+        {}
+      );
+      const nextItemOptions: Record<string, unknown> = { ...prevItemOptions };
+      if (Array.isArray(prevItemOptions.variants)) {
+        nextItemOptions.variants = (prevItemOptions.variants as Array<Record<string, unknown>>).map(
+          (v) => ({ ...v, color_hex: newProductColor })
+        );
+      }
+      if (typeof prevItemOptions.color_hex === 'string') {
+        nextItemOptions.color_hex = newProductColor;
+      }
+      updateData.item_options = nextItemOptions;
     }
 
     const { data, error } = await adminClient

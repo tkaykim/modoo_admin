@@ -8,11 +8,13 @@ import * as fabric from 'fabric';
  * Serialize canvas state to JSON string, excluding background images and guides
  * @param canvas - The fabric canvas to serialize
  * @param layerColors - Layer colors for the side
+ * @param productColor - Product (single-image) color for the side
  * @returns JSON string of the canvas state
  */
 export function serializeCanvasState(
   canvas: fabric.Canvas,
-  layerColors: Record<string, string> = {}
+  layerColors: Record<string, string> = {},
+  productColor?: string
 ): string {
   // Save user-added objects (exclude background product image, guides, and snap lines)
   const userObjects = canvas.getObjects().filter(obj => {
@@ -27,7 +29,7 @@ export function serializeCanvasState(
   });
 
   // Create a minimal JSON with only user objects and layer colors
-  const canvasData = {
+  const canvasData: Record<string, unknown> = {
     version: canvas.toJSON().version,
     objects: userObjects.map(obj => {
       // Use toObject to include custom properties
@@ -42,6 +44,11 @@ export function serializeCanvasState(
     // Save layer colors for this side
     layerColors: layerColors,
   };
+
+  // Single-image 제품의 productColor 도 함께 보존 — canvas_state 자체가 자기완결적이도록.
+  if (typeof productColor === 'string' && productColor.startsWith('#')) {
+    canvasData.productColor = productColor;
+  }
 
   return JSON.stringify(canvasData);
 }
