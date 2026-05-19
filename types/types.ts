@@ -292,6 +292,9 @@ export interface OrderItem {
   product_title: string;
   /** Display name from saved design (nullable in DB) */
   design_title: string | null;
+  /** factory-allocation 시 자동 생성된 Drive 작업사진 폴더 */
+  work_drive_folder_id?: string | null;
+  work_drive_folder_url?: string | null;
   quantity: number;
   price_per_item: number;
 

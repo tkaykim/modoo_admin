@@ -30,6 +30,8 @@ export interface OrderItemForEmail {
   designTitle: string | null;
   quantity: number;
   thumbnailUrl: string | null;
+  /** 공장이 작업 사진을 업로드하는 전용 Google Drive 폴더 링크 */
+  workDriveFolderUrl?: string | null;
 }
 
 export interface FactoryAssignmentEmailParams {
@@ -119,7 +121,10 @@ export async function sendFactoryAssignmentEmail(params: FactoryAssignmentEmailP
 
   const itemsText = orderItems.map((item, i) => {
     const name = item.designTitle || item.productTitle;
-    return `  ${i + 1}. ${name} — 수량: ${item.quantity}개`;
+    const driveLine = item.workDriveFolderUrl
+      ? `\n     작업사진 업로드: ${item.workDriveFolderUrl}`
+      : '';
+    return `  ${i + 1}. ${name} — 수량: ${item.quantity}개${driveLine}`;
   }).join('\n');
 
   const text = [
@@ -159,7 +164,8 @@ export async function sendFactoryAssignmentEmail(params: FactoryAssignmentEmailP
           <p style="margin: 0 0 4px; color: #111827; font-size: 14px; font-weight: 600;">${name}</p>
           ${item.designTitle && item.designTitle !== item.productTitle ? `<p style="margin: 0 0 4px; color: #6b7280; font-size: 12px;">${item.productTitle}</p>` : ''}
           <p style="margin: 0 0 8px; color: #374151; font-size: 13px;">수량: <strong>${item.quantity}개</strong></p>
-          <a href="${itemLink}" style="display: inline-block; background: #f3f4f6; color: #374151; padding: 6px 14px; border-radius: 4px; text-decoration: none; font-size: 12px; font-weight: 500; border: 1px solid #e5e7eb;">디자인 상세 보기</a>
+          <a href="${itemLink}" style="display: inline-block; background: #f3f4f6; color: #374151; padding: 6px 14px; border-radius: 4px; text-decoration: none; font-size: 12px; font-weight: 500; border: 1px solid #e5e7eb; margin-right: 6px;">디자인 상세 보기</a>
+          ${item.workDriveFolderUrl ? `<a href="${item.workDriveFolderUrl}" style="display: inline-block; background: #16a34a; color: #fff; padding: 6px 14px; border-radius: 4px; text-decoration: none; font-size: 12px; font-weight: 500; border: 1px solid #15803d;">📷 작업사진 업로드</a>` : ''}
         </td>
       </tr>`;
   }).join('');

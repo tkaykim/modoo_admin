@@ -25,6 +25,7 @@ export interface OrderItemDraft {
   productTitle: string;
   productThumbnail: string | null;
   designId: string;
+  designTitle: string;
   designPreviewUrl: string | null;
   basePrice: number;
   sizeOptions: SizeOption[];
@@ -133,13 +134,14 @@ export default function AdminOrderCreator({
     productId: string,
     designId: string,
     allProducts: Product[],
-    designData?: { preview_url?: string | null; price_per_item?: number | null },
+    designData?: { preview_url?: string | null; price_per_item?: number | null; title?: string | null },
   ): Promise<OrderItemDraft | null> => {
     const product = allProducts.find(p => p.id === productId);
     if (!product) return null;
 
     let designPreviewUrl: string | null = designData?.preview_url ?? null;
     let designPricePerItem: number | null = null;
+    let designTitleSeed: string = designData?.title ?? '';
     if (designData?.price_per_item && designData.price_per_item > 0) {
       designPricePerItem = designData.price_per_item;
     }
@@ -150,11 +152,16 @@ export default function AdminOrderCreator({
         if (res.ok) {
           const d = await res.json();
           designPreviewUrl = d?.data?.preview_url || null;
+          designTitleSeed = d?.data?.title || '';
           const price = d?.data?.price_per_item;
           if (price && price > 0) designPricePerItem = price;
         }
       } catch { /* noop */ }
     }
+
+    // 자동 timestamp 패턴은 무의미 라벨이므로 빈 칸으로 시작시켜 관리자가 의미있는 이름을 짓도록 유도
+    const isTimestampPattern = /^디자인 \d{2}\.\d{2} \d{2}:\d{2}$/.test(designTitleSeed.trim());
+    const initialDesignTitle = isTimestampPattern ? '' : designTitleSeed;
 
     const sizeOpts = product.size_options || [];
     return {
@@ -163,6 +170,7 @@ export default function AdminOrderCreator({
       productTitle: product.title,
       productThumbnail: product.thumbnail_image_link?.[0] || null,
       designId,
+      designTitle: initialDesignTitle,
       designPreviewUrl,
       basePrice: product.base_price,
       sizeOptions: sizeOpts,
@@ -543,6 +551,32 @@ export default function AdminOrderCreator({
                           {/* Expanded content */}
                           {isExpanded && (
                             <div className="border-t bg-gray-50 p-4 space-y-4">
+                              {/* Design title (공장·관리자 구분용 라벨) */}
+                              <div>
+                                <label className="text-sm font-medium text-gray-700 mb-1 block">
+                                  디자인 이름 <span className="text-red-500">*</span>
+                                </label>
+                                <p className="text-xs text-gray-500 mb-2">
+                                  공장·담당자가 한눈에 알 수 있는 이름 (예: 청담고 응원티, 김민수 생일)
+                                </p>
+                                <input
+                                  type="text"
+                                  value={item.designTitle}
+                                  onChange={(e) =>
+                                    setItems(prev => prev.map(it =>
+                                      it.id === item.id ? { ...it, designTitle: e.target.value } : it
+                                    ))
+                                  }
+                                  placeholder="예: 청담고 응원티"
+                                  maxLength={40}
+                                  className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-1 ${
+                                    item.designTitle.trim()
+                                      ? 'border-gray-300 focus:border-gray-900 focus:ring-gray-900'
+                                      : 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                                  }`}
+                                />
+                              </div>
+
                               {/* Size / Quantity */}
                               <div>
                                 <div className="flex items-center justify-between mb-2">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { sendFactoryAssignmentEmail } from '@/lib/gmail';
+import { ensureWorkFolderForOrderItem } from '@/lib/google-drive';
 import { randomBytes } from 'crypto';
 import { isAdminLike } from '@/lib/auth-helpers';
 
@@ -107,9 +108,78 @@ export async function PATCH(request: NextRequest) {
     // Send email notifications per manufacturer (only for new assignments)
     const { data: orderData } = await adminClient
       .from('orders')
-      .select('customer_note, share_token')
+      .select('customer_note, share_token, customer_name, guest_name')
       .eq('id', orderId)
       .single();
+
+    // 거래처별 Drive 상위 폴더 ID + 신규로 배정된 order_item마다 작업사진 폴더 자동 생성
+    const newlyAssignedItemIds = new Set<string>();
+    for (const item of items) {
+      if (previousAssignments.get(item.orderItemId) !== item.assigned_manufacturer_id) {
+        newlyAssignedItemIds.add(item.orderItemId);
+      }
+    }
+    const driveFolderUrlByItemId = new Map<string, string>();
+
+    if (newlyAssignedItemIds.size > 0) {
+      const manufacturerIds = Array.from(manufacturerItemsMap.keys());
+      const { data: manufacturerDrive } = await adminClient
+        .from('manufacturers')
+        .select('id, drive_folder_id')
+        .in('id', manufacturerIds);
+      const driveFolderByMfgId = new Map<string, string>();
+      for (const m of manufacturerDrive || []) {
+        if (m.drive_folder_id) driveFolderByMfgId.set(m.id, m.drive_folder_id);
+      }
+
+      const { data: itemDetailsForDrive } = await adminClient
+        .from('order_items')
+        .select('id, design_title, created_at, work_drive_folder_url')
+        .in('id', Array.from(newlyAssignedItemIds));
+      const itemDetailById = new Map<string, { design_title: string | null; created_at: string; work_drive_folder_url: string | null }>();
+      for (const it of itemDetailsForDrive || []) {
+        itemDetailById.set(it.id, {
+          design_title: it.design_title,
+          created_at: it.created_at,
+          work_drive_folder_url: it.work_drive_folder_url,
+        });
+      }
+
+      const customerLabel = orderData?.customer_name || orderData?.guest_name || null;
+
+      for (const item of items) {
+        if (!newlyAssignedItemIds.has(item.orderItemId)) continue;
+        const parent = driveFolderByMfgId.get(item.assigned_manufacturer_id);
+        if (!parent) continue; // 거래처에 drive_folder_id 미설정 — 조용히 skip
+
+        const detail = itemDetailById.get(item.orderItemId);
+        if (!detail) continue;
+
+        // 이미 폴더가 있으면 url만 재사용
+        if (detail.work_drive_folder_url) {
+          driveFolderUrlByItemId.set(item.orderItemId, detail.work_drive_folder_url);
+          continue;
+        }
+
+        const result = await ensureWorkFolderForOrderItem({
+          parentDriveFolderId: parent,
+          designTitle: detail.design_title,
+          customerName: customerLabel,
+          orderItemId: item.orderItemId,
+          createdAtIso: detail.created_at,
+        });
+        if (result) {
+          driveFolderUrlByItemId.set(item.orderItemId, result.webViewLink);
+          await adminClient
+            .from('order_items')
+            .update({
+              work_drive_folder_id: result.folderId,
+              work_drive_folder_url: result.webViewLink,
+            })
+            .eq('id', item.orderItemId);
+        }
+      }
+    }
 
     for (const [manufacturerId, allocItems] of manufacturerItemsMap.entries()) {
       const hasNewAssignment = allocItems.some(
@@ -128,7 +198,7 @@ export async function PATCH(request: NextRequest) {
       const assignedItemIds = allocItems.map((ai) => ai.orderItemId);
       const { data: itemDetails } = await adminClient
         .from('order_items')
-        .select('id, product_id, product_title, design_title, quantity, thumbnail_url')
+        .select('id, product_id, product_title, design_title, quantity, thumbnail_url, work_drive_folder_url')
         .in('id', assignedItemIds)
         .order('created_at', { ascending: true });
 
@@ -163,6 +233,8 @@ export async function PATCH(request: NextRequest) {
             designTitle: item.design_title,
             quantity: item.quantity,
             thumbnailUrl: publicUrl,
+            workDriveFolderUrl:
+              driveFolderUrlByItemId.get(item.id) ?? item.work_drive_folder_url ?? null,
           };
         })
       );

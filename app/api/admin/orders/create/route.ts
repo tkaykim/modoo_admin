@@ -19,6 +19,7 @@ interface CreateOrderItemInput {
   variants: CreateOrderVariant[];
   pricingMode?: 'auto' | 'custom_unit_price';
   customUnitPrice?: number;
+  designTitle?: string;
 }
 
 interface CreateOrderRequest {
@@ -296,11 +297,20 @@ export async function POST(request: Request) {
         if (single.color_hex) itemOptions.color_hex = single.color_hex;
       }
 
+      // 디자인명: admin이 직접 입력했으면 그것을, 아니면 저장된 디자인의 title을 스냅샷.
+      // (공장·관리자가 주문 구분에 쓰는 라벨이라 의미있는 값 필수)
+      const designTitleOverride =
+        typeof item.designTitle === 'string' && item.designTitle.trim()
+          ? item.designTitle.trim()
+          : null;
+      const designTitleSnapshot = designTitleOverride ?? (design.title || null);
+
       processedItems.push({
         payload: {
           product_id: item.productId,
           design_id: item.designId,
           product_title: product.title || 'Product',
+          design_title: designTitleSnapshot,
           quantity: itemQuantity,
           price_per_item: unitPrice,
           canvas_state: canvasState,

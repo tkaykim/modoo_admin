@@ -1979,6 +1979,65 @@ export default function OrderDetail({
                 {orderItems.filter((i) => i.assigned_manufacturer_id).map((item) => (
                   <div key={item.id} className="border-t border-gray-100 pt-3 space-y-2">
                     <div className="text-xs font-medium text-gray-700 truncate">{item.product_title}</div>
+
+                    {/* 디자인 이름 — 고객·관리자·공장 모두 동일하게 보는 라벨. 누구나 짓고 수정 가능. */}
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">디자인 이름</p>
+                      <input
+                        type="text"
+                        defaultValue={item.design_title || ''}
+                        placeholder="예: 청담고 응원티 (공장·관리자가 한눈에 알 수 있는 이름)"
+                        maxLength={60}
+                        onBlur={async (e) => {
+                          const next = e.currentTarget.value.trim();
+                          if (next === (item.design_title || '').trim()) return;
+                          if (!next) {
+                            e.currentTarget.value = item.design_title || '';
+                            alert('디자인 이름을 입력해주세요.');
+                            return;
+                          }
+                          try {
+                            const res = await fetch('/api/admin/orders/items', {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ orderItemId: item.id, updateMode: 'design_title', designTitle: next }),
+                            });
+                            if (!res.ok) {
+                              const payload = await res.json().catch(() => ({}));
+                              throw new Error(payload?.error || '저장에 실패했습니다.');
+                            }
+                            await fetchOrderItems();
+                            onUpdate();
+                          } catch (err) {
+                            alert(err instanceof Error ? err.message : '저장에 실패했습니다.');
+                            e.currentTarget.value = item.design_title || '';
+                          }
+                        }}
+                        className={`w-full px-3 py-2 rounded-md text-sm border focus:outline-none focus:ring-1 ${
+                          item.design_title?.trim()
+                            ? 'border-gray-300 focus:border-gray-900 focus:ring-gray-900'
+                            : 'border-red-300 focus:border-red-500 focus:ring-red-500 bg-red-50'
+                        }`}
+                      />
+                    </div>
+
+                    {/* 작업사진 폴더 — 공장은 사진 업로드, 관리자는 진행 사진 열람 */}
+                    {item.work_drive_folder_url && (
+                      <div>
+                        <a
+                          href={item.work_drive_folder_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
+                        >
+                          📷 작업사진 폴더 열기
+                        </a>
+                        <p className="text-[11px] text-gray-500 mt-1 text-center">
+                          모바일에서 카메라로 바로 촬영·업로드 가능
+                        </p>
+                      </div>
+                    )}
+
                     <div>
                       <p className="text-xs text-gray-500 mb-1">배정 상태</p>
                       <select

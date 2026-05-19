@@ -338,6 +338,42 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ data: { item: data, order: updatedOrder } });
     }
 
+    // --- design_title 모드: admin·factory 둘 다 (자기 배정 건만) ---
+    if (updateMode === 'design_title') {
+      const raw = payload?.designTitle;
+      const designTitle = typeof raw === 'string' ? raw.trim().slice(0, 60) : '';
+      if (!designTitle) {
+        return NextResponse.json({ error: '디자인 이름을 입력해주세요.' }, { status: 400 });
+      }
+
+      // factory 권한 체크: 자기 배정 item만 수정 가능
+      if (profile.role === 'factory') {
+        if (!profile.manufacturer_id) {
+          return NextResponse.json({ error: '공장 정보가 필요합니다.' }, { status: 403 });
+        }
+        const { data: own, error: ownErr } = await adminClient
+          .from('order_items')
+          .select('id, assigned_manufacturer_id')
+          .eq('id', orderItemId)
+          .single();
+        if (ownErr || !own || own.assigned_manufacturer_id !== profile.manufacturer_id) {
+          return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
+        }
+      }
+
+      const { data, error } = await adminClient
+        .from('order_items')
+        .update({ design_title: designTitle, updated_at: new Date().toISOString() })
+        .eq('id', orderItemId)
+        .select('id, design_title')
+        .single();
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      return NextResponse.json({ data });
+    }
+
     // --- Default mode: canvas_state update (factory/admin) ---
     const canvasState = payload?.canvasState;
     const thumbnailUrl = payload?.thumbnailUrl;

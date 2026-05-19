@@ -153,6 +153,11 @@ export default function OrderDetailsForm({ items, customerEditableFields, onCust
     if (!ceInfo && !customerEmail.trim()) { setError('고객 이메일을 입력해주세요.'); return; }
     if (!ceInfo && customerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) { setError('올바른 이메일 형식을 입력해주세요.'); return; }
     if (!ceq && totalQuantity <= 0) { setError('최소 하나 이상의 수량을 선택해주세요.'); return; }
+    const missingTitle = items.find(it => !it.designTitle || !it.designTitle.trim());
+    if (missingTitle) {
+      setError(`디자인 이름을 입력해주세요: ${missingTitle.productTitle} (공장·담당자 구분용)`);
+      return;
+    }
     if (pricingMode === 'custom_total' && totalAmount <= 0) { setError('전체 금액을 입력해주세요.'); return; }
     if (!ceShip && shippingMethod === 'domestic' && (!shippingAddress.postalCode || !shippingAddress.addressLine1)) {
       setError('배송 주소를 입력해주세요.');
@@ -171,6 +176,7 @@ export default function OrderDetailsForm({ items, customerEditableFields, onCust
           items: items.map(item => ({
             designId: item.designId,
             productId: item.productId,
+            designTitle: item.designTitle?.trim() || undefined,
             variants: ceq ? item.variants : item.variants.filter(v => v.quantity > 0),
             pricingMode: item.pricingMode,
             customUnitPrice: item.pricingMode === 'custom_unit_price' ? getItemUnitPrice(item) : undefined,
