@@ -913,6 +913,46 @@ export default function OrderDetail({
                         )}
                       </div>
                       <div className="flex-1">
+                        {/* 디자인 이름 — 공장·관리자·고객이 모두 같이 보는 라벨. 빈 칸이면 빨강 강조. */}
+                        <div className="mb-1.5" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="text"
+                            defaultValue={item.design_title || ''}
+                            placeholder="디자인 이름을 지어주세요 (예: 청담고 응원티)"
+                            maxLength={60}
+                            onClick={(e) => e.stopPropagation()}
+                            onBlur={async (e) => {
+                              const next = e.currentTarget.value.trim();
+                              if (next === (item.design_title || '').trim()) return;
+                              if (!next) {
+                                e.currentTarget.value = item.design_title || '';
+                                alert('디자인 이름을 입력해주세요.');
+                                return;
+                              }
+                              try {
+                                const res = await fetch('/api/admin/orders/items', {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ orderItemId: item.id, updateMode: 'design_title', designTitle: next }),
+                                });
+                                if (!res.ok) {
+                                  const payload = await res.json().catch(() => ({}));
+                                  throw new Error(payload?.error || '저장에 실패했습니다.');
+                                }
+                                await fetchOrderItems();
+                                onUpdate();
+                              } catch (err) {
+                                alert(err instanceof Error ? err.message : '저장에 실패했습니다.');
+                                e.currentTarget.value = item.design_title || '';
+                              }
+                            }}
+                            className={`w-full px-2 py-1 text-sm font-semibold rounded border focus:outline-none focus:ring-1 ${
+                              item.design_title?.trim()
+                                ? 'border-gray-200 text-gray-900 bg-white focus:border-gray-900 focus:ring-gray-900'
+                                : 'border-red-300 bg-red-50 placeholder-red-400 focus:border-red-500 focus:ring-red-500'
+                            }`}
+                          />
+                        </div>
                         <div className="flex items-center gap-2">
                           <h4 className="font-medium text-black">{item.product_title}</h4>
                           {item.retouch_requested && (
@@ -1396,8 +1436,12 @@ export default function OrderDetail({
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-xs font-medium text-gray-900 truncate">{item.product_title}</div>
-                          <div className="text-[10px] text-gray-500">x{item.quantity}</div>
+                          {item.design_title?.trim() ? (
+                            <div className="text-xs font-semibold text-gray-900 truncate">{item.design_title}</div>
+                          ) : (
+                            <div className="text-xs font-semibold text-red-500 truncate">이름 없음</div>
+                          )}
+                          <div className="text-[10px] text-gray-500 truncate">{item.product_title} · x{item.quantity}</div>
                         </div>
                         <div className="text-xs text-right shrink-0 flex items-center gap-2">
                           <div>
