@@ -557,7 +557,7 @@ export default function AdminOrderCreator({
                                   디자인 이름 <span className="text-red-500">*</span>
                                 </label>
                                 <p className="text-xs text-gray-500 mb-2">
-                                  공장·담당자가 한눈에 알 수 있는 이름 (예: 청담고 응원티, 김민수 생일)
+                                  공장·담당자가 한눈에 알 수 있는 이름 — 사람 이름 대신 단체·이벤트·용도 (예: 청담고 응원티, OO교회 단체티)
                                 </p>
                                 <input
                                   type="text"
@@ -567,7 +567,7 @@ export default function AdminOrderCreator({
                                       it.id === item.id ? { ...it, designTitle: e.target.value } : it
                                     ))
                                   }
-                                  placeholder="예: 청담고 응원티"
+                                  placeholder="예: 청담고 응원티 (단체·이벤트명)"
                                   maxLength={40}
                                   className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-1 ${
                                     item.designTitle.trim()

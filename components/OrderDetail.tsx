@@ -918,7 +918,7 @@ export default function OrderDetail({
                           <input
                             type="text"
                             defaultValue={item.design_title || ''}
-                            placeholder="디자인 이름을 지어주세요 (예: 청담고 응원티)"
+                            placeholder="디자인 이름 — 사람 이름 대신 단체·이벤트명 (예: 청담고 응원티, 회사 워크샵 단체티)"
                             maxLength={60}
                             onClick={(e) => e.stopPropagation()}
                             onBlur={async (e) => {
@@ -2030,7 +2030,7 @@ export default function OrderDetail({
                       <input
                         type="text"
                         defaultValue={item.design_title || ''}
-                        placeholder="예: 청담고 응원티 (공장·관리자가 한눈에 알 수 있는 이름)"
+                        placeholder="단체·이벤트명 (예: 청담고 응원티)"
                         maxLength={60}
                         onBlur={async (e) => {
                           const next = e.currentTarget.value.trim();
