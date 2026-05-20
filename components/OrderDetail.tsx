@@ -983,19 +983,6 @@ export default function OrderDetail({
                             상품코드: {item.products.product_code}
                           </p>
                         )}
-                        {/* 작업사진 — 카메라 촬영·업로드 또는 Drive 폴더 열기 (모달) */}
-                        {item.assigned_manufacturer_id && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setWorkPhotoModalItemId(item.id);
-                            }}
-                            className="inline-flex items-center gap-1 mt-1.5 px-2 py-1 rounded text-xs font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
-                          >
-                            📷 작업사진
-                          </button>
-                        )}
                         {/* Size/Variant breakdown */}
                         {(() => {
                           const variants = extractVariants(item);
@@ -1478,6 +1465,21 @@ export default function OrderDetail({
 
                       {isExpanded && alloc && (
                         <div className="p-3 space-y-2 border-t border-gray-100 bg-white">
+                          {/* 작업사진 — 공장 배정된 item 에 한해 노출. 카메라 촬영·업로드 + Drive 폴더 열기 통합 모달 */}
+                          {item.assigned_manufacturer_id && (
+                            <div className="pb-2 border-b border-gray-100">
+                              <button
+                                type="button"
+                                onClick={() => setWorkPhotoModalItemId(item.id)}
+                                className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
+                              >
+                                📷 작업사진
+                              </button>
+                              <p className="text-[11px] text-gray-500 mt-1 text-center">
+                                사진 촬영·업로드 또는 Drive 폴더 열기
+                              </p>
+                            </div>
+                          )}
                           <div>
                             <label className="block text-[11px] text-gray-500 mb-0.5">공장 선택</label>
                             <select
