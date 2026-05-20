@@ -9,6 +9,7 @@ import DesignChatPanel from '@/components/orders/DesignChatPanel';
 import OrderAttachmentSection from '@/components/orders/OrderAttachmentSection';
 import AddOrderItemModal from '@/components/orders/AddOrderItemModal';
 import OrderProfitSection from '@/components/orders/OrderProfitSection';
+import WorkPhotoModal from '@/components/orders/WorkPhotoModal';
 import { extractVariants } from '@/lib/orderUtils';
 import { formatKstDateLong, formatKstDateTimeMedium, getKstYYYYMMDD } from '@/lib/kst';
 import { orderCategoryBadgeClass, orderCategoryLabel } from '@/lib/order-category';
@@ -56,6 +57,8 @@ export default function OrderDetail({
   const [loading, setLoading] = useState(true);
   const [showAddItemModal, setShowAddItemModal] = useState(!!initialAddItemDesignId);
   const [expandedFactoryItemId, setExpandedFactoryItemId] = useState<string | null>(null);
+  // 작업사진 모달 (카메라 촬영·업로드 + Drive 폴더 열기 통합)
+  const [workPhotoModalItemId, setWorkPhotoModalItemId] = useState<string | null>(null);
   const [itemAlloc, setItemAlloc] = useState<Record<string, { factory_id: string; amount: string; deadline: string; pay_date: string; pay_status: string }>>({});
   const [savingItemAlloc, setSavingItemAlloc] = useState<string | null>(null);
   const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
@@ -980,17 +983,18 @@ export default function OrderDetail({
                             상품코드: {item.products.product_code}
                           </p>
                         )}
-                        {/* 작업사진 폴더 — 공장 배정 시 자동 생성됨. 관리자·공장 모두 사용. */}
-                        {item.work_drive_folder_url && (
-                          <a
-                            href={item.work_drive_folder_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
+                        {/* 작업사진 — 카메라 촬영·업로드 또는 Drive 폴더 열기 (모달) */}
+                        {item.assigned_manufacturer_id && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setWorkPhotoModalItemId(item.id);
+                            }}
                             className="inline-flex items-center gap-1 mt-1.5 px-2 py-1 rounded text-xs font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
                           >
-                            📷 작업사진 폴더 열기
-                          </a>
+                            📷 작업사진
+                          </button>
                         )}
                         {/* Size/Variant breakdown */}
                         {(() => {
@@ -2077,22 +2081,19 @@ export default function OrderDetail({
                       />
                     </div>
 
-                    {/* 작업사진 폴더 — 공장은 사진 업로드, 관리자는 진행 사진 열람 */}
-                    {item.work_drive_folder_url && (
-                      <div>
-                        <a
-                          href={item.work_drive_folder_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
-                        >
-                          📷 작업사진 폴더 열기
-                        </a>
-                        <p className="text-[11px] text-gray-500 mt-1 text-center">
-                          모바일에서 카메라로 바로 촬영·업로드 가능
-                        </p>
-                      </div>
-                    )}
+                    {/* 작업사진 — 카메라 촬영·업로드 또는 Drive 폴더 열기 (모달) */}
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setWorkPhotoModalItemId(item.id)}
+                        className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
+                      >
+                        📷 작업사진
+                      </button>
+                      <p className="text-[11px] text-gray-500 mt-1 text-center">
+                        사진 촬영·업로드 또는 Drive 폴더 열기
+                      </p>
+                    </div>
 
                     <div>
                       <p className="text-xs text-gray-500 mb-1">배정 상태</p>
@@ -2183,6 +2184,24 @@ export default function OrderDetail({
       />
 
       <OrderProfitSection order={order} orderItems={orderItems} />
+
+      {/* 작업사진 모달 — 메인 카드/사이드 패널 어디서 트리거하든 동일 */}
+      {(() => {
+        const target = orderItems.find((i) => i.id === workPhotoModalItemId);
+        return (
+          <WorkPhotoModal
+            open={!!target}
+            orderItemId={target?.id ?? ''}
+            designTitle={target?.design_title ?? null}
+            folderUrl={target?.work_drive_folder_url ?? null}
+            onClose={() => setWorkPhotoModalItemId(null)}
+            onUploaded={() => {
+              fetchOrderItems();
+              onUpdate();
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }

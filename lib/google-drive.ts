@@ -98,6 +98,47 @@ export async function ensureSubFolder(
   return created.id;
 }
 
+/**
+ * Drive 폴더에 파일 업로드 (multipart). 의존성 추가 없이 fetch + FormData 만 사용.
+ * 반환: { fileId, webViewLink }
+ */
+export async function uploadFileToFolder(
+  folderId: string,
+  fileName: string,
+  fileBlob: Blob,
+): Promise<{ fileId: string; webViewLink: string }> {
+  const token = await getAccessToken();
+
+  const metadata = {
+    name: fileName,
+    parents: [folderId],
+  };
+
+  const form = new FormData();
+  form.append(
+    'metadata',
+    new Blob([JSON.stringify(metadata)], { type: 'application/json' }),
+  );
+  form.append('file', fileBlob, fileName);
+
+  const res = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`[google-drive] upload failed: ${res.status} ${await res.text()}`);
+  }
+  const data = (await res.json()) as { id: string; webViewLink?: string };
+  return {
+    fileId: data.id,
+    webViewLink: data.webViewLink ?? `https://drive.google.com/file/d/${data.id}/view`,
+  };
+}
+
 /** 링크 보유자 누구나 편집(파일 업로드) 가능하도록 권한 부여. 이미 있으면 조용히 통과. */
 export async function setAnyoneLinkWriter(fileId: string): Promise<void> {
   const token = await getAccessToken();
