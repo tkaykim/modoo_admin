@@ -980,6 +980,18 @@ export default function OrderDetail({
                             상품코드: {item.products.product_code}
                           </p>
                         )}
+                        {/* 작업사진 폴더 — 공장 배정 시 자동 생성됨. 관리자·공장 모두 사용. */}
+                        {item.work_drive_folder_url && (
+                          <a
+                            href={item.work_drive_folder_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 mt-1.5 px-2 py-1 rounded text-xs font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
+                          >
+                            📷 작업사진 폴더 열기
+                          </a>
+                        )}
                         {/* Size/Variant breakdown */}
                         {(() => {
                           const variants = extractVariants(item);
