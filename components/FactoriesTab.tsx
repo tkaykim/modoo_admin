@@ -6,6 +6,7 @@ import type { Factory, ManufacturerColor, Profile } from '@/types/types';
 import {
   AlertCircle,
   ArrowLeft,
+  DollarSign,
   Factory as FactoryIcon,
   Palette,
   Plus,
@@ -16,6 +17,7 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
+import FactoryPricingEditorModal from '@/components/factories/FactoryPricingEditorModal';
 
 const sortFactories = (items: Factory[]) =>
   [...items].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
@@ -620,6 +622,9 @@ export default function FactoriesTab() {
   // Color management view state
   const [selectedFactoryForColors, setSelectedFactoryForColors] = useState<Factory | null>(null);
 
+  // Pricing editor modal state
+  const [pricingFactory, setPricingFactory] = useState<Factory | null>(null);
+
   // Account creation state
   const [creatingAccountForId, setCreatingAccountForId] = useState<string | null>(null);
   const [accountForm, setAccountForm] = useState({ email: '', password: '' });
@@ -1106,6 +1111,13 @@ export default function FactoriesTab() {
                                 색상 관리
                               </button>
                               <button
+                                onClick={() => setPricingFactory(factory)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 text-emerald-700 hover:bg-emerald-50 rounded-md transition-colors"
+                              >
+                                <DollarSign className="w-4 h-4" />
+                                단가표
+                              </button>
+                              <button
                                 onClick={() => {
                                   setCreatingAccountForId((prev) =>
                                     prev === factory.id ? null : factory.id
@@ -1340,6 +1352,7 @@ export default function FactoriesTab() {
                       <>
                         <button onClick={() => handleEditStart(factory)} className="px-2 py-1 text-[11px] text-gray-700 hover:bg-gray-100 rounded transition-colors">편집</button>
                         <button onClick={() => setSelectedFactoryForColors(factory)} className="px-2 py-1 text-[11px] text-purple-700 hover:bg-purple-50 rounded transition-colors"><Palette className="w-3.5 h-3.5 inline mr-0.5" />색상</button>
+                        <button onClick={() => setPricingFactory(factory)} className="px-2 py-1 text-[11px] text-emerald-700 hover:bg-emerald-50 rounded transition-colors"><DollarSign className="w-3.5 h-3.5 inline mr-0.5" />단가</button>
                         <button onClick={() => { setCreatingAccountForId((prev) => prev === factory.id ? null : factory.id); setAccountForm({email: '', password: ''}); }} className="px-2 py-1 text-[11px] text-green-700 hover:bg-green-50 rounded transition-colors"><UserPlus className="w-3.5 h-3.5 inline mr-0.5" />계정</button>
                         <button onClick={() => setExpandedFactoryId((prev) => prev === factory.id ? null : factory.id)} className="px-2 py-1 text-[11px] text-blue-700 hover:bg-blue-50 rounded transition-colors">사용자</button>
                       </>
@@ -1395,6 +1408,13 @@ export default function FactoriesTab() {
           </div>
         )}
       </div>
+
+      {pricingFactory && (
+        <FactoryPricingEditorModal
+          factory={pricingFactory}
+          onClose={() => setPricingFactory(null)}
+        />
+      )}
     </div>
   );
 }

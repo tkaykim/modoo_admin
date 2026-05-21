@@ -289,6 +289,11 @@ export default function PrintMethodsPage() {
         </button>
       </div>
 
+      <div className="p-3 mb-4 text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded-md">
+        여기서 설정하는 단가는 <b>고객 노출가</b>입니다. 공장에 지급하는 단가는 공장별로 다르며,
+        <b> 공장관리 &gt; 단가표</b>에서 별도 관리합니다.
+      </div>
+
       {swrError && (
         <div className="p-3 mb-4 text-sm text-red-700 bg-red-50 rounded-md">
           데이터를 불러오지 못했습니다: {swrError.message}

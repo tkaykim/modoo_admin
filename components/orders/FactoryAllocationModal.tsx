@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Factory, Order, OrderItem } from '@/types/types';
-import { X, Factory as FactoryIcon, Package, Copy } from 'lucide-react';
+import { Factory, FactoryPrintMethodPricing, Order, OrderItem } from '@/types/types';
+import { X, Factory as FactoryIcon, Package, Copy, Info } from 'lucide-react';
 import { extractVariants } from '@/lib/orderUtils';
 
 interface ItemAllocationState {
@@ -32,6 +32,9 @@ export default function FactoryAllocationModal({
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(true);
   const [itemAllocations, setItemAllocations] = useState<ItemAllocationState[]>([]);
+  // Cache: factory_id -> pricing rows count (for UX hint only; auto-fill is not done
+  // because order_items currently do not expose a stable print_method_id/size pair).
+  const [pricingByFactory, setPricingByFactory] = useState<Record<string, FactoryPrintMethodPricing[]>>({});
 
   useEffect(() => {
     const fetchItems = async () => {
@@ -65,6 +68,17 @@ export default function FactoryAllocationModal({
     setItemAllocations((prev) =>
       prev.map((a, i) => (i === index ? { ...a, [field]: value } : a))
     );
+
+    // When a factory is selected, prefetch its pricing rows for UX hint.
+    if (field === 'assigned_manufacturer_id' && typeof value === 'string' && value && !pricingByFactory[value]) {
+      fetch(`/api/admin/factory-print-pricing?factory_id=${value}`)
+        .then(async (res) => {
+          if (!res.ok) return;
+          const payload = await res.json();
+          setPricingByFactory((prev) => ({ ...prev, [value]: payload.data || [] }));
+        })
+        .catch(() => {});
+    }
   };
 
   const applyToAll = (sourceIndex: number) => {
@@ -260,6 +274,24 @@ export default function FactoryAllocationModal({
                           />
                           <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">원</span>
                         </div>
+                        {alloc.assigned_manufacturer_id && (() => {
+                          const rows = pricingByFactory[alloc.assigned_manufacturer_id];
+                          if (!rows) return null;
+                          if (rows.length === 0) {
+                            return (
+                              <p className="mt-1 inline-flex items-center gap-1 text-[10px] text-amber-700">
+                                <Info className="w-3 h-3" />
+                                이 공장 단가표 미등록 (공장관리 &gt; 단가표)
+                              </p>
+                            );
+                          }
+                          const methods = new Set(rows.map((r) => r.print_methods?.name).filter(Boolean));
+                          return (
+                            <p className="mt-1 text-[10px] text-gray-500">
+                              취급: {Array.from(methods).join(', ')}
+                            </p>
+                          );
+                        })()}
                       </div>
 
                       <div>

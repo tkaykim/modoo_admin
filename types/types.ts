@@ -104,7 +104,38 @@ export interface ProductLayer {
 }
 
 // Print method types - includes transfer methods and bulk methods
-export type PrintMethod = 'dtf' | 'dtg' | 'screen_printing' | 'embroidery' | 'applique';
+export type PrintMethod =
+  | 'dtf'
+  | 'dtg'
+  | 'screen_printing'
+  | 'embroidery'
+  | 'applique'
+  | 'pu'
+  | 'dtp'
+  | 'sublimation';
+
+export type FactoryPricingModel = 'flat' | 'bulk';
+
+export interface FactoryPrintMethodPricing {
+  id: string;
+  factory_id: string;
+  print_method_id: string;
+  size: PrintSize;
+  pricing_model: FactoryPricingModel;
+  unit_price: number | null;
+  base_price: number | null;
+  base_quantity: number | null;
+  additional_price_per_piece: number | null;
+  is_active: boolean;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+  print_methods?: {
+    id: string;
+    key: string;
+    name: string;
+  } | null;
+}
 
 export interface PrintMethodRecord {
   id: string;
