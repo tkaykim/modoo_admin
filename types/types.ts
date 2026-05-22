@@ -116,6 +116,69 @@ export type PrintMethod =
 
 export type FactoryPricingModel = 'flat' | 'bulk';
 
+/**
+ * Customer-facing print pricing — mirrors FactoryPrintMethodPricing structure
+ * but global (no factory_id). Used by future modoo_app editor to price
+ * customer-visible print costs at order time.
+ */
+export interface CustomerPrintMethodPricing {
+  id: string;
+  print_method_id: string;
+  size: string;
+  max_width_cm: number | null;
+  max_height_cm: number | null;
+  pricing_model: FactoryPricingModel;
+  unit_price: number | null;
+  base_price: number | null;
+  base_quantity: number | null;
+  additional_price_per_piece: number | null;
+  is_active: boolean;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+  print_methods?: {
+    id: string;
+    key: string;
+    name: string;
+  } | null;
+}
+
+export type FactoryCostSource = 'auto_match' | 'manual' | 'negotiated' | 'override';
+
+/**
+ * One artwork (printed design) applied to an order_item.
+ * An order_item can have N artworks (e.g. front DTF + back embroidery).
+ * customer_* fields freeze the customer-visible price at order time;
+ * factory_* fields hold the cost paid to the assigned factory.
+ * Margin per artwork = customer_total - factory_total.
+ * order_items.factory_amount is auto-synced to SUM(factory_total) via DB trigger.
+ */
+export interface OrderItemArtwork {
+  id: string;
+  order_item_id: string;
+  print_method_id: string | null;
+  placement: string | null;
+  size_label: string | null;
+  width_cm: number | null;
+  height_cm: number | null;
+  applied_quantity: number | null;
+  customer_unit_price: number | null;
+  customer_total: number | null;
+  customer_pricing_snapshot: Record<string, unknown> | null;
+  factory_pricing_row_id: string | null;
+  factory_unit_price: number | null;
+  factory_total: number | null;
+  factory_cost_source: FactoryCostSource | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+  print_methods?: {
+    id: string;
+    key: string;
+    name: string;
+  } | null;
+}
+
 export interface FactoryPrintMethodPricing {
   id: string;
   factory_id: string;
