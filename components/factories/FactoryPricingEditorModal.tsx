@@ -14,6 +14,20 @@ interface Props {
   factory: Factory;
   onClose: () => void;
   onSaved?: () => void;
+  /**
+   * URLs to use for fetching/saving — defaults to admin endpoints.
+   * Pass my-factory endpoints to reuse this UI for factory self-service.
+   */
+  endpoints?: {
+    methodsUrl?: string;
+    pricingGetUrl?: string; // takes ?factory_id=... unless absolute
+    pricingBulkUrl?: string;
+  };
+  /**
+   * 'modal' (default) renders as a full-screen overlay with backdrop.
+   * 'inline' renders as a flat panel — used by the factory self-service page.
+   */
+  presentation?: 'modal' | 'inline';
 }
 
 // In-memory draft row — every value is a string so empty inputs work cleanly.
@@ -69,7 +83,16 @@ function rowFromDb(r: FactoryPrintMethodPricing): RowDraft {
   };
 }
 
-export default function FactoryPricingEditorModal({ factory, onClose, onSaved }: Props) {
+export default function FactoryPricingEditorModal({ factory, onClose, onSaved, endpoints, presentation = 'modal' }: Props) {
+  const isInline = presentation === 'inline';
+  const methodsUrl = endpoints?.methodsUrl ?? '/api/admin/print-methods';
+  // For admin: GET takes ?factory_id=ID. For my-factory: no query needed (derived from session).
+  const pricingGetUrl =
+    endpoints?.pricingGetUrl ?? `/api/admin/factory-print-pricing?factory_id=${factory.id}`;
+  const pricingBulkUrl = endpoints?.pricingBulkUrl ?? '/api/admin/factory-print-pricing/bulk';
+  // my-factory bulk PUT doesn't accept factory_id from client (server derives it).
+  const sendsFactoryIdInBody = pricingBulkUrl.includes('/admin/');
+
   const [methods, setMethods] = useState<PrintMethodRecord[]>([]);
   // print_method_id -> { enabled, rows[] }
   const [rowsByMethod, setRowsByMethod] = useState<Record<string, { enabled: boolean; rows: RowDraft[] }>>({});
@@ -84,8 +107,8 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved }:
       setError(null);
       try {
         const [methodsRes, pricingRes] = await Promise.all([
-          fetch('/api/admin/print-methods'),
-          fetch(`/api/admin/factory-print-pricing?factory_id=${factory.id}`),
+          fetch(methodsUrl),
+          fetch(pricingGetUrl),
         ]);
         if (!methodsRes.ok) throw new Error('인쇄기법 목록을 불러오지 못했습니다.');
         if (!pricingRes.ok) throw new Error('공장 단가를 불러오지 못했습니다.');
@@ -123,7 +146,7 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved }:
     return () => {
       cancelled = true;
     };
-  }, [factory.id]);
+  }, [factory.id, methodsUrl, pricingGetUrl]);
 
   const toggleMethod = (method: PrintMethodRecord, enabled: boolean) => {
     setRowsByMethod((prev) => {
@@ -240,10 +263,10 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved }:
         }
       }
 
-      const res = await fetch('/api/admin/factory-print-pricing/bulk', {
+      const res = await fetch(pricingBulkUrl, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ factory_id: factory.id, rows }),
+        body: JSON.stringify(sendsFactoryIdInBody ? { factory_id: factory.id, rows } : { rows }),
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
@@ -263,19 +286,28 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved }:
     [methods]
   );
 
+  const outerClass = isInline
+    ? ''
+    : 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4';
+  const innerClass = isInline
+    ? 'bg-white border border-gray-200 rounded-lg shadow-sm w-full'
+    : 'bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[92vh] overflow-y-auto';
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[92vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
+    <div className={outerClass}>
+      <div className={innerClass}>
+        <div className={`${isInline ? '' : 'sticky top-0 '}bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10`}>
           <div className="flex items-center gap-2">
             <DollarSign className="w-5 h-5 text-emerald-600" />
             <h2 className="text-lg font-semibold text-gray-900">
               공장 단가표 — {factory.name}
             </h2>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X className="w-5 h-5" />
-          </button>
+          {!isInline && (
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         <div className="p-6 space-y-4">
@@ -484,14 +516,16 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved }:
           )}
         </div>
 
-        <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-3 flex gap-3 justify-end">
-          <button
-            onClick={onClose}
-            disabled={saving}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 text-sm disabled:opacity-50"
-          >
-            취소
-          </button>
+        <div className={`${isInline ? '' : 'sticky bottom-0 '}bg-white border-t border-gray-200 px-6 py-3 flex gap-3 justify-end`}>
+          {!isInline && (
+            <button
+              onClick={onClose}
+              disabled={saving}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 text-sm disabled:opacity-50"
+            >
+              취소
+            </button>
+          )}
           <button
             onClick={handleSave}
             disabled={saving || loading}

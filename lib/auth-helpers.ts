@@ -34,6 +34,10 @@ export function isSuperAdmin(role: unknown): boolean {
   return normalizeProfileRole(role) === 'super_admin';
 }
 
+export function isFactoryRole(role: unknown): boolean {
+  return normalizeProfileRole(role) === 'factory';
+}
+
 /** 관리자 화면(대시보드 등) 접근 가능한 역할 */
 export function isBackofficeOperatorRole(role: unknown): boolean {
   const n = normalizeProfileRole(role);

@@ -59,6 +59,7 @@ const navGroups: NavGroup[] = [
       { type: 'link', href: '/templates', label: '템플릿 관리', icon: LayoutTemplate, roles: ['admin', 'super_admin'] },
       // { type: 'link', href: '/print-methods', label: '인쇄 방식', icon: Printer, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/factories', label: '공장 관리', icon: Factory, roles: ['admin', 'super_admin'] },
+      { type: 'link', href: '/factory/pricing', label: '단가표 관리', icon: Printer, roles: ['factory'] },
     ],
   },
   {
