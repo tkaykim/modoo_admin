@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase-admin';
 import { validatePricingRow } from '@/lib/factoryPricing';
 
 const SELECT_COLUMNS =
-  'id, factory_id, print_method_id, size, pricing_model, unit_price, base_price, base_quantity, additional_price_per_piece, is_active, note, created_at, updated_at, print_methods:print_method_id ( id, key, name )';
+  'id, factory_id, print_method_id, size, max_width_cm, max_height_cm, pricing_model, unit_price, base_price, base_quantity, additional_price_per_piece, is_active, note, created_at, updated_at, print_methods:print_method_id ( id, key, name )';
 
 const requireAdmin = async () => {
   const supabase = await createClient();
