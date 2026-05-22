@@ -1,18 +1,20 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { useAuthStore } from '@/store/useAuthStore';
 import FactoryPricingEditorModal from '@/components/factories/FactoryPricingEditorModal';
 import type { Factory } from '@/types/types';
 import { DollarSign, AlertCircle } from 'lucide-react';
 
 /**
  * Factory user self-service: edit their OWN manufacturer's print pricing.
- * The /api/my-factory/* endpoints derive the factory_id from the session, so
- * the user cannot edit any other factory's pricing (RLS also enforces this).
+ * AdminLayout already runs useAdminAuth() globally and gates rendering on
+ * authStatus === 'authenticated'. We must NOT call useAdminAuth() again here
+ * or we cause cascading store mutations and a render storm.
  */
 export default function FactoryPricingPage() {
-  const { authStatus, user } = useAdminAuth();
+  const authStatus = useAuthStore((s) => s.authStatus);
+  const userId = useAuthStore((s) => s.user?.id);
   const [factory, setFactory] = useState<Factory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,12 +22,9 @@ export default function FactoryPricingPage() {
 
   useEffect(() => {
     if (authStatus !== 'authenticated') return;
-    const uid = user?.id ?? null;
-    if (!uid) return;
-    // Only fetch once per user id to avoid request storms when other store
-    // values trigger re-renders.
-    if (fetchedForUserIdRef.current === uid) return;
-    fetchedForUserIdRef.current = uid;
+    if (!userId) return;
+    if (fetchedForUserIdRef.current === userId) return;
+    fetchedForUserIdRef.current = userId;
 
     const ctrl = new AbortController();
     (async () => {
@@ -51,7 +50,7 @@ export default function FactoryPricingPage() {
     return () => {
       ctrl.abort();
     };
-  }, [authStatus, user?.id]);
+  }, [authStatus, userId]);
 
   return (
     <div className="max-w-5xl mx-auto p-4 sm:p-6">
