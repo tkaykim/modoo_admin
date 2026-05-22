@@ -1,14 +1,23 @@
 import type {
   FactoryPricingModel,
   FactoryPrintMethodPricing,
-  PrintSize,
 } from '@/types/types';
 
-export const FACTORY_PRINT_SIZES: PrintSize[] = ['10x10', 'A4', 'A3'];
+/**
+ * Suggested labels for the size dropdown — admin can still type any string.
+ * Includes common square sizes and the customer-facing canonical labels.
+ */
+export const SUGGESTED_SIZE_LABELS: string[] = [
+  '10x10', '15x15', '20x20', '25x25', '28x28',
+  '30x30', '35x35', '40x40', '45x45',
+  'A4', 'A3',
+];
 
 export interface FactoryPricingRowInput {
   print_method_id: string;
-  size: PrintSize;
+  size: string;
+  max_width_cm?: number | null;
+  max_height_cm?: number | null;
   pricing_model: FactoryPricingModel;
   unit_price?: number | null;
   base_price?: number | null;
@@ -18,17 +27,15 @@ export interface FactoryPricingRowInput {
   note?: string | null;
 }
 
-export function isPrintSize(value: unknown): value is PrintSize {
-  return value === '10x10' || value === 'A4' || value === 'A3';
-}
-
 export function isPricingModel(value: unknown): value is FactoryPricingModel {
   return value === 'flat' || value === 'bulk';
 }
 
 export interface ValidatedPricingRow {
   print_method_id: string;
-  size: PrintSize;
+  size: string;
+  max_width_cm: number | null;
+  max_height_cm: number | null;
   pricing_model: FactoryPricingModel;
   unit_price: number | null;
   base_price: number | null;
@@ -38,6 +45,12 @@ export interface ValidatedPricingRow {
   note: string | null;
 }
 
+const toNumber = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
 export function validatePricingRow(input: unknown): ValidatedPricingRow | { error: string } {
   if (!input || typeof input !== 'object') {
     return { error: '단가 행 형식이 올바르지 않습니다.' };
@@ -46,18 +59,25 @@ export function validatePricingRow(input: unknown): ValidatedPricingRow | { erro
   if (typeof row.print_method_id !== 'string' || !row.print_method_id) {
     return { error: '인쇄기법 ID가 필요합니다.' };
   }
-  if (!isPrintSize(row.size)) {
-    return { error: '사이즈는 10x10/A4/A3 중 하나여야 합니다.' };
+  const sizeRaw = typeof row.size === 'string' ? row.size.trim() : '';
+  if (!sizeRaw) {
+    return { error: '사이즈 라벨이 필요합니다.' };
+  }
+  if (sizeRaw.length > 32) {
+    return { error: '사이즈 라벨은 32자 이내여야 합니다.' };
   }
   if (!isPricingModel(row.pricing_model)) {
     return { error: 'pricing_model은 flat 또는 bulk여야 합니다.' };
   }
 
-  const toNumber = (v: unknown): number | null => {
-    if (v === null || v === undefined || v === '') return null;
-    const n = typeof v === 'number' ? v : Number(v);
-    return Number.isFinite(n) ? n : null;
-  };
+  const max_width_cm = toNumber(row.max_width_cm);
+  const max_height_cm = toNumber(row.max_height_cm);
+  if (max_width_cm !== null && max_width_cm <= 0) {
+    return { error: 'max_width_cm은 0보다 커야 합니다.' };
+  }
+  if (max_height_cm !== null && max_height_cm <= 0) {
+    return { error: 'max_height_cm은 0보다 커야 합니다.' };
+  }
 
   const unit_price = toNumber(row.unit_price);
   const base_price = toNumber(row.base_price);
@@ -83,7 +103,9 @@ export function validatePricingRow(input: unknown): ValidatedPricingRow | { erro
 
   return {
     print_method_id: row.print_method_id,
-    size: row.size,
+    size: sizeRaw,
+    max_width_cm,
+    max_height_cm,
     pricing_model: row.pricing_model,
     unit_price: row.pricing_model === 'flat' ? unit_price : null,
     base_price: row.pricing_model === 'bulk' ? base_price : null,
@@ -96,10 +118,9 @@ export function validatePricingRow(input: unknown): ValidatedPricingRow | { erro
 }
 
 /**
- * Calculates the total factory cost for a given pricing row and quantity.
+ * Calculates total factory cost for a pricing row + quantity.
  * - flat: unit_price * quantity
- * - bulk: base_price covers first base_quantity units;
- *         each additional unit adds additional_price_per_piece.
+ * - bulk: base_price for first base_quantity units; each additional unit adds additional_price_per_piece.
  */
 export function calculateFactoryAmount(
   row: Pick<
@@ -123,4 +144,58 @@ export function calculateFactoryAmount(
     return Math.round(row.base_price + extra * row.additional_price_per_piece);
   }
   return null;
+}
+
+/**
+ * Pick the best pricing row for an artwork of (width_cm × height_cm).
+ * Strategy: among rows whose max_width_cm ≥ artwork_w AND max_height_cm ≥ artwork_h,
+ * choose the one with the smallest (max_width_cm × max_height_cm) — i.e. the
+ * tightest "ceiling" that still fits. Rows missing dimensions are ignored
+ * (they remain manual-pick only).
+ *
+ * Returns null when no row can cover the requested dimensions.
+ */
+export function findMatchingPricingByDimensions<T extends Pick<
+  FactoryPrintMethodPricing,
+  'max_width_cm' | 'max_height_cm' | 'is_active'
+>>(
+  rows: T[],
+  artwork_width_cm: number,
+  artwork_height_cm: number
+): T | null {
+  if (!Number.isFinite(artwork_width_cm) || artwork_width_cm <= 0) return null;
+  if (!Number.isFinite(artwork_height_cm) || artwork_height_cm <= 0) return null;
+
+  const candidates = rows
+    .filter((r) => r.is_active !== false)
+    .filter((r) => r.max_width_cm !== null && r.max_height_cm !== null)
+    .filter(
+      (r) =>
+        (r.max_width_cm ?? 0) >= artwork_width_cm &&
+        (r.max_height_cm ?? 0) >= artwork_height_cm
+    );
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => {
+    const areaA = (a.max_width_cm ?? 0) * (a.max_height_cm ?? 0);
+    const areaB = (b.max_width_cm ?? 0) * (b.max_height_cm ?? 0);
+    return areaA - areaB;
+  });
+
+  return candidates[0];
+}
+
+/**
+ * Convenience: parse a "WxH" or "WxH cm" size label into rough dimensions.
+ * Used as a fallback to seed max_width_cm/max_height_cm when admin only
+ * types a label. Returns null if not parseable.
+ */
+export function parseSizeLabelToCm(label: string): { width: number; height: number } | null {
+  const m = label.trim().match(/^(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)/i);
+  if (!m) return null;
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+  return { width: w, height: h };
 }

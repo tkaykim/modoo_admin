@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAdminLike } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { calculateFactoryAmount, isPrintSize } from '@/lib/factoryPricing';
+import { calculateFactoryAmount, findMatchingPricingByDimensions } from '@/lib/factoryPricing';
 
 const requireAdmin = async () => {
   const supabase = await createClient();
@@ -31,10 +31,12 @@ const requireAdmin = async () => {
 };
 
 /**
- * Lookup factory pricing for a (factory, print_method, size) and compute amount.
- * GET ?factory_id=...&print_method_id=...&size=...&quantity=N
- * Returns: { data: { row, amount } | null }
- * - `null` when no pricing row exists for that combination (caller decides what to do).
+ * Lookup factory pricing for a (factory, print_method) and compute amount.
+ * Two modes:
+ *  - By label: ?factory_id=...&print_method_id=...&size=LABEL&quantity=N
+ *  - By dimensions: ?factory_id=...&print_method_id=...&width_cm=X&height_cm=Y&quantity=N
+ *    (picks the smallest pricing row whose max_width_cm/max_height_cm covers the artwork)
+ * Returns: { data: { row, amount, quantity } | null }
  */
 export async function GET(request: Request) {
   try {
@@ -45,16 +47,15 @@ export async function GET(request: Request) {
     const factoryId = url.searchParams.get('factory_id');
     const printMethodId = url.searchParams.get('print_method_id');
     const size = url.searchParams.get('size');
+    const widthCmRaw = url.searchParams.get('width_cm');
+    const heightCmRaw = url.searchParams.get('height_cm');
     const quantityRaw = url.searchParams.get('quantity');
 
-    if (!factoryId || !printMethodId || !size) {
+    if (!factoryId || !printMethodId) {
       return NextResponse.json(
-        { error: 'factory_id, print_method_id, size는 모두 필요합니다.' },
+        { error: 'factory_id, print_method_id는 필수입니다.' },
         { status: 400 }
       );
-    }
-    if (!isPrintSize(size)) {
-      return NextResponse.json({ error: '사이즈는 10x10/A4/A3 중 하나여야 합니다.' }, { status: 400 });
     }
     const quantity = quantityRaw ? Number(quantityRaw) : 1;
     if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -62,24 +63,45 @@ export async function GET(request: Request) {
     }
 
     const adminClient = createAdminClient();
-    const { data, error } = await adminClient
+
+    // Mode 1: explicit size label
+    if (size) {
+      const { data, error } = await adminClient
+        .from('factory_print_method_pricing')
+        .select('*')
+        .eq('factory_id', factoryId)
+        .eq('print_method_id', printMethodId)
+        .eq('size', size)
+        .eq('is_active', true)
+        .maybeSingle();
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!data) return NextResponse.json({ data: null });
+      const amount = calculateFactoryAmount(data, quantity);
+      return NextResponse.json({ data: { row: data, amount, quantity } });
+    }
+
+    // Mode 2: artwork dimensions
+    const widthCm = widthCmRaw ? Number(widthCmRaw) : NaN;
+    const heightCm = heightCmRaw ? Number(heightCmRaw) : NaN;
+    if (!Number.isFinite(widthCm) || !Number.isFinite(heightCm)) {
+      return NextResponse.json(
+        { error: 'size 또는 (width_cm, height_cm) 중 하나가 필요합니다.' },
+        { status: 400 }
+      );
+    }
+
+    const { data: rows, error } = await adminClient
       .from('factory_print_method_pricing')
       .select('*')
       .eq('factory_id', factoryId)
       .eq('print_method_id', printMethodId)
-      .eq('size', size)
-      .eq('is_active', true)
-      .maybeSingle();
+      .eq('is_active', true);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-    if (!data) {
-      return NextResponse.json({ data: null });
-    }
-
-    const amount = calculateFactoryAmount(data, quantity);
-    return NextResponse.json({ data: { row: data, amount, quantity } });
+    const match = findMatchingPricingByDimensions(rows || [], widthCm, heightCm);
+    if (!match) return NextResponse.json({ data: null });
+    const amount = calculateFactoryAmount(match, quantity);
+    return NextResponse.json({ data: { row: match, amount, quantity } });
   } catch (error) {
     const message = error instanceof Error ? error.message : '공장 단가 조회에 실패했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });

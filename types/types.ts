@@ -120,7 +120,12 @@ export interface FactoryPrintMethodPricing {
   id: string;
   factory_id: string;
   print_method_id: string;
-  size: PrintSize;
+  /** Free-form label like '25x25', 'A4', '10x10' — display + identity within (factory, method) */
+  size: string;
+  /** Max printable width in cm — used for artwork→size auto-matching */
+  max_width_cm: number | null;
+  /** Max printable height in cm — used for artwork→size auto-matching */
+  max_height_cm: number | null;
   pricing_model: FactoryPricingModel;
   unit_price: number | null;
   base_price: number | null;

@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS public.factory_print_method_pricing (
   factory_id uuid NOT NULL REFERENCES public.manufacturers(id) ON DELETE CASCADE,
   print_method_id uuid NOT NULL REFERENCES public.print_methods(id) ON DELETE CASCADE,
   size text NOT NULL,
+  max_width_cm numeric,
+  max_height_cm numeric,
   pricing_model text NOT NULL,
   unit_price numeric,
   base_price numeric,
@@ -17,8 +19,6 @@ CREATE TABLE IF NOT EXISTS public.factory_print_method_pricing (
   note text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT factory_print_method_pricing_size_check
-    CHECK (size IN ('10x10', 'A4', 'A3')),
   CONSTRAINT factory_print_method_pricing_model_check
     CHECK (pricing_model IN ('flat', 'bulk')),
   CONSTRAINT factory_print_method_pricing_flat_unit_price
@@ -35,6 +35,8 @@ CREATE INDEX IF NOT EXISTS idx_factory_print_method_pricing_print_method
   ON public.factory_print_method_pricing(print_method_id);
 CREATE INDEX IF NOT EXISTS idx_factory_print_method_pricing_lookup
   ON public.factory_print_method_pricing(factory_id, print_method_id, size);
+CREATE INDEX IF NOT EXISTS idx_factory_print_method_pricing_dims
+  ON public.factory_print_method_pricing(factory_id, print_method_id, max_width_cm, max_height_cm);
 
 ALTER TABLE public.factory_print_method_pricing ENABLE ROW LEVEL SECURITY;
 
