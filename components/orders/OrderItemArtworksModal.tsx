@@ -14,6 +14,23 @@ interface Props {
   factoryId: string | null; // assigned_manufacturer_id (optional)
   onClose: () => void;
   onSaved?: () => void;
+  /**
+   * 'admin' (default): full RW. CRUD all fields, add/remove rows.
+   * 'factory': RW only on factory_unit_price/factory_total/factory_cost_source/note.
+   *           Cannot add/remove rows. Other fields disabled.
+   */
+  mode?: 'admin' | 'factory';
+  /**
+   * API endpoints — override for factory mode.
+   * - listUrl: GET artworks list
+   * - mutationUrl: POST/PATCH/DELETE (only PATCH for factory)
+   * - autoMatchUrl: POST auto-match
+   */
+  endpoints?: {
+    listUrl?: string;
+    mutationUrl?: string;
+    autoMatchUrl?: string;
+  };
 }
 
 interface RowDraft {
@@ -87,7 +104,14 @@ export default function OrderItemArtworksModal({
   factoryId,
   onClose,
   onSaved,
+  mode = 'admin',
+  endpoints,
 }: Props) {
+  const isFactoryMode = mode === 'factory';
+  const listUrl = endpoints?.listUrl ?? `/api/admin/order-items/${orderItemId}/artworks`;
+  const mutationUrl = endpoints?.mutationUrl ?? `/api/admin/order-items/${orderItemId}/artworks`;
+  const autoMatchUrl =
+    endpoints?.autoMatchUrl ?? `/api/admin/order-items/${orderItemId}/artworks/auto-match`;
   const [methods, setMethods] = useState<PrintMethodRecord[]>([]);
   const [rows, setRows] = useState<RowDraft[]>([]);
   const [originalIds, setOriginalIds] = useState<Set<string>>(new Set());
@@ -101,9 +125,15 @@ export default function OrderItemArtworksModal({
       try {
         setLoading(true);
         setError(null);
+        // Print methods list endpoint:
+        //  - admin: /api/admin/print-methods (full list)
+        //  - factory: /api/my-factory/print-methods (factory-accessible)
+        const methodsListUrl = isFactoryMode
+          ? '/api/my-factory/print-methods'
+          : '/api/admin/print-methods';
         const [methodsRes, artRes] = await Promise.all([
-          fetch('/api/admin/print-methods'),
-          fetch(`/api/admin/order-items/${orderItemId}/artworks`),
+          fetch(methodsListUrl),
+          fetch(listUrl),
         ]);
         if (!methodsRes.ok) throw new Error('인쇄기법 목록 로드 실패');
         if (!artRes.ok) throw new Error('아트워크 목록 로드 실패');
@@ -126,7 +156,7 @@ export default function OrderItemArtworksModal({
     return () => {
       cancelled = true;
     };
-  }, [orderItemId]);
+  }, [orderItemId, isFactoryMode, listUrl]);
 
   const updateRow = (tempId: string, patch: Partial<RowDraft>) => {
     setRows((prev) => prev.map((r) => (r.tempId === tempId ? { ...r, ...patch } : r)));
@@ -180,7 +210,7 @@ export default function OrderItemArtworksModal({
 
     updateRow(tempId, { matching: true, matchError: null });
     try {
-      const res = await fetch(`/api/admin/order-items/${orderItemId}/artworks/auto-match`, {
+      const res = await fetch(autoMatchUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -188,7 +218,8 @@ export default function OrderItemArtworksModal({
           width_cm: w,
           height_cm: h,
           applied_quantity: q,
-          factory_id: factoryId || undefined,
+          // factory_id is only meaningful for admin endpoint; factory endpoint derives from session
+          factory_id: isFactoryMode ? undefined : factoryId || undefined,
         }),
       });
       if (!res.ok) {
@@ -238,13 +269,16 @@ export default function OrderItemArtworksModal({
       const currentIds = new Set(rows.map((r) => r.dbId).filter((x): x is string => !!x));
       const idsToDelete: string[] = Array.from(originalIds).filter((id) => !currentIds.has(id));
 
-      for (const id of idsToDelete) {
-        const res = await fetch(`/api/admin/order-items/${orderItemId}/artworks?artwork_id=${id}`, {
-          method: 'DELETE',
-        });
-        if (!res.ok) {
-          const p = await res.json().catch(() => ({}));
-          throw new Error(p?.error || `삭제 실패: ${id}`);
+      // Factory mode never deletes rows
+      if (!isFactoryMode) {
+        for (const id of idsToDelete) {
+          const res = await fetch(`${mutationUrl}?artwork_id=${id}`, {
+            method: 'DELETE',
+          });
+          if (!res.ok) {
+            const p = await res.json().catch(() => ({}));
+            throw new Error(p?.error || `삭제 실패: ${id}`);
+          }
         }
       }
 
@@ -266,7 +300,10 @@ export default function OrderItemArtworksModal({
           note: r.note || null,
         };
         if (r.dbId) {
-          const res = await fetch(`/api/admin/order-items/${orderItemId}/artworks`, {
+          // Factory mode: API only accepts whitelist of factory_* + note.
+          // Other fields are stripped server-side; we still send the full body
+          // for admin mode compatibility.
+          const res = await fetch(mutationUrl, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -275,8 +312,9 @@ export default function OrderItemArtworksModal({
             const p = await res.json().catch(() => ({}));
             throw new Error(p?.error || '수정 실패');
           }
-        } else {
-          const res = await fetch(`/api/admin/order-items/${orderItemId}/artworks`, {
+        } else if (!isFactoryMode) {
+          // Factory mode never creates rows
+          const res = await fetch(mutationUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -315,6 +353,11 @@ export default function OrderItemArtworksModal({
             <h2 className="text-lg font-semibold text-gray-900 truncate">
               아트워크 단가 — {orderItemTitle}
             </h2>
+            {isFactoryMode && (
+              <span className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-emerald-100 text-emerald-800">
+                공장 모드
+              </span>
+            )}
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
@@ -325,10 +368,21 @@ export default function OrderItemArtworksModal({
           <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-xs text-amber-800 flex gap-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <div>
-              한 주문 상품에 적용된 인쇄 아트워크들을 각각 행으로 입력합니다. 자동 매칭은 입력한
-              cm 기반으로 고객가·공장가를 단가표에서 조회합니다 (회전 허용). 자동 결과는
-              수기로 수정·재정의(negotiated) 가능합니다. 저장 시 order_items.factory_amount는
-              아트워크 행들의 factory_total 합계로 자동 갱신됩니다.
+              {isFactoryMode ? (
+                <>
+                  배정받은 작업의 아트워크별 단가를 확인하고 <b>공장 단가</b>만 조정할 수 있습니다.
+                  인쇄기법·위치·사이즈·수량·고객가는 관리자가 정한 값으로 읽기 전용이며, 본인
+                  공장 단가표를 사용한 자동 매칭과 협의가(negotiated) 수기 수정이 가능합니다.
+                </>
+              ) : (
+                <>
+                  한 주문 상품에 적용된 인쇄 아트워크들을 각각 행으로 입력합니다. 자동 매칭은
+                  입력한 cm 기반으로 고객가·공장가를 단가표에서 조회합니다 (회전 허용). 자동
+                  결과는 수기로 수정·재정의(negotiated) 가능합니다. 저장 시
+                  order_items.factory_amount는 아트워크 행들의 factory_total 합계로 자동
+                  갱신됩니다.
+                </>
+              )}
             </div>
           </div>
 
@@ -349,13 +403,15 @@ export default function OrderItemArtworksModal({
                   주문 수량: <b>{itemQuantity}</b> · 아트워크 행 수:{' '}
                   <b>{rows.length}</b>
                 </p>
-                <button
-                  type="button"
-                  onClick={addRow}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50 rounded-md border border-emerald-200"
-                >
-                  <Plus className="w-3.5 h-3.5" /> 아트워크 추가
-                </button>
+                {!isFactoryMode && (
+                  <button
+                    type="button"
+                    onClick={addRow}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50 rounded-md border border-emerald-200"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> 아트워크 추가
+                  </button>
+                )}
               </div>
 
               {rows.length === 0 && (
@@ -376,7 +432,8 @@ export default function OrderItemArtworksModal({
                       <select
                         value={row.print_method_id}
                         onChange={(e) => updateRow(row.tempId, { print_method_id: e.target.value })}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                        disabled={isFactoryMode}
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50"
                       >
                         <option value="">선택</option>
                         {sortedMethods.map((m) => (
@@ -394,7 +451,8 @@ export default function OrderItemArtworksModal({
                         value={row.placement}
                         onChange={(e) => updateRow(row.tempId, { placement: e.target.value })}
                         placeholder="front"
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                        disabled={isFactoryMode}
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50"
                       />
                       <datalist id={`placements-${row.tempId}`}>
                         {PLACEMENT_PRESETS.map((p) => (
@@ -409,7 +467,8 @@ export default function OrderItemArtworksModal({
                         onChange={(e) => updateRow(row.tempId, { size_label: e.target.value })}
                         onBlur={() => autofillDims(row.tempId)}
                         placeholder="A4 / 25x25"
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                        disabled={isFactoryMode}
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50"
                       />
                     </div>
                     <div className="col-span-1">
@@ -420,7 +479,8 @@ export default function OrderItemArtworksModal({
                         step="0.1"
                         value={row.width_cm}
                         onChange={(e) => updateRow(row.tempId, { width_cm: e.target.value })}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                        disabled={isFactoryMode}
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50"
                       />
                     </div>
                     <div className="col-span-1">
@@ -431,7 +491,8 @@ export default function OrderItemArtworksModal({
                         step="0.1"
                         value={row.height_cm}
                         onChange={(e) => updateRow(row.tempId, { height_cm: e.target.value })}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                        disabled={isFactoryMode}
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50"
                       />
                     </div>
                     <div className="col-span-2">
@@ -442,44 +503,52 @@ export default function OrderItemArtworksModal({
                         value={row.applied_quantity}
                         onChange={(e) => updateRow(row.tempId, { applied_quantity: e.target.value })}
                         placeholder={String(itemQuantity)}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                        disabled={isFactoryMode}
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50"
                       />
                     </div>
                     <div className="col-span-1 flex items-end justify-end">
-                      <button
-                        type="button"
-                        onClick={() => removeRow(row.tempId)}
-                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-md"
-                        title="이 아트워크 삭제"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {!isFactoryMode && (
+                        <button
+                          type="button"
+                          onClick={() => removeRow(row.tempId)}
+                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-md"
+                          title="이 아트워크 삭제"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   <div className="grid grid-cols-12 gap-2 items-end pt-2 border-t border-gray-100">
-                    <div className="col-span-2">
-                      <label className="block text-[10px] text-gray-500 mb-0.5">고객 단가/개</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={row.customer_unit_price}
-                        onChange={(e) =>
-                          updateRow(row.tempId, { customer_unit_price: e.target.value })
-                        }
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-[10px] text-gray-500 mb-0.5">고객 합계</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={row.customer_total}
-                        onChange={(e) => updateRow(row.tempId, { customer_total: e.target.value })}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
-                      />
-                    </div>
+                    {/* Customer pricing: hidden in factory mode (factory has no business with it) */}
+                    {!isFactoryMode && (
+                      <>
+                        <div className="col-span-2">
+                          <label className="block text-[10px] text-gray-500 mb-0.5">고객 단가/개</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={row.customer_unit_price}
+                            onChange={(e) =>
+                              updateRow(row.tempId, { customer_unit_price: e.target.value })
+                            }
+                            className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-[10px] text-gray-500 mb-0.5">고객 합계</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={row.customer_total}
+                            onChange={(e) => updateRow(row.tempId, { customer_total: e.target.value })}
+                            className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                          />
+                        </div>
+                      </>
+                    )}
                     <div className="col-span-2">
                       <label className="block text-[10px] text-gray-500 mb-0.5">공장 단가/개</label>
                       <input
@@ -538,11 +607,15 @@ export default function OrderItemArtworksModal({
                   )}
 
                   <div className="text-[11px] text-gray-500 px-1 flex justify-between">
-                    <span>
-                      행 마진: {Number.isFinite(Number(row.customer_total) - Number(row.factory_total))
-                        ? (Number(row.customer_total) - Number(row.factory_total)).toLocaleString()
-                        : '-'} 원
-                    </span>
+                    {!isFactoryMode ? (
+                      <span>
+                        행 마진: {Number.isFinite(Number(row.customer_total) - Number(row.factory_total))
+                          ? (Number(row.customer_total) - Number(row.factory_total)).toLocaleString()
+                          : '-'} 원
+                      </span>
+                    ) : (
+                      <span>공장 합계: {Number(row.factory_total).toLocaleString()} 원</span>
+                    )}
                     <span>
                       {row.factory_pricing_row_id && '매칭된 공장 단가 행 사용'}
                     </span>
@@ -550,10 +623,21 @@ export default function OrderItemArtworksModal({
                 </div>
               ))}
 
-              {rows.length > 0 && (
+              {rows.length > 0 && !isFactoryMode && (
                 <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs text-gray-700 flex justify-between">
                   <span>전체 인쇄 마진 합계 (고객 총합 − 공장 총합):</span>
                   <b>{factoryMarginTotal.toLocaleString()} 원</b>
+                </div>
+              )}
+              {rows.length > 0 && isFactoryMode && (
+                <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs text-gray-700 flex justify-between">
+                  <span>공장 지급액 합계:</span>
+                  <b>
+                    {rows
+                      .reduce((s, r) => s + (Number(r.factory_total) || 0), 0)
+                      .toLocaleString()}
+                    {' '}원
+                  </b>
                 </div>
               )}
             </div>

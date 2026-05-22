@@ -10,6 +10,7 @@ import OrderAttachmentSection from '@/components/orders/OrderAttachmentSection';
 import AddOrderItemModal from '@/components/orders/AddOrderItemModal';
 import OrderProfitSection from '@/components/orders/OrderProfitSection';
 import WorkPhotoModal from '@/components/orders/WorkPhotoModal';
+import OrderItemArtworksModal from '@/components/orders/OrderItemArtworksModal';
 import { extractVariants } from '@/lib/orderUtils';
 import { formatKstDateLong, formatKstDateTimeMedium, getKstYYYYMMDD } from '@/lib/kst';
 import { orderCategoryBadgeClass, orderCategoryLabel } from '@/lib/order-category';
@@ -59,6 +60,7 @@ export default function OrderDetail({
   const [expandedFactoryItemId, setExpandedFactoryItemId] = useState<string | null>(null);
   // 작업사진 모달 (카메라 촬영·업로드 + Drive 폴더 열기 통합)
   const [workPhotoModalItemId, setWorkPhotoModalItemId] = useState<string | null>(null);
+  const [artworksModalItemId, setArtworksModalItemId] = useState<string | null>(null);
   const [itemAlloc, setItemAlloc] = useState<Record<string, { factory_id: string; amount: string; deadline: string; pay_date: string; pay_status: string }>>({});
   const [savingItemAlloc, setSavingItemAlloc] = useState<string | null>(null);
   const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
@@ -2097,6 +2099,20 @@ export default function OrderDetail({
                       </p>
                     </div>
 
+                    {/* 아트워크 단가 — admin: 전체 편집, factory: 공장가만 조정 */}
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setArtworksModalItemId(item.id)}
+                        className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                      >
+                        💲 아트워크 단가
+                      </button>
+                      <p className="text-[11px] text-gray-500 mt-1 text-center">
+                        {isFactoryUser ? '공장 단가만 조정 가능' : '인쇄 아트워크별 단가 (자동 매칭 포함)'}
+                      </p>
+                    </div>
+
                     <div>
                       <p className="text-xs text-gray-500 mb-1">배정 상태</p>
                       <select
@@ -2198,6 +2214,36 @@ export default function OrderDetail({
             folderUrl={target?.work_drive_folder_url ?? null}
             onClose={() => setWorkPhotoModalItemId(null)}
             onUploaded={() => {
+              fetchOrderItems();
+              onUpdate();
+            }}
+          />
+        );
+      })()}
+
+      {/* 아트워크 단가 모달 — admin/factory 둘 다 호출, mode/endpoints로 분기 */}
+      {artworksModalItemId && (() => {
+        const target = orderItems.find((i) => i.id === artworksModalItemId);
+        if (!target) return null;
+        return (
+          <OrderItemArtworksModal
+            orderItemId={target.id}
+            orderItemTitle={target.product_title}
+            itemQuantity={target.quantity}
+            factoryId={target.assigned_manufacturer_id || null}
+            mode={isFactoryUser ? 'factory' : 'admin'}
+            endpoints={
+              isFactoryUser
+                ? {
+                    listUrl: `/api/my-factory/order-items/${target.id}/artworks`,
+                    mutationUrl: `/api/my-factory/order-items/${target.id}/artworks`,
+                    autoMatchUrl: `/api/my-factory/order-items/${target.id}/artworks/auto-match`,
+                  }
+                : undefined
+            }
+            onClose={() => setArtworksModalItemId(null)}
+            onSaved={() => {
+              // Trigger updated order_items.factory_amount; refresh items
               fetchOrderItems();
               onUpdate();
             }}
