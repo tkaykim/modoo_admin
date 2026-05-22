@@ -1469,7 +1469,7 @@ export default function OrderDetail({
                         <div className="p-3 space-y-2 border-t border-gray-100 bg-white">
                           {/* 작업사진 — 공장 배정된 item 에 한해 노출. 카메라 촬영·업로드 + Drive 폴더 열기 통합 모달 */}
                           {item.assigned_manufacturer_id && (
-                            <div className="pb-2 border-b border-gray-100">
+                            <div className="pb-2 border-b border-gray-100 space-y-2">
                               <button
                                 type="button"
                                 onClick={() => setWorkPhotoModalItemId(item.id)}
@@ -1477,8 +1477,32 @@ export default function OrderDetail({
                               >
                                 📷 작업사진
                               </button>
-                              <p className="text-[11px] text-gray-500 mt-1 text-center">
+                              <p className="text-[11px] text-gray-500 -mt-1 text-center">
                                 사진 촬영·업로드 또는 Drive 폴더 열기
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setArtworksModalItemId(item.id)}
+                                className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                              >
+                                💲 아트워크 단가
+                              </button>
+                              <p className="text-[11px] text-gray-500 -mt-1 text-center">
+                                {isFactoryUser ? '공장 단가만 조정 가능' : '인쇄 아트워크별 단가 (자동 매칭 포함)'}
+                              </p>
+                            </div>
+                          )}
+                          {!item.assigned_manufacturer_id && !isFactoryUser && (
+                            <div className="pb-2 border-b border-gray-100">
+                              <button
+                                type="button"
+                                onClick={() => setArtworksModalItemId(item.id)}
+                                className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                              >
+                                💲 아트워크 단가
+                              </button>
+                              <p className="text-[11px] text-gray-500 mt-1 text-center">
+                                공장 배정 전에도 아트워크 단가 미리 입력 가능
                               </p>
                             </div>
                           )}
