@@ -1,0 +1,117 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { sendGmailEmail } from '@/lib/gmail';
+import { fetchMetaAdInsights, summarize, type InsightSummary } from '@/lib/marketing-report/fetchMeta';
+import { fetchGA4Overall, fetchGA4Channels } from '@/lib/marketing-report/fetchGA4';
+import {
+  fetchOrderSummary,
+  fetchDailyRevenue,
+  fetchTopProducts,
+  fetchAdAttributedRevenue,
+} from '@/lib/marketing-report/fetchSupabase';
+import { buildWeeklyHtml, type WeeklyData } from '@/lib/marketing-report/buildHtml';
+import { lastWeekRangeKst } from '@/lib/marketing-report/time';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 90;
+
+// 매주 일요일 KST 23:00 = UTC 14:00 일요일 → vercel.json cron "0 14 * * 0"
+// 지난 주(월~일) 데이터로 보고서 생성
+const RECIPIENT = process.env.MARKETING_REPORT_TO || 'tommy062166@gmail.com';
+
+function checkAuth(req: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return true;
+  const header = req.headers.get('authorization') ?? '';
+  if (header === `Bearer ${secret}`) return true;
+  const url = new URL(req.url);
+  return url.searchParams.get('secret') === secret;
+}
+
+export async function GET(req: NextRequest) {
+  if (!checkAuth(req)) {
+    return NextResponse.json({ ok: false, reason: 'unauthorized' }, { status: 401 });
+  }
+  try {
+    const { from, to } = lastWeekRangeKst();
+    // 직전 주
+    const prevFromDate = new Date(from + 'T00:00:00Z');
+    prevFromDate.setUTCDate(prevFromDate.getUTCDate() - 7);
+    const prevToDate = new Date(to + 'T00:00:00Z');
+    prevToDate.setUTCDate(prevToDate.getUTCDate() - 7);
+    const prevFrom = prevFromDate.toISOString().slice(0, 10);
+    const prevTo = prevToDate.toISOString().slice(0, 10);
+
+    const [adInsights, ga4Overall, ga4Channels, supaSummary, prevSupaSummary, daily, topProducts, adAttributed] = await Promise.all([
+      fetchMetaAdInsights(from, to).catch((e) => {
+        console.error('[marketing-weekly] Meta failed:', e);
+        return [];
+      }),
+      fetchGA4Overall(from, to).catch((e) => {
+        console.error('[marketing-weekly] GA4 overall failed:', e);
+        return { sessions: 0, totalUsers: 0, engagementRate: 0, transactions: 0, purchaseRevenue: 0 };
+      }),
+      fetchGA4Channels(from, to, 10).catch((e) => {
+        console.error('[marketing-weekly] GA4 channels failed:', e);
+        return [];
+      }),
+      fetchOrderSummary(from, to).catch((e) => {
+        console.error('[marketing-weekly] Supabase summary failed:', e);
+        return { orders: 0, revenue: 0, itemCost: 0, printCost: 0, grossProfit: 0, marginPct: 0 };
+      }),
+      fetchOrderSummary(prevFrom, prevTo).catch(() => ({
+        orders: 0,
+        revenue: 0,
+        itemCost: 0,
+        printCost: 0,
+        grossProfit: 0,
+        marginPct: 0,
+      })),
+      fetchDailyRevenue(from, to).catch((e) => {
+        console.error('[marketing-weekly] Daily revenue failed:', e);
+        return [];
+      }),
+      fetchTopProducts(from, to, 10).catch((e) => {
+        console.error('[marketing-weekly] Top products failed:', e);
+        return [];
+      }),
+      fetchAdAttributedRevenue(from, to).catch((e) => {
+        console.error('[marketing-weekly] Ad attributed failed:', e);
+        return [];
+      }),
+    ]);
+
+    const ads: InsightSummary[] = adInsights.map((i) => summarize(i, 'ad_name'));
+    const totalSpend = ads.reduce((s, a) => s + a.spend, 0);
+    const totalPurchase = ads.reduce((s, a) => s + a.purchase, 0);
+    const totalPurchaseValue = ads.reduce((s, a) => s + a.purchaseValue, 0);
+    const metaRoas = totalSpend > 0 ? totalPurchaseValue / totalSpend : 0;
+
+    const data: WeeklyData = {
+      from,
+      to,
+      prevFrom,
+      prevTo,
+      meta: { spend: totalSpend, purchase: totalPurchase, purchaseValue: totalPurchaseValue, metaRoas, ads },
+      ga4: { overall: ga4Overall, channels: ga4Channels },
+      supa: { summary: supaSummary, daily, topProducts, adAttributed },
+      prevSupa: prevSupaSummary,
+    };
+
+    const html = buildWeeklyHtml(data);
+    const subject = `[모두의유니폼] 주간 리포트 ${from}~${to} · 매출 ${supaSummary.revenue.toLocaleString('ko-KR')}원 · ${supaSummary.orders}건`;
+    const text = `${from}~${to} 매출 ${supaSummary.revenue.toLocaleString()}원 / ${supaSummary.orders}건. 광고비 ${totalSpend.toLocaleString()}원 / 실제 ROAS ${totalSpend > 0 ? (supaSummary.revenue / totalSpend).toFixed(2) : '–'}×. HTML 본문 참고.`;
+
+    const sent = await sendGmailEmail({
+      to: [{ email: RECIPIENT }],
+      subject,
+      text,
+      html,
+    });
+
+    return NextResponse.json({ ok: true, sent, range: { from, to }, revenue: supaSummary.revenue, orders: supaSummary.orders });
+  } catch (err) {
+    console.error('[marketing-weekly] failed:', err);
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+  }
+}

@@ -4,6 +4,14 @@
     {
       "path": "/api/cron/shipping-status",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/marketing-daily",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/marketing-weekly",
+      "schedule": "0 14 * * 0"
     }
   ]
 }
