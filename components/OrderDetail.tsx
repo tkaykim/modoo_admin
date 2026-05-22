@@ -2261,7 +2261,7 @@ export default function OrderDetail({
                 ? {
                     listUrl: `/api/my-factory/order-items/${target.id}/artworks`,
                     mutationUrl: `/api/my-factory/order-items/${target.id}/artworks`,
-                    autoMatchUrl: `/api/my-factory/order-items/${target.id}/artworks/auto-match`,
+                    factoryPricingUrl: '/api/my-factory/factory-print-pricing',
                   }
                 : undefined
             }

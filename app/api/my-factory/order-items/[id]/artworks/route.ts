@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 
 const SELECT_COLUMNS =
-  'id, order_item_id, print_method_id, placement, size_label, width_cm, height_cm, applied_quantity, customer_unit_price, customer_total, customer_pricing_snapshot, factory_pricing_row_id, factory_unit_price, factory_total, factory_cost_source, note, created_at, updated_at, print_methods:print_method_id ( id, key, name )';
+  'id, order_item_id, print_method_id, placement, size_label, width_cm, height_cm, applied_quantity, customer_unit_price, customer_total, customer_pricing_snapshot, factory_pricing_row_id, factory_unit_price, factory_total, factory_cost_source, additional_amount, note, created_at, updated_at, print_methods:print_method_id ( id, key, name )';
 
 /**
  * Factory user view of artworks for a specific order_item.
@@ -117,6 +117,9 @@ export async function PATCH(request: Request, context: ParamsContext) {
       const v = payload.factory_cost_source;
       updateData.factory_cost_source =
         typeof v === 'string' && validSources.includes(v) ? v : null;
+    }
+    if ('additional_amount' in payload) {
+      updateData.additional_amount = toNumber(payload.additional_amount);
     }
     if ('note' in payload) {
       updateData.note = typeof payload.note === 'string' ? payload.note : null;

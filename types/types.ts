@@ -169,6 +169,8 @@ export interface OrderItemArtwork {
   factory_unit_price: number | null;
   factory_total: number | null;
   factory_cost_source: FactoryCostSource | null;
+  /** 추가금액 (예: 단면 28cm 이상 가산금). 합계 = 단가×수량 + additional_amount */
+  additional_amount: number | null;
   note: string | null;
   created_at: string;
   updated_at: string;
