@@ -28,6 +28,11 @@ interface Props {
    * 'inline' renders as a flat panel — used by the factory self-service page.
    */
   presentation?: 'modal' | 'inline';
+  /**
+   * When true, inputs are disabled and 사이즈 추가/삭제/저장 액션이 숨겨집니다.
+   * 페이지가 별도 토글로 통제할 때 사용. 기본 false.
+   */
+  readOnly?: boolean;
 }
 
 // In-memory draft row — every value is a string so empty inputs work cleanly.
@@ -83,7 +88,7 @@ function rowFromDb(r: FactoryPrintMethodPricing): RowDraft {
   };
 }
 
-export default function FactoryPricingEditorModal({ factory, onClose, onSaved, endpoints, presentation = 'modal' }: Props) {
+export default function FactoryPricingEditorModal({ factory, onClose, onSaved, endpoints, presentation = 'modal', readOnly = false }: Props) {
   const isInline = presentation === 'inline';
   const methodsUrl = endpoints?.methodsUrl ?? '/api/admin/print-methods';
   // For admin: GET takes ?factory_id=ID. For my-factory: no query needed (derived from session).
@@ -347,7 +352,8 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved, e
                           type="checkbox"
                           checked={bucket.enabled}
                           onChange={(e) => toggleMethod(method, e.target.checked)}
-                          className="w-4 h-4"
+                          disabled={readOnly}
+                          className="w-4 h-4 disabled:opacity-60"
                         />
                         <span className="text-sm font-medium text-gray-900">{method.name}</span>
                         {!method.is_active && (
@@ -356,7 +362,7 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved, e
                           </span>
                         )}
                       </label>
-                      {bucket.enabled && (
+                      {bucket.enabled && !readOnly && (
                         <button
                           type="button"
                           onClick={() => addRow(method.id)}
@@ -393,7 +399,8 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved, e
                                 }
                                 onBlur={() => autofillDims(method.id, row.tempId)}
                                 placeholder="25x25"
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                                disabled={readOnly}
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50 disabled:text-gray-700"
                               />
                             </div>
                             <div className="col-span-1">
@@ -406,7 +413,8 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved, e
                                   updateRow(method.id, row.tempId, { max_width_cm: e.target.value })
                                 }
                                 placeholder="cm"
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                                disabled={readOnly}
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50 disabled:text-gray-700"
                               />
                             </div>
                             <div className="col-span-1">
@@ -419,7 +427,8 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved, e
                                   updateRow(method.id, row.tempId, { max_height_cm: e.target.value })
                                 }
                                 placeholder="cm"
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                                disabled={readOnly}
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50 disabled:text-gray-700"
                               />
                             </div>
                             <div className="col-span-2">
@@ -430,7 +439,8 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved, e
                                     pricing_model: e.target.value as FactoryPricingModel,
                                   })
                                 }
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                                disabled={readOnly}
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50 disabled:text-gray-700"
                               >
                                 <option value="flat">flat (개당)</option>
                                 <option value="bulk">bulk (기본+추가)</option>
@@ -447,7 +457,8 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved, e
                                     updateRow(method.id, row.tempId, { unit_price: e.target.value })
                                   }
                                   placeholder="개당 단가 (원)"
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                                  disabled={readOnly}
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50 disabled:text-gray-700"
                                 />
                               </div>
                             ) : (
@@ -460,7 +471,8 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved, e
                                     updateRow(method.id, row.tempId, { base_price: e.target.value })
                                   }
                                   placeholder="기본가"
-                                  className="px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                                  disabled={readOnly}
+                                  className="px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50 disabled:text-gray-700"
                                 />
                                 <input
                                   type="number"
@@ -472,7 +484,8 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved, e
                                     })
                                   }
                                   placeholder="기본수량"
-                                  className="px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                                  disabled={readOnly}
+                                  className="px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50 disabled:text-gray-700"
                                 />
                                 <input
                                   type="number"
@@ -484,20 +497,23 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved, e
                                     })
                                   }
                                   placeholder="추가/개"
-                                  className="px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                                  disabled={readOnly}
+                                  className="px-2 py-1.5 border border-gray-300 rounded-md text-xs disabled:bg-gray-50 disabled:text-gray-700"
                                 />
                               </div>
                             )}
 
                             <div className="col-span-1 flex justify-end">
-                              <button
-                                type="button"
-                                onClick={() => removeRow(method.id, row.tempId)}
-                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-md"
-                                title="이 사이즈 삭제"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              {!readOnly && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeRow(method.id, row.tempId)}
+                                  className="p-1.5 text-red-500 hover:bg-red-50 rounded-md"
+                                  title="이 사이즈 삭제"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -516,6 +532,7 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved, e
           )}
         </div>
 
+        {!(isInline && readOnly) && (
         <div className={`${isInline ? '' : 'sticky bottom-0 '}bg-white border-t border-gray-200 px-6 py-3 flex gap-3 justify-end`}>
           {!isInline && (
             <button
@@ -528,13 +545,14 @@ export default function FactoryPricingEditorModal({ factory, onClose, onSaved, e
           )}
           <button
             onClick={handleSave}
-            disabled={saving || loading}
+            disabled={saving || loading || readOnly}
             className="inline-flex items-center gap-1 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 text-sm disabled:opacity-50"
           >
             <Save className="w-4 h-4" />
             {saving ? '저장 중...' : '저장'}
           </button>
         </div>
+        )}
       </div>
     </div>
   );
