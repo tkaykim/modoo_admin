@@ -185,9 +185,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               {user?.name || user?.email}
             </div>
             <button
-              onClick={() => {
-                logout();
-                router.push('/login');
+              onClick={async () => {
+                try {
+                  await logout();
+                } finally {
+                  router.push('/login');
+                }
               }}
               className="px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
             >

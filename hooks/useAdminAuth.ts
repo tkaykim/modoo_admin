@@ -185,15 +185,21 @@ export function useAdminAuth(options: UseAdminAuthOptions = {}): UseAdminAuthRes
     const supabase = createClient();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event: string) => {
       if (event === 'SIGNED_OUT') {
-        logout();
+        // If we're already unauthenticated, skip — the button handler is
+        // already handling the redirect. This guards against cascade loops
+        // when signOut() is invoked from both the button and this listener.
+        if (useAuthStore.getState().authStatus === 'unauthenticated') return;
         setAuthStatus('unauthenticated');
-        router.push('/login');
+        // Only navigate if not already on /login
+        if (!pathname?.startsWith('/login')) {
+          router.push('/login');
+        }
       }
     });
     return () => {
       subscription.unsubscribe();
     };
-  }, [skip, router, logout, setAuthStatus]);
+  }, [skip, router, setAuthStatus, pathname]);
 
   // Handle role-based route access
   useEffect(() => {
