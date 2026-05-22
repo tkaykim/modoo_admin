@@ -337,13 +337,6 @@ export default function OrderItemArtworksModal({
 
   const sortedMethods = useMemo(() => methods, [methods]);
 
-  const factoryMarginTotal = rows.reduce((sum, r) => {
-    const c = Number(r.customer_total);
-    const f = Number(r.factory_total);
-    if (Number.isFinite(c) && Number.isFinite(f)) return sum + (c - f);
-    return sum;
-  }, 0);
-
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-7xl w-full max-h-[92vh] overflow-y-auto">
@@ -370,17 +363,16 @@ export default function OrderItemArtworksModal({
             <div>
               {isFactoryMode ? (
                 <>
-                  배정받은 작업의 아트워크별 단가를 확인하고 <b>공장 단가</b>만 조정할 수 있습니다.
-                  인쇄기법·위치·사이즈·수량·고객가는 관리자가 정한 값으로 읽기 전용이며, 본인
-                  공장 단가표를 사용한 자동 매칭과 협의가(negotiated) 수기 수정이 가능합니다.
+                  배정받은 작업의 아트워크별 <b>공장 작업 비용</b>을 조정할 수 있습니다.
+                  인쇄기법·위치·사이즈·수량은 관리자가 정한 값으로 읽기 전용이며, 본인 공장
+                  단가표 자동 매칭 또는 협의가(negotiated) 수기 수정이 가능합니다.
                 </>
               ) : (
                 <>
-                  한 주문 상품에 적용된 인쇄 아트워크들을 각각 행으로 입력합니다. 자동 매칭은
-                  입력한 cm 기반으로 고객가·공장가를 단가표에서 조회합니다 (회전 허용). 자동
-                  결과는 수기로 수정·재정의(negotiated) 가능합니다. 저장 시
-                  order_items.factory_amount는 아트워크 행들의 factory_total 합계로 자동
-                  갱신됩니다.
+                  한 주문 상품에 적용된 인쇄 아트워크들을 각각 행으로 입력합니다. 여기서
+                  설정하는 비용은 <b>공장에 지급하는 작업 비용</b>이며, 마진 계산의 &lsquo;공장
+                  가공비&rsquo; 라인에 자동 반영됩니다. 고객 결제 인쇄비와는 별개입니다 (고객
+                  결제금액은 매출에 이미 포함되어 있습니다).
                 </>
               )}
             </div>
@@ -522,35 +514,15 @@ export default function OrderItemArtworksModal({
                   </div>
 
                   <div className="grid grid-cols-12 gap-2 items-end pt-2 border-t border-gray-100">
-                    {/* Customer pricing: hidden in factory mode (factory has no business with it) */}
-                    {!isFactoryMode && (
-                      <>
-                        <div className="col-span-2">
-                          <label className="block text-[10px] text-gray-500 mb-0.5">고객 단가/개</label>
-                          <input
-                            type="number"
-                            min="0"
-                            value={row.customer_unit_price}
-                            onChange={(e) =>
-                              updateRow(row.tempId, { customer_unit_price: e.target.value })
-                            }
-                            className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <label className="block text-[10px] text-gray-500 mb-0.5">고객 합계</label>
-                          <input
-                            type="number"
-                            min="0"
-                            value={row.customer_total}
-                            onChange={(e) => updateRow(row.tempId, { customer_total: e.target.value })}
-                            className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
-                          />
-                        </div>
-                      </>
-                    )}
-                    <div className="col-span-2">
-                      <label className="block text-[10px] text-gray-500 mb-0.5">공장 단가/개</label>
+                    {/*
+                      Customer-side pricing fields are intentionally HIDDEN
+                      from this modal — the factory cost is what matters for
+                      margin calculation. Customer prices stay in the DB row
+                      (auto-filled by the match API in background) for future
+                      modoo_app integration but never shown to admin here.
+                    */}
+                    <div className="col-span-3">
+                      <label className="block text-[10px] text-gray-500 mb-0.5">공장 작업 비용 단가/개</label>
                       <input
                         type="number"
                         min="0"
@@ -561,8 +533,8 @@ export default function OrderItemArtworksModal({
                         className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
                       />
                     </div>
-                    <div className="col-span-2">
-                      <label className="block text-[10px] text-gray-500 mb-0.5">공장 합계</label>
+                    <div className="col-span-3">
+                      <label className="block text-[10px] text-gray-500 mb-0.5">공장 작업 비용 합계</label>
                       <input
                         type="number"
                         min="0"
@@ -571,8 +543,8 @@ export default function OrderItemArtworksModal({
                         className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
                       />
                     </div>
-                    <div className="col-span-2">
-                      <label className="block text-[10px] text-gray-500 mb-0.5">공장가 출처</label>
+                    <div className="col-span-3">
+                      <label className="block text-[10px] text-gray-500 mb-0.5">비용 출처</label>
                       <select
                         value={row.factory_cost_source}
                         onChange={(e) =>
@@ -589,7 +561,7 @@ export default function OrderItemArtworksModal({
                         <option value="override">수기 override</option>
                       </select>
                     </div>
-                    <div className="col-span-2 flex justify-end">
+                    <div className="col-span-3 flex justify-end items-end">
                       <button
                         type="button"
                         onClick={() => runAutoMatch(row.tempId)}
@@ -607,31 +579,22 @@ export default function OrderItemArtworksModal({
                   )}
 
                   <div className="text-[11px] text-gray-500 px-1 flex justify-between">
-                    {!isFactoryMode ? (
-                      <span>
-                        행 마진: {Number.isFinite(Number(row.customer_total) - Number(row.factory_total))
-                          ? (Number(row.customer_total) - Number(row.factory_total)).toLocaleString()
-                          : '-'} 원
-                      </span>
-                    ) : (
-                      <span>공장 합계: {Number(row.factory_total).toLocaleString()} 원</span>
-                    )}
                     <span>
-                      {row.factory_pricing_row_id && '매칭된 공장 단가 행 사용'}
+                      이 행의 공장 작업 비용:{' '}
+                      <b>{Number(row.factory_total || 0).toLocaleString()} 원</b>
+                    </span>
+                    <span>
+                      {row.factory_pricing_row_id && '매칭된 공장 단가표 행 사용'}
                     </span>
                   </div>
                 </div>
               ))}
 
-              {rows.length > 0 && !isFactoryMode && (
+              {rows.length > 0 && (
                 <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs text-gray-700 flex justify-between">
-                  <span>전체 인쇄 마진 합계 (고객 총합 − 공장 총합):</span>
-                  <b>{factoryMarginTotal.toLocaleString()} 원</b>
-                </div>
-              )}
-              {rows.length > 0 && isFactoryMode && (
-                <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs text-gray-700 flex justify-between">
-                  <span>공장 지급액 합계:</span>
+                  <span>
+                    공장 작업 비용 합계 (이 값이 order_items.factory_amount에 저장되어 마진 계산에 사용):
+                  </span>
                   <b>
                     {rows
                       .reduce((s, r) => s + (Number(r.factory_total) || 0), 0)
