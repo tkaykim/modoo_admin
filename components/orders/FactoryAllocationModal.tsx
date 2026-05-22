@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { Factory, FactoryPrintMethodPricing, Order, OrderItem } from '@/types/types';
-import { X, Factory as FactoryIcon, Package, Copy, Info } from 'lucide-react';
+import { X, Factory as FactoryIcon, Package, Copy, Info, DollarSign } from 'lucide-react';
 import { extractVariants } from '@/lib/orderUtils';
+import OrderItemArtworksModal from '@/components/orders/OrderItemArtworksModal';
 
 interface ItemAllocationState {
   orderItemId: string;
@@ -35,6 +36,8 @@ export default function FactoryAllocationModal({
   // Cache: factory_id -> pricing rows count (for UX hint only; auto-fill is not done
   // because order_items currently do not expose a stable print_method_id/size pair).
   const [pricingByFactory, setPricingByFactory] = useState<Record<string, FactoryPrintMethodPricing[]>>({});
+  // Per-item artwork editor modal state
+  const [artworksModalForItemId, setArtworksModalForItemId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchItems = async () => {
@@ -238,6 +241,15 @@ export default function FactoryAllocationModal({
                             전체 적용
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setArtworksModalForItemId(item.id)}
+                          className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 rounded hover:bg-emerald-100 transition-colors"
+                          title="이 품목의 아트워크별 단가 입력 (자동 매칭 가능)"
+                        >
+                          <DollarSign className="w-3 h-3" />
+                          아트워크 단가
+                        </button>
                       </div>
                     </div>
 
@@ -353,6 +365,41 @@ export default function FactoryAllocationModal({
           </div>
         </form>
       </div>
+
+      {artworksModalForItemId && (() => {
+        const idx = orderItems.findIndex((it) => it.id === artworksModalForItemId);
+        if (idx < 0) return null;
+        const item = orderItems[idx];
+        const alloc = itemAllocations[idx];
+        return (
+          <OrderItemArtworksModal
+            orderItemId={item.id}
+            orderItemTitle={item.product_title}
+            itemQuantity={item.quantity}
+            factoryId={alloc?.assigned_manufacturer_id || null}
+            onClose={() => setArtworksModalForItemId(null)}
+            onSaved={() => {
+              // After save the DB trigger updated factory_amount;
+              // refresh the modal's allocation state for this item.
+              fetch(`/api/admin/orders/items?orderId=${order.id}`)
+                .then((res) => (res.ok ? res.json() : null))
+                .then((payload) => {
+                  if (!payload?.data) return;
+                  const fresh = (payload.data as OrderItem[]).find((it) => it.id === item.id);
+                  if (!fresh) return;
+                  setItemAllocations((prev) =>
+                    prev.map((a) =>
+                      a.orderItemId === item.id
+                        ? { ...a, factory_amount: fresh.factory_amount ?? '' }
+                        : a
+                    )
+                  );
+                })
+                .catch(() => {});
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }
