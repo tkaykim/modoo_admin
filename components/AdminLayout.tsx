@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp, LayoutTemplate } from 'lucide-react';
+import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp, LayoutTemplate, DollarSign } from 'lucide-react';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import BugReportButton from '@/components/BugReportButton';
 
@@ -59,6 +59,7 @@ const navGroups: NavGroup[] = [
       { type: 'link', href: '/templates', label: '템플릿 관리', icon: LayoutTemplate, roles: ['admin', 'super_admin'] },
       // { type: 'link', href: '/print-methods', label: '인쇄 방식', icon: Printer, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/factories', label: '공장 관리', icon: Factory, roles: ['admin', 'super_admin'] },
+      { type: 'link', href: '/customer-pricing', label: '고객가 단가표', icon: DollarSign, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/factory/pricing', label: '단가표 관리', icon: Printer, roles: ['factory'] },
     ],
   },

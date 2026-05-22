@@ -148,12 +148,18 @@ export function calculateFactoryAmount(
 
 /**
  * Pick the best pricing row for an artwork of (width_cm × height_cm).
- * Strategy: among rows whose max_width_cm ≥ artwork_w AND max_height_cm ≥ artwork_h,
- * choose the one with the smallest (max_width_cm × max_height_cm) — i.e. the
- * tightest "ceiling" that still fits. Rows missing dimensions are ignored
- * (they remain manual-pick only).
  *
- * Returns null when no row can cover the requested dimensions.
+ * Matching policy — ROTATION-AWARE:
+ *   An artwork fits into a pricing row's bounding box if it fits in EITHER
+ *   orientation. Practically: short side ≤ short side, long side ≤ long side.
+ *   This matches reality (A4 paper can be used portrait or landscape) and
+ *   means an A4 (21×29.7) row covers any artwork whose dimensions both fit
+ *   when rotated 90° if necessary.
+ *
+ * Among all fitting rows, choose the one with the smallest area — the
+ * tightest ceiling. Ties broken by smallest long side, then row id.
+ *
+ * Returns null when no row can cover the artwork.
  */
 export function findMatchingPricingByDimensions<T extends Pick<
   FactoryPrintMethodPricing,
@@ -166,21 +172,29 @@ export function findMatchingPricingByDimensions<T extends Pick<
   if (!Number.isFinite(artwork_width_cm) || artwork_width_cm <= 0) return null;
   if (!Number.isFinite(artwork_height_cm) || artwork_height_cm <= 0) return null;
 
+  const artShort = Math.min(artwork_width_cm, artwork_height_cm);
+  const artLong = Math.max(artwork_width_cm, artwork_height_cm);
+
   const candidates = rows
     .filter((r) => r.is_active !== false)
     .filter((r) => r.max_width_cm !== null && r.max_height_cm !== null)
-    .filter(
-      (r) =>
-        (r.max_width_cm ?? 0) >= artwork_width_cm &&
-        (r.max_height_cm ?? 0) >= artwork_height_cm
-    );
+    .filter((r) => {
+      const w = r.max_width_cm as number;
+      const h = r.max_height_cm as number;
+      const rowShort = Math.min(w, h);
+      const rowLong = Math.max(w, h);
+      return artShort <= rowShort && artLong <= rowLong;
+    });
 
   if (candidates.length === 0) return null;
 
   candidates.sort((a, b) => {
     const areaA = (a.max_width_cm ?? 0) * (a.max_height_cm ?? 0);
     const areaB = (b.max_width_cm ?? 0) * (b.max_height_cm ?? 0);
-    return areaA - areaB;
+    if (areaA !== areaB) return areaA - areaB;
+    const longA = Math.max(a.max_width_cm ?? 0, a.max_height_cm ?? 0);
+    const longB = Math.max(b.max_width_cm ?? 0, b.max_height_cm ?? 0);
+    return longA - longB;
   });
 
   return candidates[0];
