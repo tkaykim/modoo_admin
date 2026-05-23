@@ -245,10 +245,10 @@ export default function FactoryAllocationModal({
                           type="button"
                           onClick={() => setArtworksModalForItemId(item.id)}
                           className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 rounded hover:bg-emerald-100 transition-colors"
-                          title="이 품목의 아트워크별 단가 입력 (자동 매칭 가능)"
+                          title="이 품목에 인쇄방법 추가 (자동 단가 산정)"
                         >
                           <DollarSign className="w-3 h-3" />
-                          아트워크 단가
+                          인쇄 배정
                         </button>
                       </div>
                     </div>

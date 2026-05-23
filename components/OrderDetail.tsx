@@ -1485,10 +1485,10 @@ export default function OrderDetail({
                                 onClick={() => setArtworksModalItemId(item.id)}
                                 className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
                               >
-                                💲 아트워크 단가
+                                🖨️ 인쇄 배정
                               </button>
                               <p className="text-[11px] text-gray-500 -mt-1 text-center">
-                                {isFactoryUser ? '공장 단가만 조정 가능' : '인쇄 아트워크별 단가 (자동 매칭 포함)'}
+                                {isFactoryUser ? '단가만 조정 가능' : '인쇄방법·크기·갯수·단가 입력 (자동 산정)'}
                               </p>
                             </div>
                           )}
@@ -1499,10 +1499,10 @@ export default function OrderDetail({
                                 onClick={() => setArtworksModalItemId(item.id)}
                                 className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
                               >
-                                💲 아트워크 단가
+                                🖨️ 인쇄 배정
                               </button>
                               <p className="text-[11px] text-gray-500 mt-1 text-center">
-                                공장 배정 전에도 아트워크 단가 미리 입력 가능
+                                공장 배정 전 미리 인쇄 입력 가능
                               </p>
                             </div>
                           )}

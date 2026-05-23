@@ -425,7 +425,7 @@ export default function OrderItemArtworksModal({
           <div className="flex items-center gap-2 min-w-0">
             <DollarSign className="w-5 h-5 text-emerald-600 flex-shrink-0" />
             <h2 className="text-lg font-semibold text-gray-900 truncate">
-              공장 인쇄 작업 — {orderItemTitle}
+              인쇄 배정 — {orderItemTitle}
             </h2>
             {isFactoryMode && (
               <span className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-emerald-100 text-emerald-800">
@@ -443,14 +443,13 @@ export default function OrderItemArtworksModal({
             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <div>
               {isFactoryMode ? (
-                <>본인 공장에 배정된 작업 항목의 <b>공장 작업 비용</b>만 조정할 수 있습니다.</>
+                <>본인 공장에 배정된 인쇄의 <b>단가·합계</b>만 조정할 수 있습니다.</>
               ) : (
                 <>
-                  <b>공장에 지급할 인쇄 작업</b>을 행 단위로 등록합니다. 인쇄방식·크기 라벨을
-                  선택하면 그 공장 단가표에서 단가가 자동으로 채워지고, 갯수·추가금액에 따라
-                  합계가 자동 산정됩니다. 단가·합계를 수기로 수정하면 출처가 override로
-                  표시됩니다. 저장 시 합계가 order_items.factory_amount로 자동 동기화되어
-                  마진 계산에 반영됩니다.
+                  공장에 지급할 인쇄를 등록합니다. <b>인쇄방법</b>과 <b>크기</b>를 선택하면 그
+                  공장 단가표에서 단가가 자동 채워지고, 갯수·추가금액에 따라 합계가 자동
+                  산정됩니다. 한 품목에 여러 인쇄를 추가할 수 있습니다 (예: 앞면 DTF + 뒷면
+                  자수). 저장 시 합계가 마진 계산에 자동 반영됩니다.
                 </>
               )}
             </div>
@@ -476,7 +475,7 @@ export default function OrderItemArtworksModal({
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <p className="text-xs text-gray-600">
-                  주문 수량 <b>{itemQuantity}</b> · 작업 항목 <b>{rows.length}</b>건
+                  주문 수량 <b>{itemQuantity}</b> · 인쇄 <b>{rows.length}</b>건
                   {availableMethods.length === 0 && !isFactoryMode && factoryPricingUrl && (
                     <span className="ml-2 text-amber-700">
                       (이 공장의 단가표가 비어있습니다. 먼저 공장 단가표를 등록하세요)
@@ -489,16 +488,16 @@ export default function OrderItemArtworksModal({
                     onClick={addRow}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50 rounded-md border border-emerald-200"
                   >
-                    <Plus className="w-3.5 h-3.5" /> 작업 항목 추가
+                    <Plus className="w-3.5 h-3.5" /> 인쇄방법 추가
                   </button>
                 )}
               </div>
 
               {rows.length === 0 && (
                 <div className="text-center text-xs text-gray-400 py-8 border border-dashed border-gray-200 rounded-md">
-                  등록된 작업 항목이 없습니다.
+                  등록된 인쇄가 없습니다.
                   <br />
-                  위 &lsquo;작업 항목 추가&rsquo; 버튼을 눌러 인쇄 작업을 등록하세요.
+                  위 &lsquo;인쇄방법 추가&rsquo; 버튼을 눌러 추가하세요.
                 </div>
               )}
 
@@ -511,7 +510,7 @@ export default function OrderItemArtworksModal({
                   >
                     <div className="grid grid-cols-12 gap-2">
                       <div className="col-span-3">
-                        <label className="block text-[10px] text-gray-500 mb-0.5">인쇄방식</label>
+                        <label className="block text-[10px] text-gray-500 mb-0.5">인쇄방법</label>
                         <select
                           value={row.print_method_id}
                           onChange={(e) => onMethodChange(row.tempId, e.target.value)}
@@ -527,7 +526,7 @@ export default function OrderItemArtworksModal({
                         </select>
                       </div>
                       <div className="col-span-3">
-                        <label className="block text-[10px] text-gray-500 mb-0.5">크기 라벨</label>
+                        <label className="block text-[10px] text-gray-500 mb-0.5">크기</label>
                         <select
                           value={row.factory_pricing_row_id ?? ''}
                           onChange={(e) => onSizeChange(row.tempId, e.target.value)}
@@ -578,7 +577,7 @@ export default function OrderItemArtworksModal({
                             type="button"
                             onClick={() => removeRow(row.tempId)}
                             className="p-1.5 text-red-500 hover:bg-red-50 rounded-md"
-                            title="이 작업 항목 삭제"
+                            title="이 인쇄 삭제"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -635,7 +634,7 @@ export default function OrderItemArtworksModal({
 
               {rows.length > 0 && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-md p-3 text-sm text-emerald-900 flex justify-between">
-                  <span>이 품목 공장 작업 비용 합계 (마진 계산 반영):</span>
+                  <span>합계 (마진 계산에 반영):</span>
                   <b>{totalSum.toLocaleString()} 원</b>
                 </div>
               )}
