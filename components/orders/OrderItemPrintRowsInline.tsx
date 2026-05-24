@@ -92,7 +92,10 @@ export default function OrderItemPrintRowsInline({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load both pricing options and existing artwork rows
+  // Load existing artwork rows ONCE per order item.
+  // Crucially: this does NOT re-run when factoryId changes — that would wipe
+  // unsaved user input. Switching factories only refreshes the pricing options,
+  // not the rows themselves.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -102,17 +105,7 @@ export default function OrderItemPrintRowsInline({
         const artRes = await fetch(`/api/admin/order-items/${orderItemId}/artworks`);
         if (!artRes.ok) throw new Error('인쇄 행 로드 실패');
         const artPayload = await artRes.json();
-
-        let fetchedPricing: FactoryPrintMethodPricing[] = [];
-        if (factoryId) {
-          const pRes = await fetch(`/api/admin/factory-print-pricing?factory_id=${factoryId}`);
-          if (pRes.ok) {
-            const pPayload = await pRes.json();
-            fetchedPricing = pPayload.data || [];
-          }
-        }
         if (cancelled) return;
-        setPricingRows(fetchedPricing);
         setRows((artPayload.data || []).map(rowFromDb));
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : '불러오기 실패');
@@ -123,7 +116,30 @@ export default function OrderItemPrintRowsInline({
     return () => {
       cancelled = true;
     };
-  }, [orderItemId, factoryId]);
+  }, [orderItemId]);
+
+  // Load pricing options whenever the assigned factory changes.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!factoryId) {
+          setPricingRows([]);
+          return;
+        }
+        const pRes = await fetch(`/api/admin/factory-print-pricing?factory_id=${factoryId}`);
+        if (!pRes.ok) return;
+        const pPayload = await pRes.json();
+        if (cancelled) return;
+        setPricingRows(pPayload.data || []);
+      } catch {
+        // pricing fetch failure shouldn't block the editor
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [factoryId]);
 
   // distinct methods this factory handles
   const availableMethods = useMemo(() => {

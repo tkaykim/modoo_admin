@@ -1493,15 +1493,34 @@ export default function OrderDetail({
                               ))}
                             </select>
                           </div>
-                          <div className="grid grid-cols-2 gap-2">
+
+                          {/* 인쇄 행 인라인 — 공장 선택 직후 자연스러운 순서. 행 변경 시 자동 저장 */}
+                          {!isFactoryUser && (
+                            <OrderItemPrintRowsInline
+                              orderItemId={item.id}
+                              itemQuantity={item.quantity}
+                              factoryId={alloc.factory_id || null}
+                              onChanged={() => {
+                                // 인쇄 합계는 트리거가 order_items.factory_amount에 sync 함.
+                                // 부모 onUpdate()를 호출하지 않음 — 사용자가 입력 중인 input의 focus와
+                                // state가 휘청거리는 (탭 새로고침 같은) 현상 방지.
+                                fetchOrderItems();
+                              }}
+                            />
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
                             <div>
-                              <label className="block text-[11px] text-gray-500 mb-0.5">금액</label>
+                              <label className="block text-[11px] text-gray-500 mb-0.5">
+                                금액 <span className="text-gray-400">(인쇄 합계 자동)</span>
+                              </label>
                               <input
                                 type="number"
                                 value={alloc.amount}
                                 onChange={(e) => updateItemAllocField(item.id, 'amount', e.target.value)}
                                 placeholder="0"
-                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 bg-gray-50"
+                                title="인쇄 행이 있으면 합계로 자동 갱신됩니다. 수기 수정도 가능하지만 인쇄 행 변경 시 다시 덮어쓰일 수 있습니다."
                               />
                             </div>
                             <div>
@@ -1559,22 +1578,9 @@ export default function OrderDetail({
                               disabled={!alloc.factory_id || savingItemAlloc === item.id}
                               className="px-3 py-1 text-[11px] text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
                             >
-                              {savingItemAlloc === item.id ? '저장 중...' : '저장'}
+                              {savingItemAlloc === item.id ? '저장 중...' : '마감일·결제정보 저장'}
                             </button>
                           </div>
-
-                          {/* 인쇄 행 인라인 — 공장 선택돼있을 때만 활성. 행 변경 시 자동 저장 */}
-                          {!isFactoryUser && (
-                            <OrderItemPrintRowsInline
-                              orderItemId={item.id}
-                              itemQuantity={item.quantity}
-                              factoryId={alloc.factory_id || null}
-                              onChanged={() => {
-                                fetchOrderItems();
-                                onUpdate();
-                              }}
-                            />
-                          )}
                         </div>
                       )}
                     </div>
