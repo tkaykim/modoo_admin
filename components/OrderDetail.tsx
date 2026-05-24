@@ -11,6 +11,7 @@ import AddOrderItemModal from '@/components/orders/AddOrderItemModal';
 import OrderProfitSection from '@/components/orders/OrderProfitSection';
 import WorkPhotoModal from '@/components/orders/WorkPhotoModal';
 import OrderItemArtworksModal from '@/components/orders/OrderItemArtworksModal';
+import OrderItemPrintRowsInline from '@/components/orders/OrderItemPrintRowsInline';
 import { extractVariants } from '@/lib/orderUtils';
 import { formatKstDateLong, formatKstDateTimeMedium, getKstYYYYMMDD } from '@/lib/kst';
 import { orderCategoryBadgeClass, orderCategoryLabel } from '@/lib/order-category';
@@ -1467,9 +1468,9 @@ export default function OrderDetail({
 
                       {isExpanded && alloc && (
                         <div className="p-3 space-y-2 border-t border-gray-100 bg-white">
-                          {/* 작업사진 — 공장 배정된 item 에 한해 노출. 카메라 촬영·업로드 + Drive 폴더 열기 통합 모달 */}
+                          {/* 작업사진 — 공장 배정된 item 에 한해 노출. */}
                           {item.assigned_manufacturer_id && (
-                            <div className="pb-2 border-b border-gray-100 space-y-2">
+                            <div className="pb-2 border-b border-gray-100">
                               <button
                                 type="button"
                                 onClick={() => setWorkPhotoModalItemId(item.id)}
@@ -1477,33 +1478,6 @@ export default function OrderDetail({
                               >
                                 📷 작업사진
                               </button>
-                              <p className="text-[11px] text-gray-500 -mt-1 text-center">
-                                사진 촬영·업로드 또는 Drive 폴더 열기
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => setArtworksModalItemId(item.id)}
-                                className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
-                              >
-                                🖨️ 인쇄 배정
-                              </button>
-                              <p className="text-[11px] text-gray-500 -mt-1 text-center">
-                                {isFactoryUser ? '단가만 조정 가능' : '인쇄방법·크기·갯수·단가 입력 (자동 산정)'}
-                              </p>
-                            </div>
-                          )}
-                          {!item.assigned_manufacturer_id && !isFactoryUser && (
-                            <div className="pb-2 border-b border-gray-100">
-                              <button
-                                type="button"
-                                onClick={() => setArtworksModalItemId(item.id)}
-                                className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
-                              >
-                                🖨️ 인쇄 배정
-                              </button>
-                              <p className="text-[11px] text-gray-500 mt-1 text-center">
-                                공장 배정 전 미리 인쇄 입력 가능
-                              </p>
                             </div>
                           )}
                           <div>
@@ -1588,6 +1562,19 @@ export default function OrderDetail({
                               {savingItemAlloc === item.id ? '저장 중...' : '저장'}
                             </button>
                           </div>
+
+                          {/* 인쇄 행 인라인 — 공장 선택돼있을 때만 활성. 행 변경 시 자동 저장 */}
+                          {!isFactoryUser && (
+                            <OrderItemPrintRowsInline
+                              orderItemId={item.id}
+                              itemQuantity={item.quantity}
+                              factoryId={alloc.factory_id || null}
+                              onChanged={() => {
+                                fetchOrderItems();
+                                onUpdate();
+                              }}
+                            />
+                          )}
                         </div>
                       )}
                     </div>
