@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendGmailEmail } from '@/lib/gmail';
-import { fetchMetaAdInsights, summarize, type InsightSummary } from '@/lib/marketing-report/fetchMeta';
-import { fetchGA4Overall, fetchGA4Channels } from '@/lib/marketing-report/fetchGA4';
+import { fetchMetaAdInsights, summarize, diagnoseLeaks, type InsightSummary } from '@/lib/marketing-report/fetchMeta';
+import {
+  fetchGA4Overall,
+  fetchGA4Channels,
+  fetchGA4Funnel,
+  fetchGA4LandingPages,
+  fetchGA4DeviceBreakdown,
+  fetchGA4NewVsReturning,
+} from '@/lib/marketing-report/fetchGA4';
 import {
   fetchOrderSummary,
   fetchTopProducts,
   fetchAdAttributedRevenue,
 } from '@/lib/marketing-report/fetchSupabase';
+import { fetchClarityReport } from '@/lib/marketing-report/fetchClarity';
+import { buildNarrative } from '@/lib/marketing-report/narrative';
+// NOTE: Gemini polish는 광고명을 환각으로 변조한 사례 발생(2026-05-26: "감도높은유니폼"→"갸르데이션 더피").
+// 룰 한국어 출력이 충분히 자연스러우므로 polish 비활성. polishWithGemini 함수 자체는 narrative.ts에 남겨둠.
 import { buildDailyHtml, type DailyData } from '@/lib/marketing-report/buildHtml';
 import { daysAgoKst } from '@/lib/marketing-report/time';
 
@@ -35,8 +46,21 @@ export async function GET(req: NextRequest) {
     const yesterday = daysAgoKst(1);
     const dayBefore = daysAgoKst(2);
 
-    // 병렬 fetch
-    const [adInsights, ga4Overall, ga4Channels, supaSummary, prevSupaSummary, topProducts, adAttributed] = await Promise.all([
+    // 병렬 fetch — 각 fetcher 실패해도 나머지는 진행
+    const [
+      adInsights,
+      ga4Overall,
+      ga4Channels,
+      ga4Funnel,
+      ga4Landing,
+      ga4Devices,
+      ga4Cohort,
+      supaSummary,
+      prevSupaSummary,
+      topProducts,
+      adAttributed,
+      clarity,
+    ] = await Promise.all([
       fetchMetaAdInsights(yesterday, yesterday).catch((e) => {
         console.error('[marketing-daily] Meta failed:', e);
         return [];
@@ -47,6 +71,22 @@ export async function GET(req: NextRequest) {
       }),
       fetchGA4Channels(yesterday, yesterday, 10).catch((e) => {
         console.error('[marketing-daily] GA4 channels failed:', e);
+        return [];
+      }),
+      fetchGA4Funnel(yesterday, yesterday).catch((e) => {
+        console.error('[marketing-daily] GA4 funnel failed:', e);
+        return [];
+      }),
+      fetchGA4LandingPages(yesterday, yesterday, 10).catch((e) => {
+        console.error('[marketing-daily] GA4 landing failed:', e);
+        return [];
+      }),
+      fetchGA4DeviceBreakdown(yesterday, yesterday).catch((e) => {
+        console.error('[marketing-daily] GA4 device failed:', e);
+        return [];
+      }),
+      fetchGA4NewVsReturning(yesterday, yesterday).catch((e) => {
+        console.error('[marketing-daily] GA4 new/returning failed:', e);
         return [];
       }),
       fetchOrderSummary(yesterday, yesterday).catch((e) => {
@@ -69,6 +109,10 @@ export async function GET(req: NextRequest) {
         console.error('[marketing-daily] Ad attributed failed:', e);
         return [];
       }),
+      fetchClarityReport(1).catch((e) => {
+        console.error('[marketing-daily] Clarity failed:', e);
+        return null;
+      }),
     ]);
 
     const ads: InsightSummary[] = adInsights.map((i) => summarize(i, 'ad_name'));
@@ -82,11 +126,22 @@ export async function GET(req: NextRequest) {
     const ctr = totalImpr > 0 ? (totalClicks / totalImpr) * 100 : 0;
     const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
     const metaRoas = totalSpend > 0 ? totalPurchaseValue / totalSpend : 0;
+    const realRoas = totalSpend > 0 ? supaSummary.revenue / totalSpend : 0;
 
-    const icValue = ads.reduce((s, a) => {
-      // initiated_checkout value 별도 추출 어려움 → 일단 0. 향후 action_values에서 추출 가능.
-      return s;
-    }, 0);
+    const leak = diagnoseLeaks(ads);
+
+    const narrative = buildNarrative({
+      supa: supaSummary,
+      prevSupa: prevSupaSummary,
+      metaSpend: totalSpend,
+      realRoas,
+      ads: leak.perAd,
+      ga4Overall,
+      ga4Funnel,
+      ga4Devices,
+      ga4Cohort,
+      clarity: clarity ?? undefined,
+    });
 
     const data: DailyData = {
       date: yesterday,
@@ -99,20 +154,30 @@ export async function GET(req: NextRequest) {
         cpc,
         atc: totalAtc,
         ic: totalIc,
-        icValue,
+        icValue: 0,
         purchase: totalPurchase,
         purchaseValue: totalPurchaseValue,
         metaRoas,
         ads,
+        leak,
       },
-      ga4: { overall: ga4Overall, channels: ga4Channels },
+      ga4: {
+        overall: ga4Overall,
+        channels: ga4Channels,
+        funnel: ga4Funnel,
+        landing: ga4Landing,
+        devices: ga4Devices,
+        cohort: ga4Cohort,
+      },
       supa: { summary: supaSummary, topProducts, adAttributed },
       prevSupa: prevSupaSummary,
+      clarity,
+      narrative,
     };
 
     const html = buildDailyHtml(data);
     const subject = `[모두의유니폼] 일일 리포트 ${yesterday} · 매출 ${supaSummary.revenue.toLocaleString('ko-KR')}원 · ${supaSummary.orders}건`;
-    const text = `${yesterday} 매출 ${supaSummary.revenue.toLocaleString()}원 / ${supaSummary.orders}건. 광고비 ${totalSpend.toLocaleString()}원 / 실제 ROAS ${totalSpend > 0 ? (supaSummary.revenue / totalSpend).toFixed(2) : '–'}×. HTML 본문 참고.`;
+    const text = `${yesterday} 매출 ${supaSummary.revenue.toLocaleString()}원 / ${supaSummary.orders}건. 광고비 ${totalSpend.toLocaleString()}원 / 실제 ROAS ${realRoas.toFixed(2)}×. HTML 본문 참고.`;
 
     const sent = await sendGmailEmail({
       to: [{ email: RECIPIENT }],
@@ -121,7 +186,14 @@ export async function GET(req: NextRequest) {
       html,
     });
 
-    return NextResponse.json({ ok: true, sent, date: yesterday, revenue: supaSummary.revenue, orders: supaSummary.orders });
+    return NextResponse.json({
+      ok: true,
+      sent,
+      date: yesterday,
+      revenue: supaSummary.revenue,
+      orders: supaSummary.orders,
+      narrative,
+    });
   } catch (err) {
     console.error('[marketing-daily] failed:', err);
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });

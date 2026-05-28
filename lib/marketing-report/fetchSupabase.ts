@@ -119,26 +119,39 @@ export async function fetchTopProducts(from: string, to: string, limit = 10): Pr
   return (data ?? []) as TopProductRow[];
 }
 
-/** UTM 기반 광고 매출 (utm_source IS NOT NULL) */
-export async function fetchAdAttributedRevenue(from: string, to: string): Promise<{
+export interface AdAttributedRow {
   utm_source: string;
+  utm_medium: string | null;
+  utm_campaign: string | null;
   utm_content: string | null;
+  utm_term: string | null;
   orders: number;
   revenue: number;
-}[]> {
+}
+
+/** UTM 기반 광고 매출 (utm_source IS NOT NULL) — 5필드 그룹화 */
+export async function fetchAdAttributedRevenue(from: string, to: string): Promise<AdAttributedRow[]> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from('orders')
-    .select('utm_source,utm_content,total_amount')
+    .select('utm_source,utm_medium,utm_campaign,utm_content,utm_term,total_amount')
     .gte('created_at', `${from}T00:00:00+09:00`)
     .lt('created_at', toExclusiveDate(to))
     .eq('payment_status', 'completed')
     .not('utm_source', 'is', null);
   if (error) throw error;
-  const byKey = new Map<string, { utm_source: string; utm_content: string | null; orders: number; revenue: number }>();
+  const byKey = new Map<string, AdAttributedRow>();
   for (const o of data ?? []) {
-    const k = `${o.utm_source}::${o.utm_content ?? ''}`;
-    const cur = byKey.get(k) ?? { utm_source: o.utm_source ?? '', utm_content: o.utm_content ?? null, orders: 0, revenue: 0 };
+    const k = `${o.utm_source}::${o.utm_medium ?? ''}::${o.utm_campaign ?? ''}::${o.utm_content ?? ''}::${o.utm_term ?? ''}`;
+    const cur = byKey.get(k) ?? {
+      utm_source: o.utm_source ?? '',
+      utm_medium: o.utm_medium ?? null,
+      utm_campaign: o.utm_campaign ?? null,
+      utm_content: o.utm_content ?? null,
+      utm_term: o.utm_term ?? null,
+      orders: 0,
+      revenue: 0,
+    };
     cur.orders += 1;
     cur.revenue += parseFloat((o.total_amount as any) ?? '0');
     byKey.set(k, cur);

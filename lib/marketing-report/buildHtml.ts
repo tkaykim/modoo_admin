@@ -1,9 +1,11 @@
 /** HTML 보고서 빌더 (일일 + 주간 공용) */
 
 import { won, pct } from './time';
-import type { InsightSummary } from './fetchMeta';
-import type { GA4Overall, GA4ChannelRow } from './fetchGA4';
-import type { OrderSummary, DailyOrderRow, TopProductRow } from './fetchSupabase';
+import type { InsightSummary, AdLeakDiagnosis } from './fetchMeta';
+import type { GA4Overall, GA4ChannelRow, GA4FunnelStep, GA4LandingRow, GA4DeviceRow, GA4NewReturningRow } from './fetchGA4';
+import type { OrderSummary, DailyOrderRow, TopProductRow, AdAttributedRow } from './fetchSupabase';
+import type { ClarityReport } from './fetchClarity';
+import type { Narrative } from './narrative';
 
 const CSS = `
 *{margin:0;padding:0;box-sizing:border-box}
@@ -63,10 +65,20 @@ export interface DailyData {
     purchaseValue: number;
     metaRoas: number;
     ads: InsightSummary[];
+    leak: { perAd: AdLeakDiagnosis[]; siteAvg: { ctr: number; atcRate: number; icRate: number; purchaseRate: number } };
   };
-  ga4: { overall: GA4Overall; channels: GA4ChannelRow[] };
-  supa: { summary: OrderSummary; topProducts: TopProductRow[]; adAttributed: { utm_source: string; utm_content: string | null; orders: number; revenue: number; }[] };
+  ga4: {
+    overall: GA4Overall;
+    channels: GA4ChannelRow[];
+    funnel: GA4FunnelStep[];
+    landing: GA4LandingRow[];
+    devices: GA4DeviceRow[];
+    cohort: GA4NewReturningRow[];
+  };
+  supa: { summary: OrderSummary; topProducts: TopProductRow[]; adAttributed: AdAttributedRow[] };
   prevSupa: OrderSummary;  // 그저께 비교용
+  clarity: ClarityReport | null;
+  narrative: Narrative;
 }
 
 export interface WeeklyData {
@@ -80,10 +92,20 @@ export interface WeeklyData {
     purchaseValue: number;
     metaRoas: number;
     ads: InsightSummary[];
+    leak: { perAd: AdLeakDiagnosis[]; siteAvg: { ctr: number; atcRate: number; icRate: number; purchaseRate: number } };
   };
-  ga4: { overall: GA4Overall; channels: GA4ChannelRow[] };
-  supa: { summary: OrderSummary; daily: DailyOrderRow[]; topProducts: TopProductRow[]; adAttributed: { utm_source: string; utm_content: string | null; orders: number; revenue: number; }[] };
+  ga4: {
+    overall: GA4Overall;
+    channels: GA4ChannelRow[];
+    funnel: GA4FunnelStep[];
+    landing: GA4LandingRow[];
+    devices: GA4DeviceRow[];
+    cohort: GA4NewReturningRow[];
+  };
+  supa: { summary: OrderSummary; daily: DailyOrderRow[]; topProducts: TopProductRow[]; adAttributed: AdAttributedRow[] };
   prevSupa: OrderSummary;
+  clarity: ClarityReport | null;
+  narrative: Narrative;
 }
 
 function diffArrow(now: number, prev: number): string {
@@ -99,6 +121,7 @@ export function buildDailyHtml(d: DailyData): string {
   const realRoas = d.meta.spend > 0 ? d.supa.summary.revenue / d.meta.spend : 0;
   const activeAds = d.meta.ads.filter((a) => a.spend > 0).sort((a, b) => b.spend - a.spend);
   const maxAdSpend = Math.max(...activeAds.map((a) => a.spend), 1);
+  const maxFunnelUsers = Math.max(...d.ga4.funnel.map((s) => s.users), 1);
 
   return `<!DOCTYPE html>
 <html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>모두의유니폼 일일 리포트 ${d.date}</title><style>${CSS}</style></head>
@@ -106,8 +129,15 @@ export function buildDailyHtml(d: DailyData): string {
 
 <header>
   <h1>📊 모두의유니폼 일일 마케팅 리포트</h1>
-  <div class="sub">${d.date} (KST) · 데이터 Meta + GA4 + Supabase</div>
+  <div class="sub">${d.date} (KST) · 데이터 Meta + GA4 + Supabase + Clarity</div>
 </header>
+
+<section>
+  <h2>🧭 진단 한눈에</h2>
+  <div class="note ok"><strong>좋은점</strong><br>• ${d.narrative.good.map(esc).join('<br>• ')}</div>
+  <div class="note warn"><strong>위험</strong><br>• ${d.narrative.risk.map(esc).join('<br>• ')}</div>
+  <div class="note info"><strong>액션</strong><br>• ${d.narrative.action.map(esc).join('<br>• ')}</div>
+</section>
 
 <section>
   <h2>① 어제의 핵심</h2>
@@ -132,23 +162,86 @@ export function buildDailyHtml(d: DailyData): string {
 </section>
 
 ${activeAds.length > 0 ? `<section>
-  <h2>③ 광고 소재별 (활성)</h2>
-  ${activeAds.map((a) => `
-    <div class="bar-row">
-      <span class="lbl">${esc(a.name)}</span>
-      <div class="bg"><div class="bar" style="width:${Math.max(5, (a.spend / maxAdSpend) * 100)}%">${won(a.spend)}</div></div>
-      <span class="v">CTR ${pct(a.ctr)}</span>
-    </div>
-  `).join('')}
+  <h2>③ 광고 소재별 + leak 진단</h2>
+  <table>
+    <thead><tr><th>광고</th><th class="num">지출</th><th class="num">CTR</th><th class="num">ATC율</th><th class="num">IC율</th><th class="num">구매율</th><th class="num">ROAS</th><th>진단</th></tr></thead>
+    <tbody>
+      ${d.meta.leak.perAd.map((a) => `<tr>
+        <td>${esc(a.name)}</td>
+        <td class="num">${won(a.spend)}</td>
+        <td class="num">${pct(a.ctr)}</td>
+        <td class="num">${pct(a.atcRate)}</td>
+        <td class="num">${pct(a.icRate)}</td>
+        <td class="num">${pct(a.purchaseRate)}</td>
+        <td class="num ${a.roas >= 2 ? 'pos' : a.roas < 1 ? 'neg' : ''}">${a.roas.toFixed(2)}×</td>
+        <td style="font-size:11px">${esc(a.primaryIssue)}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+  <div style="font-size:10px;color:#888;margin-top:6px">계정 평균: CTR ${pct(d.meta.leak.siteAvg.ctr)} / ATC율 ${pct(d.meta.leak.siteAvg.atcRate)} / IC율 ${pct(d.meta.leak.siteAvg.icRate)} / 구매율 ${pct(d.meta.leak.siteAvg.purchaseRate)} — 절반 미만 단계가 leak으로 표시됨</div>
+</section>` : ''}
+
+${d.ga4.funnel.length > 0 && d.ga4.funnel[0].users > 0 ? `<section>
+  <h2>🔻 GA4 funnel — 어디서 막히나</h2>
+  ${d.ga4.funnel.map((s, i) => `<div class="bar-row">
+    <span class="lbl">${esc(s.step)}</span>
+    <div class="bg"><div class="bar" style="width:${Math.max(3, (s.users / maxFunnelUsers) * 100)}%">${s.users}명</div></div>
+    <span class="v">${i === 0 ? 'base' : `${s.conversionFromPrevPct.toFixed(0)}%${s.conversionFromPrevPct < 30 ? ' ⚠' : ''}`}</span>
+  </div>`).join('')}
+  <div style="font-size:10px;color:#888;margin-top:6px">우측 % = 직전 단계 대비 통과율. 30% 미만 ⚠</div>
+</section>` : ''}
+
+${d.ga4.devices.length > 0 ? `<section>
+  <h2>📱 디바이스 / 신규 vs 재방문</h2>
+  <table>
+    <thead><tr><th>디바이스</th><th class="num">세션</th><th class="num">거래</th><th class="num">전환율</th><th class="num">매출</th></tr></thead>
+    <tbody>
+      ${d.ga4.devices.map((dv) => `<tr><td>${esc(dv.device)}</td><td class="num">${dv.sessions}</td><td class="num">${dv.transactions}</td><td class="num">${pct(dv.conversionRate)}</td><td class="num">${won(dv.purchaseRevenue)}</td></tr>`).join('')}
+    </tbody>
+  </table>
+  ${d.ga4.cohort.length > 0 ? `<table style="margin-top:8px">
+    <thead><tr><th>코호트</th><th class="num">세션</th><th class="num">거래</th><th class="num">전환율</th><th class="num">매출</th></tr></thead>
+    <tbody>
+      ${d.ga4.cohort.map((c) => `<tr><td>${esc(c.cohort)}</td><td class="num">${c.sessions}</td><td class="num">${c.transactions}</td><td class="num">${pct(c.conversionRate)}</td><td class="num">${won(c.purchaseRevenue)}</td></tr>`).join('')}
+    </tbody>
+  </table>` : ''}
+</section>` : ''}
+
+${d.ga4.landing.length > 0 ? `<section>
+  <h2>🛬 랜딩 페이지 TOP</h2>
+  <table>
+    <thead><tr><th>페이지</th><th class="num">세션</th><th class="num">참여율</th><th class="num">전환</th></tr></thead>
+    <tbody>
+      ${d.ga4.landing.slice(0, 8).map((l) => `<tr><td style="font-family:monospace;font-size:11px">${esc(l.pagePath.slice(0, 60))}</td><td class="num">${l.sessions}</td><td class="num ${l.engagementRate < 0.4 ? 'neg' : ''}">${pct(l.engagementRate * 100)}</td><td class="num">${l.conversions}</td></tr>`).join('')}
+    </tbody>
+  </table>
+</section>` : ''}
+
+${d.clarity && d.clarity.summary.totalSessions > 0 ? `<section>
+  <h2>🎬 Clarity UX 신호</h2>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="l">세션</div><div class="v">${d.clarity.summary.totalSessions}</div><div class="s">봇 ${d.clarity.summary.totalBotSessions}</div></div>
+    <div class="kpi"><div class="l">평균 체류</div><div class="v">${d.clarity.summary.avgEngagementSec.toFixed(0)}s</div><div class="s">스크롤 ${(d.clarity.summary.avgScrollDepth * 100).toFixed(0)}%</div></div>
+    <div class="kpi ${d.clarity.summary.rageClickSessions > d.clarity.summary.totalSessions * 0.03 ? 'warn' : ''}"><div class="l">rage click</div><div class="v">${d.clarity.summary.rageClickSessions}</div><div class="s">dead ${d.clarity.summary.deadClickSessions} · err ${d.clarity.summary.errorClickSessions}</div></div>
+    <div class="kpi ${d.clarity.summary.scriptErrorSessions > d.clarity.summary.totalSessions * 0.02 ? 'warn' : ''}"><div class="l">JS 에러 세션</div><div class="v">${d.clarity.summary.scriptErrorSessions}</div><div class="s">quickback ${d.clarity.summary.quickbackSessions}</div></div>
+  </div>
+  ${d.clarity.topProblemPages.length > 0 ? `<table style="margin-top:10px">
+    <thead><tr><th>문제 페이지</th><th class="num">세션</th><th class="num">dead%</th><th class="num">rage%</th><th class="num">err%</th></tr></thead>
+    <tbody>
+      ${d.clarity.topProblemPages.map((p) => { let label = p.url; try { label = new URL(p.url).pathname; } catch {} return `<tr><td style="font-family:monospace;font-size:11px">${esc(label.slice(0, 60))}</td><td class="num">${p.baseSessions}</td><td class="num ${p.deadClickPct > 10 ? 'neg' : ''}">${p.deadClickPct.toFixed(1)}</td><td class="num ${p.rageClickPct > 5 ? 'neg' : ''}">${p.rageClickPct.toFixed(1)}</td><td class="num ${p.scriptErrorPct > 0 ? 'neg' : ''}">${p.scriptErrorPct.toFixed(1)}</td></tr>`; }).join('')}
+    </tbody>
+  </table>` : ''}
+</section>` : d.clarity === null ? `<section>
+  <h2>🎬 Clarity</h2>
+  <div class="note warn">Clarity API 호출 실패 — 토큰 또는 API 응답 점검 필요</div>
 </section>` : ''}
 
 ${d.supa.adAttributed.length > 0 ? `<section>
-  <h2>④ 광고 attribution 매출 (UTM 기반)</h2>
+  <h2>④ UTM 기반 광고 매출 (source/medium/campaign/content/term)</h2>
   <table>
-    <thead><tr><th>채널</th><th>광고 소재 ID</th><th class="num">건</th><th class="num">매출</th></tr></thead>
-    <tbody>${d.supa.adAttributed.slice(0, 8).map((r) => `<tr><td>${esc(r.utm_source)}</td><td style="font-family:monospace;font-size:10px">${esc(r.utm_content ?? '-')}</td><td class="num">${r.orders}</td><td class="num">${won(r.revenue)}</td></tr>`).join('')}</tbody>
+    <thead><tr><th>source</th><th>medium</th><th>campaign</th><th>content</th><th>term</th><th class="num">건</th><th class="num">매출</th></tr></thead>
+    <tbody>${d.supa.adAttributed.slice(0, 10).map((r) => `<tr><td>${esc(r.utm_source)}</td><td>${esc(r.utm_medium ?? '-')}</td><td>${esc(r.utm_campaign ?? '-')}</td><td style="font-family:monospace;font-size:10px">${esc(r.utm_content ?? '-')}</td><td style="font-family:monospace;font-size:10px">${esc(r.utm_term ?? '-')}</td><td class="num">${r.orders}</td><td class="num">${won(r.revenue)}</td></tr>`).join('')}</tbody>
   </table>
-  <div class="note info" style="margin-top:8px">→ UTM 추적 시스템 5/21 도입. 데이터가 누적될수록 광고별 ROAS 정확도 ↑</div>
 </section>` : ''}
 
 <section>
@@ -188,8 +281,15 @@ export function buildWeeklyHtml(d: WeeklyData): string {
 
 <header>
   <h1>📊 모두의유니폼 주간 마케팅 리포트</h1>
-  <div class="sub">${d.from} ~ ${d.to} (지난 주, KST) · 데이터 Meta + GA4 + Supabase</div>
+  <div class="sub">${d.from} ~ ${d.to} (지난 주, KST) · 데이터 Meta + GA4 + Supabase + Clarity</div>
 </header>
+
+<section>
+  <h2>🧭 진단 한눈에</h2>
+  <div class="note ok"><strong>좋은점</strong><br>• ${d.narrative.good.map(esc).join('<br>• ')}</div>
+  <div class="note warn"><strong>위험</strong><br>• ${d.narrative.risk.map(esc).join('<br>• ')}</div>
+  <div class="note info"><strong>액션</strong><br>• ${d.narrative.action.map(esc).join('<br>• ')}</div>
+</section>
 
 <section>
   <h2>① 지난 주 핵심</h2>
@@ -223,18 +323,30 @@ export function buildWeeklyHtml(d: WeeklyData): string {
 </section>
 
 ${activeAds.length > 0 ? `<section>
-  <h2>④ 광고 소재별 성과</h2>
+  <h2>④ 광고 소재별 + leak 진단</h2>
   <table>
-    <thead><tr><th>광고</th><th class="num">지출</th><th class="num">CTR</th><th class="num">CPC</th><th class="num">구매</th><th class="num">ROAS</th></tr></thead>
-    <tbody>${activeAds.slice(0, 8).map((a) => `<tr><td>${esc(a.name)}</td><td class="num">${won(a.spend)}</td><td class="num">${pct(a.ctr)}</td><td class="num">${won(a.cpc)}</td><td class="num">${a.purchase}</td><td class="num">${a.roas.toFixed(2)}</td></tr>`).join('')}</tbody>
+    <thead><tr><th>광고</th><th class="num">지출</th><th class="num">CTR</th><th class="num">ATC율</th><th class="num">IC율</th><th class="num">구매율</th><th class="num">ROAS</th><th>진단</th></tr></thead>
+    <tbody>
+      ${d.meta.leak.perAd.slice(0, 10).map((a) => `<tr>
+        <td>${esc(a.name)}</td>
+        <td class="num">${won(a.spend)}</td>
+        <td class="num">${pct(a.ctr)}</td>
+        <td class="num">${pct(a.atcRate)}</td>
+        <td class="num">${pct(a.icRate)}</td>
+        <td class="num">${pct(a.purchaseRate)}</td>
+        <td class="num ${a.roas >= 2 ? 'pos' : a.roas < 1 ? 'neg' : ''}">${a.roas.toFixed(2)}×</td>
+        <td style="font-size:11px">${esc(a.primaryIssue)}</td>
+      </tr>`).join('')}
+    </tbody>
   </table>
+  <div style="font-size:10px;color:#888;margin-top:6px">계정 평균: CTR ${pct(d.meta.leak.siteAvg.ctr)} / ATC율 ${pct(d.meta.leak.siteAvg.atcRate)} / IC율 ${pct(d.meta.leak.siteAvg.icRate)} / 구매율 ${pct(d.meta.leak.siteAvg.purchaseRate)}</div>
 </section>` : ''}
 
 ${d.supa.adAttributed.length > 0 ? `<section>
-  <h2>⑤ UTM 기반 광고 매출</h2>
+  <h2>⑤ UTM 기반 광고 매출 (source/medium/campaign/content/term)</h2>
   <table>
-    <thead><tr><th>채널</th><th>광고 소재 ID</th><th class="num">건</th><th class="num">매출</th></tr></thead>
-    <tbody>${d.supa.adAttributed.slice(0, 10).map((r) => `<tr><td>${esc(r.utm_source)}</td><td style="font-family:monospace;font-size:10px">${esc(r.utm_content ?? '-')}</td><td class="num">${r.orders}</td><td class="num">${won(r.revenue)}</td></tr>`).join('')}</tbody>
+    <thead><tr><th>source</th><th>medium</th><th>campaign</th><th>content</th><th>term</th><th class="num">건</th><th class="num">매출</th></tr></thead>
+    <tbody>${d.supa.adAttributed.slice(0, 12).map((r) => `<tr><td>${esc(r.utm_source)}</td><td>${esc(r.utm_medium ?? '-')}</td><td>${esc(r.utm_campaign ?? '-')}</td><td style="font-family:monospace;font-size:10px">${esc(r.utm_content ?? '-')}</td><td style="font-family:monospace;font-size:10px">${esc(r.utm_term ?? '-')}</td><td class="num">${r.orders}</td><td class="num">${won(r.revenue)}</td></tr>`).join('')}</tbody>
   </table>
 </section>` : ''}
 
@@ -252,6 +364,53 @@ ${d.supa.topProducts.length > 0 ? `<section>
     <thead><tr><th>브랜드</th><th>상품</th><th class="num">건</th><th class="num">수량</th><th class="num">매출</th></tr></thead>
     <tbody>${d.supa.topProducts.slice(0, 8).map((p) => `<tr><td>${esc(p.brand ?? '-')}</td><td>${esc(p.product_title)}</td><td class="num">${p.orders}</td><td class="num">${p.quantity}</td><td class="num">${won(p.revenue)}</td></tr>`).join('')}</tbody>
   </table>
+</section>` : ''}
+
+${d.ga4.funnel.length > 0 && d.ga4.funnel[0].users > 0 ? (() => {
+  const maxU = Math.max(...d.ga4.funnel.map((s) => s.users), 1);
+  return `<section>
+  <h2>🔻 GA4 funnel — 어디서 막히나</h2>
+  ${d.ga4.funnel.map((s, i) => `<div class="bar-row">
+    <span class="lbl">${esc(s.step)}</span>
+    <div class="bg"><div class="bar" style="width:${Math.max(3, (s.users / maxU) * 100)}%">${s.users}명</div></div>
+    <span class="v">${i === 0 ? 'base' : `${s.conversionFromPrevPct.toFixed(0)}%${s.conversionFromPrevPct < 30 ? ' ⚠' : ''}`}</span>
+  </div>`).join('')}
+  <div style="font-size:10px;color:#888;margin-top:6px">우측 % = 직전 단계 대비 통과율. 30% 미만 ⚠</div>
+</section>`;
+})() : ''}
+
+${d.ga4.devices.length > 0 ? `<section>
+  <h2>📱 디바이스 / 신규 vs 재방문</h2>
+  <table>
+    <thead><tr><th>디바이스</th><th class="num">세션</th><th class="num">거래</th><th class="num">전환율</th><th class="num">매출</th></tr></thead>
+    <tbody>${d.ga4.devices.map((dv) => `<tr><td>${esc(dv.device)}</td><td class="num">${dv.sessions}</td><td class="num">${dv.transactions}</td><td class="num">${pct(dv.conversionRate)}</td><td class="num">${won(dv.purchaseRevenue)}</td></tr>`).join('')}</tbody>
+  </table>
+  ${d.ga4.cohort.length > 0 ? `<table style="margin-top:8px">
+    <thead><tr><th>코호트</th><th class="num">세션</th><th class="num">거래</th><th class="num">전환율</th><th class="num">매출</th></tr></thead>
+    <tbody>${d.ga4.cohort.map((c) => `<tr><td>${esc(c.cohort)}</td><td class="num">${c.sessions}</td><td class="num">${c.transactions}</td><td class="num">${pct(c.conversionRate)}</td><td class="num">${won(c.purchaseRevenue)}</td></tr>`).join('')}</tbody>
+  </table>` : ''}
+</section>` : ''}
+
+${d.ga4.landing.length > 0 ? `<section>
+  <h2>🛬 랜딩 페이지 TOP</h2>
+  <table>
+    <thead><tr><th>페이지</th><th class="num">세션</th><th class="num">참여율</th><th class="num">전환</th></tr></thead>
+    <tbody>${d.ga4.landing.slice(0, 10).map((l) => `<tr><td style="font-family:monospace;font-size:11px">${esc(l.pagePath.slice(0, 60))}</td><td class="num">${l.sessions}</td><td class="num ${l.engagementRate < 0.4 ? 'neg' : ''}">${pct(l.engagementRate * 100)}</td><td class="num">${l.conversions}</td></tr>`).join('')}</tbody>
+  </table>
+</section>` : ''}
+
+${d.clarity && d.clarity.summary.totalSessions > 0 ? `<section>
+  <h2>🎬 Clarity UX 신호 (최근 3일)</h2>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="l">세션</div><div class="v">${d.clarity.summary.totalSessions}</div><div class="s">봇 ${d.clarity.summary.totalBotSessions}</div></div>
+    <div class="kpi"><div class="l">평균 체류</div><div class="v">${d.clarity.summary.avgEngagementSec.toFixed(0)}s</div><div class="s">스크롤 ${(d.clarity.summary.avgScrollDepth * 100).toFixed(0)}%</div></div>
+    <div class="kpi ${d.clarity.summary.rageClickSessions > d.clarity.summary.totalSessions * 0.03 ? 'warn' : ''}"><div class="l">rage click</div><div class="v">${d.clarity.summary.rageClickSessions}</div><div class="s">dead ${d.clarity.summary.deadClickSessions}</div></div>
+    <div class="kpi ${d.clarity.summary.scriptErrorSessions > d.clarity.summary.totalSessions * 0.02 ? 'warn' : ''}"><div class="l">JS 에러 세션</div><div class="v">${d.clarity.summary.scriptErrorSessions}</div><div class="s">quickback ${d.clarity.summary.quickbackSessions}</div></div>
+  </div>
+  ${d.clarity.topProblemPages.length > 0 ? `<table style="margin-top:10px">
+    <thead><tr><th>문제 페이지</th><th class="num">세션</th><th class="num">dead%</th><th class="num">rage%</th><th class="num">err%</th></tr></thead>
+    <tbody>${d.clarity.topProblemPages.map((p) => { let label = p.url; try { label = new URL(p.url).pathname; } catch {} return `<tr><td style="font-family:monospace;font-size:11px">${esc(label.slice(0, 60))}</td><td class="num">${p.baseSessions}</td><td class="num ${p.deadClickPct > 10 ? 'neg' : ''}">${p.deadClickPct.toFixed(1)}</td><td class="num ${p.rageClickPct > 5 ? 'neg' : ''}">${p.rageClickPct.toFixed(1)}</td><td class="num ${p.scriptErrorPct > 0 ? 'neg' : ''}">${p.scriptErrorPct.toFixed(1)}</td></tr>`; }).join('')}</tbody>
+  </table>` : ''}
 </section>` : ''}
 
 <div class="footer">자동 생성 · ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST<br>다음 주 월요일에 또 만나요 📊</div>
