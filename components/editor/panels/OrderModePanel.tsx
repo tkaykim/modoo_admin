@@ -497,12 +497,13 @@ export default function OrderModePanel({
 
       {/* Size/Quantity Table */}
       {sizeOptions.length > 0 && (() => {
-        const mobileSizeOptions = sizeOptions.filter((size) => {
+        const nonZeroSizeOptions = sizeOptions.filter((size) => {
           const qty = sizeQuantities.get(size.size_code);
           return qty && qty > 0;
         });
         const totalQtySum = Array.from(sizeQuantities.values()).reduce((sum, qty) => sum + qty, 0);
         const totalQtyCell = totalQtySum > 0 ? totalQtySum : '-';
+        const displaySizes = nonZeroSizeOptions.length > 0 ? nonZeroSizeOptions : sizeOptions;
 
         const renderSizeTable = (sizes: typeof sizeOptions) => (
           <div className="overflow-hidden rounded border border-gray-200">
@@ -542,14 +543,8 @@ export default function OrderModePanel({
         return (
           <div className="p-3 border-b">
             <h3 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">주문 옵션</h3>
-            {/* 모바일: 수량이 있는 사이즈만 표시 */}
-            <div className="block md:hidden">
-              {mobileSizeOptions.length > 0 ? renderSizeTable(mobileSizeOptions) : renderSizeTable(sizeOptions)}
-            </div>
-            {/* 데스크톱: 모든 사이즈 표시 */}
-            <div className="hidden md:block">
-              {renderSizeTable(sizeOptions)}
-            </div>
+            {/* 수량이 0인 사이즈는 숨김 (전부 0이면 fallback으로 전체 표시) */}
+            {renderSizeTable(displaySizes)}
             <div className="mt-2 flex justify-end text-[11px] text-gray-600">
               <span>
                 총 수량{' '}

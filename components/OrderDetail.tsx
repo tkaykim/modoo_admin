@@ -565,8 +565,15 @@ export default function OrderDetail({
   };
 
   const handleItemClick = useCallback((itemId: string) => {
-    router.push(`/orders/${order.id}/items/${itemId}`);
-  }, [router, order.id]);
+    const item = orderItems.find((i) => i.id === itemId);
+    if (!item?.product_id) {
+      router.push(`/orders/${order.id}/items/${itemId}`);
+      return;
+    }
+    const returnUrl = encodeURIComponent(`/orders/${order.id}`);
+    const url = `/editor/${item.product_id}?mode=order&orderId=${order.id}&orderItemId=${itemId}&returnUrl=${returnUrl}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, [router, order.id, orderItems]);
 
   const orderStatusLabel = (status: string) => {
     const map: Record<string, string> = {
