@@ -87,6 +87,10 @@ export interface ProductSide {
   layers?: ProductLayer[];
   realLifeDimensions?: {
     productWidthMm: number;
+    /** 인쇄영역의 실제 가로(mm). 환산 1순위 — printArea.width(px)와 함께 native mm/px 산출. */
+    printAreaWidthMm?: number;
+    /** 인쇄영역의 실제 세로(mm). */
+    printAreaHeightMm?: number;
   };
   /** @deprecated Use partner_mall_presets table instead */
   defaultLogoPlacement?: DefaultLogoPlacement;

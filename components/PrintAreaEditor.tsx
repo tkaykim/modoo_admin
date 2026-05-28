@@ -443,10 +443,35 @@ export default function PrintAreaEditor({ product, onSave, onCancel }: PrintArea
 
           {/* Real Life Dimensions */}
           <div className="bg-white border border-gray-200/60 rounded-md p-4 shadow-sm">
-            <h3 className="font-semibold text-gray-900 mb-2">실제 치수 (mm)</h3>
+            <h3 className="font-semibold text-gray-900 mb-1">인쇄영역 실제 치수 (mm) <span className="text-xs font-normal text-indigo-600">· 환산 1순위</span></h3>
+            <p className="text-xs text-gray-500 mb-3">공장 인쇄 스펙 그대로 입력하세요. 이 값으로 정확한 크기 환산이 이뤄집니다.</p>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">제품 너비</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">인쇄영역 너비 (mm)</label>
+                <input
+                  type="number"
+                  value={currentSide?.realLifeDimensions?.printAreaWidthMm || 0}
+                  onChange={(e) => updateRealLifeDimensions('printAreaWidthMm', parseInt(e.target.value) || 0)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">인쇄영역 높이 (mm)</label>
+                <input
+                  type="number"
+                  value={currentSide?.realLifeDimensions?.printAreaHeightMm || 0}
+                  onChange={(e) => updateRealLifeDimensions('printAreaHeightMm', parseInt(e.target.value) || 0)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500"
+                />
+              </div>
+              {currentSide?.printArea?.width > 0 && (currentSide?.realLifeDimensions?.printAreaWidthMm || 0) > 0 && (
+                <p className="text-xs text-gray-500">
+                  환산 비율: {(((currentSide.realLifeDimensions!.printAreaWidthMm || 0) / currentSide.printArea.width)).toFixed(3)} mm/px
+                  <span className="text-gray-400"> (인쇄영역 {currentSide.printArea.width}px 기준)</span>
+                </p>
+              )}
+              <div className="pt-2 border-t border-gray-100">
+                <label className="block text-sm font-medium text-gray-500 mb-1">제품 전체 너비 (mm) <span className="text-xs">· 레거시</span></label>
                 <input
                   type="number"
                   value={currentSide?.realLifeDimensions?.productWidthMm || 0}
