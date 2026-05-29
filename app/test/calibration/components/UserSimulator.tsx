@@ -12,13 +12,11 @@ import { SimulatorCanvas, exceedsA3Bbox, type ArtworkObject } from './SimulatorC
 import { trimToAlphaBounds } from '../lib/imageAlphaTrim';
 
 interface Props {
-  productId: string;
   side: TestSide;
   customAnchors?: CustomAnchorDef[];
-  setPrintAreaRealSize?: (productId: string, sideId: string, widthMm: number | undefined, heightMm: number | undefined) => void;
 }
 
-export function UserSimulator({ productId, side, customAnchors = [], setPrintAreaRealSize }: Props) {
+export function UserSimulator({ side, customAnchors = [] }: Props) {
   const [containerWidth, setContainerWidth] = useState(800);
   const [artworks, setArtworks] = useState<ArtworkObject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -216,56 +214,13 @@ export function UserSimulator({ productId, side, customAnchors = [], setPrintAre
         </div>
 
         <div className="space-y-3">
-          {/* 인쇄영역 실측(mm) 입력 — 환산 1순위 소스 */}
-          <div className="border-2 border-indigo-200 rounded p-3 bg-indigo-50/40">
-            <h3 className="font-semibold text-sm mb-1 text-indigo-900">인쇄영역 실측 (mm) <span className="text-[10px] font-normal text-indigo-600">· 환산 1순위</span></h3>
-            <p className="text-[11px] text-gray-500 mb-2">
-              공장 인쇄 스펙(최대 인쇄영역)을 입력. 인쇄영역 픽셀폭과 함께 환산비가 됩니다.
-              {!side.printAreaPx?.width && <span className="text-orange-600"> (이 면에 인쇄영역 픽셀 정보가 없습니다)</span>}
-            </p>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <label className="flex flex-col gap-1">
-                가로(mm)
-                <input
-                  type="number"
-                  className="border rounded px-2 py-1"
-                  value={side.printAreaWidthMm ?? ''}
-                  onChange={(e) =>
-                    setPrintAreaRealSize?.(
-                      productId,
-                      side.id,
-                      e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value)),
-                      side.printAreaHeightMm,
-                    )
-                  }
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                세로(mm)
-                <input
-                  type="number"
-                  className="border rounded px-2 py-1"
-                  value={side.printAreaHeightMm ?? ''}
-                  onChange={(e) =>
-                    setPrintAreaRealSize?.(
-                      productId,
-                      side.id,
-                      side.printAreaWidthMm,
-                      e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value)),
-                    )
-                  }
-                />
-              </label>
+          {/* 환산비 요약 (입력은 ② 인쇄영역 실측 탭에서) */}
+          <div className="border rounded p-3 bg-gray-50 text-[11px] font-mono text-gray-600 space-y-0.5">
+            <div className={printAreaRatio ? 'text-indigo-700 font-semibold' : 'text-gray-400'}>
+              ① 인쇄영역 비율: {printAreaRatio ? `${printAreaRatio.toFixed(4)} mm/px` : '미설정 (② 탭에서 입력)'}
             </div>
-            <div className="mt-2 text-[11px] font-mono text-gray-600 space-y-0.5">
-              <div>인쇄영역 픽셀폭: {side.printAreaPx?.width ? `${side.printAreaPx.width}px` : '—'}</div>
-              <div className={printAreaRatio ? 'text-indigo-700 font-semibold' : 'text-gray-400'}>
-                ① 인쇄영역 비율: {printAreaRatio ? `${printAreaRatio.toFixed(4)} mm/px` : '미설정'}
-              </div>
-              <div className={calibRatio ? 'text-gray-700' : 'text-gray-400'}>
-                ② 캘리브 비율: {calibRatio ? `${calibRatio.toFixed(4)} mm/px` : '미설정'}
-              </div>
-              <p className="text-[10px] text-gray-400 mt-1">앱 환산: ①이 있으면 ① 사용, 없으면 ②로 fallback. 저장은 "현재 면 DB 저장".</p>
+            <div className={calibRatio ? 'text-gray-700' : 'text-gray-400'}>
+              ② 캘리브 비율: {calibRatio ? `${calibRatio.toFixed(4)} mm/px` : '미설정 (① 탭)'}
             </div>
           </div>
 
@@ -324,7 +279,7 @@ export function UserSimulator({ productId, side, customAnchors = [], setPrintAre
                       })()}
                     </>
                   ) : (
-                    <div className="text-gray-400">① 인쇄영역 기준: 위에 실측(mm) 입력 시 표시</div>
+                    <div className="text-gray-400">① 인쇄영역 기준: ② 인쇄영역 실측 탭에서 입력 시 표시</div>
                   )}
                 </div>
                 {selected.alphaTrimmed && selected.originalRasterWh && (

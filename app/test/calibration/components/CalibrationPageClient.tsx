@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useCalibrationState, parseOperationalIds } from '../hooks/useCalibrationState';
 import { getAnchorLabel } from '../lib/types';
 import { CalibrationTab } from './CalibrationTab';
+import { PrintAreaTab } from './PrintAreaTab';
 import { AnchorRegistrar } from './AnchorRegistrar';
 import { UserSimulator } from './UserSimulator';
 import { ComparisonReport } from './ComparisonReport';
@@ -15,13 +16,14 @@ import {
   upsertCalibPayload,
 } from '../lib/operationalDb';
 
-type Tab = 'calibration' | 'anchors' | 'simulator' | 'report';
+type Tab = 'calibration' | 'print-area' | 'anchors' | 'simulator' | 'report';
 
 const TABS: { id: Tab; label: string; status: 'ready' | 'placeholder' }[] = [
-  { id: 'calibration', label: '① 캘리브', status: 'ready' },
-  { id: 'anchors', label: '② 앵커 등록', status: 'ready' },
-  { id: 'simulator', label: '③ 사용자 시뮬레이션', status: 'ready' },
-  { id: 'report', label: '④ 비교 리포트', status: 'ready' },
+  { id: 'calibration', label: '① 캘리브(선분)', status: 'ready' },
+  { id: 'print-area', label: '② 인쇄영역 실측', status: 'ready' },
+  { id: 'anchors', label: '③ 앵커 등록', status: 'ready' },
+  { id: 'simulator', label: '④ 사용자 시뮬레이션', status: 'ready' },
+  { id: 'report', label: '⑤ 비교 리포트', status: 'ready' },
 ];
 
 export function CalibrationPageClient() {
@@ -282,6 +284,13 @@ export function CalibrationPageClient() {
               setActiveLine={setActiveLine}
             />
           )}
+          {tab === 'print-area' && selectedProduct && selectedSide && (
+            <PrintAreaTab
+              productId={selectedProduct.id}
+              side={selectedSide}
+              setPrintAreaRealSize={setPrintAreaRealSize}
+            />
+          )}
           {tab === 'anchors' && selectedProduct && selectedSide && (
             <AnchorRegistrar
               productId={selectedProduct.id}
@@ -294,13 +303,8 @@ export function CalibrationPageClient() {
               removeCustomAnchor={removeCustomAnchor}
             />
           )}
-          {tab === 'simulator' && selectedProduct && selectedSide && (
-            <UserSimulator
-              productId={selectedProduct.id}
-              side={selectedSide}
-              customAnchors={state.customAnchors}
-              setPrintAreaRealSize={setPrintAreaRealSize}
-            />
+          {tab === 'simulator' && selectedSide && (
+            <UserSimulator side={selectedSide} customAnchors={state.customAnchors} />
           )}
           {tab === 'report' && selectedProduct && selectedSide && (
             <ComparisonReport
