@@ -40,6 +40,7 @@ export function CalibrationPageClient() {
     upsertAnchor,
     removeAnchor,
     setApplicableAnchors,
+    setPrintAreaRealSize,
     setLegacyProductWidthMm,
     upsertScenario,
     removeScenario,
@@ -126,6 +127,11 @@ export function CalibrationPageClient() {
         applicableAnchors: selectedSide.applicableAnchors,
         registeredAnchors: registeredAnchorsWithLabels,
         scenarios: selectedSide.scenarios ?? [],
+        // 인쇄영역 실측(mm) — 환산 1순위 소스. printArea 픽셀은 운영 config에서 읽음.
+        printAreaRealMm: {
+          widthMm: selectedSide.printAreaWidthMm ?? null,
+          heightMm: selectedSide.printAreaHeightMm ?? null,
+        },
       });
       setOpStatus(`✅ "${selectedProduct.name} / ${selectedSide.name}" 저장됨`);
     } catch (e: any) {
@@ -288,8 +294,13 @@ export function CalibrationPageClient() {
               removeCustomAnchor={removeCustomAnchor}
             />
           )}
-          {tab === 'simulator' && selectedSide && (
-            <UserSimulator side={selectedSide} customAnchors={state.customAnchors} />
+          {tab === 'simulator' && selectedProduct && selectedSide && (
+            <UserSimulator
+              productId={selectedProduct.id}
+              side={selectedSide}
+              customAnchors={state.customAnchors}
+              setPrintAreaRealSize={setPrintAreaRealSize}
+            />
           )}
           {tab === 'report' && selectedProduct && selectedSide && (
             <ComparisonReport

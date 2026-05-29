@@ -32,7 +32,7 @@ export interface OperationalSide {
   name: string;
   imageUrl: string | null;
   printArea?: { x: number; y: number; width: number; height: number };
-  realLifeDimensions?: { productWidthMm?: number };
+  realLifeDimensions?: { productWidthMm?: number; printAreaWidthMm?: number; printAreaHeightMm?: number };
 }
 
 export interface OperationalProduct {

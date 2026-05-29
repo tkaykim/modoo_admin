@@ -237,6 +237,17 @@ export function useCalibrationState() {
     [updateSide],
   );
 
+  const setPrintAreaRealSize = useCallback(
+    (productId: string, sideId: string, widthMm: number | undefined, heightMm: number | undefined) => {
+      updateSide(productId, sideId, (s) => ({
+        ...s,
+        printAreaWidthMm: widthMm,
+        printAreaHeightMm: heightMm,
+      }));
+    },
+    [updateSide],
+  );
+
   const setLegacyProductWidthMm = useCallback(
     (productId: string, sideId: string, widthMm: number | undefined) => {
       updateMockup(productId, sideId, (m) => ({ ...m, legacyProductWidthMm: widthMm }));
@@ -277,6 +288,9 @@ export function useCalibrationState() {
               mockup,
               applicableAnchors: suggestAnchorsForSide(s.id, s.name),
               registeredAnchors: [],
+              printAreaPx: s.printArea,
+              printAreaWidthMm: s.realLifeDimensions?.printAreaWidthMm,
+              printAreaHeightMm: s.realLifeDimensions?.printAreaHeightMm,
             };
           }),
         );
@@ -346,6 +360,11 @@ export function useCalibrationState() {
               applicableAnchors: pl.applicableAnchors ?? s.applicableAnchors,
               registeredAnchors: pl.registeredAnchors ?? s.registeredAnchors,
               scenarios: pl.scenarios ?? s.scenarios,
+              // printArea 실측(mm)은 payload에 저장됨. 픽셀 사각형(printAreaPx)은 운영 config 기준 유지.
+              printAreaWidthMm:
+                (row.payload as any)?.printAreaRealMm?.widthMm ?? s.printAreaWidthMm,
+              printAreaHeightMm:
+                (row.payload as any)?.printAreaRealMm?.heightMm ?? s.printAreaHeightMm,
             };
           }),
         };
@@ -378,6 +397,7 @@ export function useCalibrationState() {
     upsertAnchor,
     removeAnchor,
     setApplicableAnchors,
+    setPrintAreaRealSize,
     setLegacyProductWidthMm,
     upsertScenario,
     removeScenario,

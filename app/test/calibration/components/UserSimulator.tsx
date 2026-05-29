@@ -12,11 +12,13 @@ import { SimulatorCanvas, exceedsA3Bbox, type ArtworkObject } from './SimulatorC
 import { trimToAlphaBounds } from '../lib/imageAlphaTrim';
 
 interface Props {
+  productId: string;
   side: TestSide;
   customAnchors?: CustomAnchorDef[];
+  setPrintAreaRealSize?: (productId: string, sideId: string, widthMm: number | undefined, heightMm: number | undefined) => void;
 }
 
-export function UserSimulator({ side, customAnchors = [] }: Props) {
+export function UserSimulator({ productId, side, customAnchors = [], setPrintAreaRealSize }: Props) {
   const [containerWidth, setContainerWidth] = useState(800);
   const [artworks, setArtworks] = useState<ArtworkObject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -25,7 +27,15 @@ export function UserSimulator({ side, customAnchors = [] }: Props) {
   const [groundTruthMm, setGroundTruthMm] = useState<{ w: string; h: string }>({ w: '', h: '' });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const mmPerPx = activeNativeMmPerPx(side.mockup);
+  // 두 환산비 (둘 다 mm per native mockup px → 직접 비교 가능)
+  const calibRatio = activeNativeMmPerPx(side.mockup); // ② 캘리브 선분 기준
+  const printAreaRatio =
+    side.printAreaWidthMm && side.printAreaPx?.width
+      ? side.printAreaWidthMm / side.printAreaPx.width
+      : 0; // ① 인쇄영역 실측 기준 (환산 1순위)
+  // 시뮬레이터 캔버스는 캘리브 비율로 배치하므로, selected.widthMm는 '캘리브 기준' 값.
+  // 동일 아트워크를 인쇄영역 비율로 재면: widthMm × (printAreaRatio / calibRatio).
+  const mmPerPx = calibRatio;
 
   useEffect(() => {
     setArtworks([]);
@@ -206,6 +216,59 @@ export function UserSimulator({ side, customAnchors = [] }: Props) {
         </div>
 
         <div className="space-y-3">
+          {/* 인쇄영역 실측(mm) 입력 — 환산 1순위 소스 */}
+          <div className="border-2 border-indigo-200 rounded p-3 bg-indigo-50/40">
+            <h3 className="font-semibold text-sm mb-1 text-indigo-900">인쇄영역 실측 (mm) <span className="text-[10px] font-normal text-indigo-600">· 환산 1순위</span></h3>
+            <p className="text-[11px] text-gray-500 mb-2">
+              공장 인쇄 스펙(최대 인쇄영역)을 입력. 인쇄영역 픽셀폭과 함께 환산비가 됩니다.
+              {!side.printAreaPx?.width && <span className="text-orange-600"> (이 면에 인쇄영역 픽셀 정보가 없습니다)</span>}
+            </p>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <label className="flex flex-col gap-1">
+                가로(mm)
+                <input
+                  type="number"
+                  className="border rounded px-2 py-1"
+                  value={side.printAreaWidthMm ?? ''}
+                  onChange={(e) =>
+                    setPrintAreaRealSize?.(
+                      productId,
+                      side.id,
+                      e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value)),
+                      side.printAreaHeightMm,
+                    )
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                세로(mm)
+                <input
+                  type="number"
+                  className="border rounded px-2 py-1"
+                  value={side.printAreaHeightMm ?? ''}
+                  onChange={(e) =>
+                    setPrintAreaRealSize?.(
+                      productId,
+                      side.id,
+                      side.printAreaWidthMm,
+                      e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value)),
+                    )
+                  }
+                />
+              </label>
+            </div>
+            <div className="mt-2 text-[11px] font-mono text-gray-600 space-y-0.5">
+              <div>인쇄영역 픽셀폭: {side.printAreaPx?.width ? `${side.printAreaPx.width}px` : '—'}</div>
+              <div className={printAreaRatio ? 'text-indigo-700 font-semibold' : 'text-gray-400'}>
+                ① 인쇄영역 비율: {printAreaRatio ? `${printAreaRatio.toFixed(4)} mm/px` : '미설정'}
+              </div>
+              <div className={calibRatio ? 'text-gray-700' : 'text-gray-400'}>
+                ② 캘리브 비율: {calibRatio ? `${calibRatio.toFixed(4)} mm/px` : '미설정'}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">앱 환산: ①이 있으면 ① 사용, 없으면 ②로 fallback. 저장은 "현재 면 DB 저장".</p>
+            </div>
+          </div>
+
           <div className={`border rounded p-3 bg-white ${!showAnchors ? 'opacity-50' : ''}`}>
             <h3 className="font-semibold text-sm mb-2">앵커 자동 스냅</h3>
             <p className="text-[11px] text-gray-500 mb-2">
@@ -244,10 +307,26 @@ export function UserSimulator({ side, customAnchors = [] }: Props) {
                 <div>
                   위치: ({selected.xMm.toFixed(1)}, {selected.yMm.toFixed(1)})mm
                 </div>
-                <div>
-                  크기: {selected.widthMm.toFixed(1)} × {selected.heightMm.toFixed(1)}mm
-                </div>
                 <div>회전: {selected.angleDeg.toFixed(1)}°</div>
+                <div className="border-t border-dashed border-gray-200 pt-1.5 mt-1.5 space-y-0.5 not-italic">
+                  <div className="text-[10px] text-gray-400">크기 — 기준별 비교</div>
+                  <div className="text-gray-700">② 캘리브 기준: {selected.widthMm.toFixed(1)} × {selected.heightMm.toFixed(1)}mm</div>
+                  {printAreaRatio && calibRatio ? (
+                    <>
+                      <div className="text-indigo-700 font-semibold">① 인쇄영역 기준: {(selected.widthMm * printAreaRatio / calibRatio).toFixed(1)} × {(selected.heightMm * printAreaRatio / calibRatio).toFixed(1)}mm</div>
+                      {(() => {
+                        const pct = (printAreaRatio / calibRatio - 1) * 100;
+                        return (
+                          <div className={Math.abs(pct) > 5 ? 'text-red-700 font-bold' : 'text-green-700'}>
+                            두 기준 차이: {pct > 0 ? '+' : ''}{pct.toFixed(1)}%
+                          </div>
+                        );
+                      })()}
+                    </>
+                  ) : (
+                    <div className="text-gray-400">① 인쇄영역 기준: 위에 실측(mm) 입력 시 표시</div>
+                  )}
+                </div>
                 {selected.alphaTrimmed && selected.originalRasterWh && (
                   <div className="text-blue-700 mt-1">
                     🔍 알파 트림됨 ({selected.originalRasterWh.w}×{selected.originalRasterWh.h} → 가시영역만)

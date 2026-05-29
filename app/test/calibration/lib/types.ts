@@ -81,6 +81,12 @@ export interface TestSide {
   applicableAnchors: AnchorId[];
   registeredAnchors: AnchorPlacement[];
   scenarios?: ComparisonScenario[];
+  /** 인쇄영역 픽셀 사각형 (원본 mockup px). products.configuration에서 로드(읽기전용). */
+  printAreaPx?: { x: number; y: number; width: number; height: number };
+  /** 인쇄영역의 실제 가로/세로(mm). 사용자 입력 → product_calibrations payload에 저장.
+   *  환산 1순위(printAreaWidthMm / printAreaPx.width = native mm/px)로 쓰인다. */
+  printAreaWidthMm?: number;
+  printAreaHeightMm?: number;
 }
 
 export interface TestProduct {
