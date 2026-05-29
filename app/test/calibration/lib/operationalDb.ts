@@ -95,6 +95,26 @@ const SIDE_NAME_TO_ANCHORS: { match: RegExp; anchors: AnchorId[] }[] = [
   { match: /hood|후드/i, anchors: [] },
 ];
 
+/**
+ * 원본 product 1건의 raw configuration을 SELECT (PrintAreaEditor 재사용용).
+ * SELECT only — 저장은 PrintAreaEditor가 /api/admin/products PATCH로 수행.
+ */
+export async function fetchProductRaw(
+  productId: string,
+): Promise<{ id: string; title: string; configuration: unknown } | null> {
+  const supabase = getClient();
+  const { data, error } = await supabase
+    .from('products')
+    .select('id, title, configuration')
+    .eq('id', productId)
+    .single();
+  if (error) {
+    console.error('[CALIB-TEST] fetchProductRaw error', error);
+    throw error;
+  }
+  return data as { id: string; title: string; configuration: unknown } | null;
+}
+
 export interface CalibPayloadRow {
   product_id: string;
   side_id: string;

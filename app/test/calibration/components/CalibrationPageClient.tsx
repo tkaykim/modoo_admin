@@ -42,7 +42,6 @@ export function CalibrationPageClient() {
     upsertAnchor,
     removeAnchor,
     setApplicableAnchors,
-    setPrintAreaRealSize,
     setLegacyProductWidthMm,
     upsertScenario,
     removeScenario,
@@ -284,12 +283,8 @@ export function CalibrationPageClient() {
               setActiveLine={setActiveLine}
             />
           )}
-          {tab === 'print-area' && selectedProduct && selectedSide && (
-            <PrintAreaTab
-              productId={selectedProduct.id}
-              side={selectedSide}
-              setPrintAreaRealSize={setPrintAreaRealSize}
-            />
+          {tab === 'print-area' && selectedProduct && (
+            <PrintAreaTab productId={selectedProduct.id} onSaved={handleRefresh} />
           )}
           {tab === 'anchors' && selectedProduct && selectedSide && (
             <AnchorRegistrar
