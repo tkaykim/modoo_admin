@@ -12,7 +12,7 @@ interface OrderItemCanvasProps {
   onBack: () => void;
 }
 
-type ImageUrlEntry = { url: string; path?: string; uploadedAt?: string };
+type ImageUrlEntry = { url: string; path?: string; uploadedAt?: string; kind?: 'original' | 'processed'; fileName?: string };
 type ImageUrlsBySide = Record<string, ImageUrlEntry[]>;
 type TextSvgObjectUrlsBySide = Record<string, Record<string, string>>;
 
@@ -221,6 +221,8 @@ const coerceImageUrlsBySide = (value: unknown): ImageUrlsBySide => {
         url,
         path: typeof raw.path === 'string' ? raw.path : undefined,
         uploadedAt: typeof raw.uploadedAt === 'string' ? raw.uploadedAt : undefined,
+        kind: raw.kind === 'original' || raw.kind === 'processed' ? raw.kind : undefined,
+        fileName: typeof raw.fileName === 'string' ? raw.fileName : undefined,
       });
     });
     if (images.length > 0) {
@@ -1151,13 +1153,17 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
           if (!image?.url) return;
           if (seenUrls.has(image.url)) return;
           seenUrls.add(image.url);
-          const ext = getFileExtensionFromName(image.path?.split('/').pop())
+          const ext = getFileExtensionFromName(image.fileName)
+            || getFileExtensionFromName(image.path?.split('/').pop())
             || getFileExtensionFromUrl(image.url)
             || 'jpg';
+          // Distinguish the customer's original upload from the processed
+          // (background-removed) image so both are downloadable and labelled.
+          const label = image.kind === 'original' ? 'original' : 'design';
           files.push({
             type: 'url',
             url: image.url,
-            filename: buildFilename(`${prefix}-${sideId}-image-${index + 1}`, ext),
+            filename: buildFilename(`${prefix}-${sideId}-${label}-${index + 1}`, ext),
           });
         });
       });
