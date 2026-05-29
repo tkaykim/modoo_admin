@@ -7,6 +7,7 @@ import type { CategoryConfig } from '@/lib/categories';
 import { useRouter } from 'next/navigation';
 import { Save, X, Plus, Trash2, Upload, ChevronLeft, ChevronRight, ChevronDown, Image as ImageIcon, Check, Loader2, Layers, GripVertical } from 'lucide-react';
 import LogoPlacementPreview from './LogoPlacementPreview';
+import PrintAreaEditor from './PrintAreaEditor';
 import KeywordsInput from './KeywordsInput';
 import ProductColorMockupModal from './products/ProductColorMockupModal';
 
@@ -178,7 +179,7 @@ export default function ProductEditor({ product, onSave, onCancel }: ProductEdit
     { id: 'sides', label: '면 설정' },
     { id: 'size-color', label: '사이즈 & 색상' },
     ...(!isNewProduct ? [
-      // { id: 'print-area' as const, label: '인쇄 영역' },
+      { id: 'print-area' as const, label: '인쇄 영역' },
       { id: 'template' as const, label: '템플릿' },
     ] : []),
     { id: 'partner-mall', label: '파트너몰 설정' },
@@ -2708,13 +2709,13 @@ export default function ProductEditor({ product, onSave, onCancel }: ProductEdit
         </div>
       )}
 
-      {/* {activeTab === 'print-area' && product && (
+      {activeTab === 'print-area' && product && (
         <PrintAreaEditor
           product={product}
           onSave={onSave}
           onCancel={onCancel}
         />
-      )} */}
+      )}
 
       {activeTab === 'template' && product && (
         <div className="bg-white border border-gray-200 rounded-md shadow-sm p-6">
