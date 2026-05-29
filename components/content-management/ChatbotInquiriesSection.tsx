@@ -11,6 +11,24 @@ import {
   sortChatbotInquiries,
 } from './utils';
 
+const won = (n: number) => `${n.toLocaleString('ko-KR')}원`;
+
+function formatPrintSizes(v: Record<string, number> | string[] | null): string {
+  if (!v) return '미입력';
+  if (Array.isArray(v)) return v.length ? v.join(', ') : '미입력'; // 구버전(위치 배열) 호환
+  const parts: string[] = [];
+  if (v['10x10'] > 0) parts.push(`작은 ${v['10x10']}개`);
+  if (v.A4 > 0) parts.push(`중간 ${v.A4}개`);
+  if (v.A3 > 0) parts.push(`큰 ${v.A3}개`);
+  return parts.length ? parts.join(' · ') : '미입력';
+}
+
+function formatEstPrice(min: number | null, max: number | null): string {
+  if (min == null) return '담당자 안내';
+  if (max == null || min === max) return `장당 약 ${won(min)}`;
+  return `장당 약 ${won(min)}~${won(max)}`;
+}
+
 export default function ChatbotInquiriesSection() {
   const { data: rawInquiries, error: swrError, isLoading: loading, mutate } = useSWR<ChatbotInquiryRecord[]>('/api/admin/chatbot-inquiries');
   const inquiries = rawInquiries ? sortChatbotInquiries(rawInquiries) : [];
@@ -174,6 +192,16 @@ export default function ChatbotInquiriesSection() {
                     >
                       {getChatbotInquiryStatusLabel(inquiry.status)}
                     </span>
+                    {inquiry.admin_notes?.includes('상담원 연결') && (
+                      <span className="px-2 py-1 rounded text-xs font-bold bg-orange-100 text-orange-700">
+                        🔥 상담원 연결
+                      </span>
+                    )}
+                    {inquiry.linked_inquiry_id && (
+                      <span className="px-2 py-1 rounded text-xs font-medium bg-indigo-100 text-indigo-700">
+                        게시판 등록됨
+                      </span>
+                    )}
                     <div>
                       <span className="font-medium text-gray-900">{inquiry.contact_name}</span>
                       <span className="text-gray-500 text-sm ml-2">{inquiry.contact_phone}</span>
@@ -248,6 +276,58 @@ export default function ChatbotInquiriesSection() {
                         </p>
                       </div>
                     </div>
+
+                    {/* 챗봇 추천·견적 (상담/견적 참고용) */}
+                    <div className="rounded-md border border-blue-100 bg-blue-50/50 p-3">
+                      <p className="text-xs font-semibold text-blue-700 mb-2">챗봇 추천 · 예상 견적</p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">디자인 종류</label>
+                          <p className="text-sm text-gray-900">{inquiry.design_type || '미입력'}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">색상</label>
+                          <p className="text-sm text-gray-900">{inquiry.color_count || '미입력'}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">인쇄 크기/개수</label>
+                          <p className="text-sm text-gray-900">{formatPrintSizes(inquiry.print_locations)}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">선택 인쇄방식</label>
+                          <p className="text-sm text-gray-900">{inquiry.print_method || '미정'}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">추천 인쇄방식</label>
+                          <p className="text-sm text-gray-900">{inquiry.recommended_print_method || '미정'}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">예상 인쇄비</label>
+                          <p className="text-sm font-semibold text-gray-900">
+                            {formatEstPrice(inquiry.estimated_price_min, inquiry.estimated_price_max)}
+                          </p>
+                        </div>
+                        {inquiry.recommended_product_ids && inquiry.recommended_product_ids.length > 0 && (
+                          <div className="col-span-2">
+                            <label className="text-xs font-medium text-gray-500">추천 상품</label>
+                            <p className="text-sm text-gray-900">{inquiry.recommended_product_ids.length}개 추천됨</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 게시판 문의 연결 (상담 연락 요청 건) */}
+                    {inquiry.linked_inquiry_id && (
+                      <a
+                        href={`/content/inquiries?focus=${inquiry.linked_inquiry_id}`}
+                        className="flex items-center justify-between rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2.5 hover:bg-indigo-100 transition-colors"
+                      >
+                        <span className="text-sm font-medium text-indigo-700">
+                          이 상담은 문의 게시판에 등록되었어요 — 게시판에서 답변하기
+                        </span>
+                        <span className="text-indigo-500">→</span>
+                      </a>
+                    )}
 
                     {/* Status Change */}
                     <div>

@@ -199,6 +199,16 @@ export type ChatbotInquiryRecord = {
   contact_phone: string;
   status: ChatbotInquiryStatus;
   admin_notes: string | null;
+  // 챗봇 수집·계산 데이터 (상담/견적 참고용)
+  design_type: string | null;
+  color_count: string | null;
+  print_locations: Record<string, number> | string[] | null;
+  print_method: string | null;
+  recommended_print_method: string | null;
+  estimated_price_min: number | null;
+  estimated_price_max: number | null;
+  recommended_product_ids: string[] | null;
+  linked_inquiry_id: string | null;
   created_at: string;
   updated_at: string;
 };

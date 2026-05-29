@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import type { InquiryRecord, InquiryStatus, InquiryReplyRecord } from './types';
@@ -15,6 +16,18 @@ export default function InquiriesSection() {
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [expandedInquiryId, setExpandedInquiryId] = useState<string | null>(null);
   const [adminFilter, setAdminFilter] = useState<'all' | 'real' | 'admin'>('real');
+  const searchParams = useSearchParams();
+  const focusId = searchParams.get('focus');
+
+  // 챗봇 문의 관리에서 '게시판 문의 보기' 링크로 들어온 경우 → 해당 문의 자동 펼침 + 스크롤
+  useEffect(() => {
+    if (!focusId || inquiries.length === 0) return;
+    if (!inquiries.some((q) => q.id === focusId)) return;
+    setAdminFilter('all');
+    setExpandedInquiryId(focusId);
+    const el = document.getElementById(`inquiry-${focusId}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [focusId, inquiries]);
 
   const handleDeleteInquiry = async (inquiryId: string) => {
     const confirmed = window.confirm('이 문의를 삭제할까요? 관련된 답변도 함께 삭제됩니다.');
@@ -173,7 +186,11 @@ export default function InquiriesSection() {
             const detailsId = `inquiry-details-${inquiry.id}`;
 
             return (
-              <div key={inquiry.id} className="bg-white border border-gray-200/60 rounded-md shadow-sm">
+              <div
+                key={inquiry.id}
+                id={`inquiry-${inquiry.id}`}
+                className={`bg-white border rounded-md shadow-sm ${focusId === inquiry.id ? 'border-indigo-400 ring-2 ring-indigo-200' : 'border-gray-200/60'}`}
+              >
                 <button
                   type="button"
                   onClick={() =>
