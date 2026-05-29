@@ -1,5 +1,6 @@
 import { sendGmailEmail } from '@/lib/gmail';
 import { formatKstTodayLong } from '@/lib/kst';
+import { createAdminClient } from '@/lib/supabase-admin';
 
 export type OrderStatus = 'payment_pending' | 'payment_completed' | 'in_production' | 'shipping' | 'delivered' | 'cancelled' | 'partially_cancelled';
 
@@ -211,22 +212,158 @@ function buildStatusEmailText(params: OrderStatusNotificationParams): string {
   ].filter(Boolean).join('\n');
 }
 
+// === 발송 시간대 제어 ===
+// 고객 알림메일은 KST 09:00~20:00 사이에만 즉시 발송한다.
+// 그 외 시간(새벽·심야)에 발생한 알림은 즉시 보내지 않고 queued_notifications 에 적재했다가
+// /api/cron/notification-queue 가 매일 09:00 KST 에 일괄 발송한다.
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000; // KST = UTC+9 (DST 없음)
+const SEND_WINDOW_START_HOUR = 9; // 09:00 KST 부터
+const SEND_WINDOW_END_HOUR = 20; // 20:00 KST 정각부터는 대기
+
+/** 주어진 시각의 KST 시(0-23) */
+function getKstHour(now: Date): number {
+  return new Date(now.getTime() + KST_OFFSET_MS).getUTCHours();
+}
+
+/** 지금이 발송 가능 시간대(09:00~20:00 KST)인지 */
+function isWithinSendWindow(now: Date): boolean {
+  const hour = getKstHour(now);
+  return hour >= SEND_WINDOW_START_HOUR && hour < SEND_WINDOW_END_HOUR;
+}
+
+/** 발송 시간대 밖일 때, 가장 가까운 09:00 KST 를 실제 발송 시각(UTC instant)으로 반환 */
+function nextSendTime(now: Date): Date {
+  const kst = new Date(now.getTime() + KST_OFFSET_MS);
+  const hour = kst.getUTCHours();
+  // 09시 이전이면 오늘 09시, 그 외(=20시 이후)면 내일 09시
+  const dayOffset = hour < SEND_WINDOW_START_HOUR ? 0 : 1;
+  const targetKstWallclockMs = Date.UTC(
+    kst.getUTCFullYear(),
+    kst.getUTCMonth(),
+    kst.getUTCDate() + dayOffset,
+    SEND_WINDOW_START_HOUR, 0, 0, 0,
+  );
+  return new Date(targetKstWallclockMs - KST_OFFSET_MS);
+}
+
+/** 실제 Gmail 발송 (시간대 판단 없이 즉시 전송) */
+async function deliverStatusEmail(params: OrderStatusNotificationParams): Promise<boolean> {
+  const config = STATUS_CONFIG[params.newStatus];
+  if (!config) return false;
+  return await sendGmailEmail({
+    to: [{ email: params.customerEmail, name: params.customerName }],
+    subject: `[모두의 유니폼] ${config.subject} (${params.orderId})`,
+    text: buildStatusEmailText(params),
+    html: buildStatusEmailHtml(params),
+  });
+}
+
+/** 발송 시간대 밖 → 큐에 적재 */
+async function enqueueStatusNotification(params: OrderStatusNotificationParams, scheduledFor: Date): Promise<boolean> {
+  try {
+    const admin = createAdminClient();
+    const { error } = await admin.from('queued_notifications').insert({
+      order_id: params.orderId,
+      customer_name: params.customerName ?? null,
+      customer_email: params.customerEmail,
+      new_status: params.newStatus,
+      previous_status: params.previousStatus ?? null,
+      tracking_number: params.trackingNumber ?? null,
+      items: params.items ?? null,
+      total_amount: params.totalAmount ?? null,
+      payment_method: params.paymentMethod ?? null,
+      scheduled_for: scheduledFor.toISOString(),
+    });
+    if (error) {
+      console.error('Failed to enqueue order status notification:', error);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Failed to enqueue order status notification:', error);
+    return false;
+  }
+}
+
 export async function sendOrderStatusNotification(params: OrderStatusNotificationParams): Promise<boolean> {
   if (!shouldNotify(params.newStatus, params.previousStatus)) return false;
   if (!params.customerEmail) return false;
+  if (!STATUS_CONFIG[params.newStatus]) return false;
 
-  const config = STATUS_CONFIG[params.newStatus];
-  if (!config) return false;
+  const now = new Date();
+  if (!isWithinSendWindow(now)) {
+    // 새벽·심야 발송 차단: 큐에 적재 후 다음 09:00 KST 일괄 발송
+    return await enqueueStatusNotification(params, nextSendTime(now));
+  }
 
   try {
-    return await sendGmailEmail({
-      to: [{ email: params.customerEmail, name: params.customerName }],
-      subject: `[모두의 유니폼] ${config.subject} (${params.orderId})`,
-      text: buildStatusEmailText(params),
-      html: buildStatusEmailHtml(params),
-    });
+    return await deliverStatusEmail(params);
   } catch (error) {
     console.error('Failed to send order status notification:', error);
     return false;
   }
+}
+
+export interface FlushResult {
+  picked: number;
+  sent: number;
+  failed: number;
+}
+
+/** 큐에 쌓인 알림 중 발송 예정 시각이 지난 것을 일괄 발송. cron 에서 호출. */
+export async function flushNotificationQueue(now: Date = new Date()): Promise<FlushResult> {
+  const admin = createAdminClient();
+  const { data: rows, error } = await admin
+    .from('queued_notifications')
+    .select('*')
+    .eq('status', 'pending')
+    .lte('scheduled_for', now.toISOString())
+    .order('scheduled_for', { ascending: true })
+    .limit(200);
+
+  if (error) {
+    console.error('flushNotificationQueue query error:', error);
+    throw new Error(error.message);
+  }
+  if (!rows || rows.length === 0) return { picked: 0, sent: 0, failed: 0 };
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    const params: OrderStatusNotificationParams = {
+      orderId: row.order_id,
+      customerName: row.customer_name || '고객',
+      customerEmail: row.customer_email,
+      newStatus: row.new_status as OrderStatus,
+      previousStatus: row.previous_status ?? undefined,
+      trackingNumber: row.tracking_number ?? undefined,
+      items: row.items ?? undefined,
+      totalAmount: row.total_amount ?? undefined,
+      paymentMethod: row.payment_method ?? undefined,
+    };
+
+    const attempts = (row.attempts ?? 0) + 1;
+    try {
+      const ok = await deliverStatusEmail(params);
+      if (ok) {
+        await admin.from('queued_notifications')
+          .update({ status: 'sent', sent_at: new Date().toISOString(), attempts })
+          .eq('id', row.id);
+        sent++;
+      } else {
+        await admin.from('queued_notifications')
+          .update({ status: 'failed', attempts, last_error: 'sendGmailEmail returned false' })
+          .eq('id', row.id);
+        failed++;
+      }
+    } catch (err: any) {
+      await admin.from('queued_notifications')
+        .update({ status: 'failed', attempts, last_error: err?.message || String(err) })
+        .eq('id', row.id);
+      failed++;
+    }
+  }
+
+  return { picked: rows.length, sent, failed };
 }
