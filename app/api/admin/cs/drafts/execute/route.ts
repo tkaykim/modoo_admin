@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { requireAdmin } from '@/lib/admin-api';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { sendGmailEmail } from '@/lib/gmail';
+import { sendOrQueueCsEmail } from '@/lib/cs/email-schedule';
 
 const SITE_URL = 'https://modoouniform.com';
 const LOGO_URL = 'https://modoouniform.com/icons/modoo_logo.png';
@@ -87,9 +87,22 @@ export async function POST(request: Request) {
 
   const { data: inquiry } = await db
     .from('inquiries')
-    .select('id, email, status')
+    .select('id, email, status, created_at')
     .eq('id', draft.inquiry_id)
     .single();
+
+  // 고객 최근 활동 시각(야간 즉시발송 예외용): 마지막 고객 답글 또는 문의 접수 시각.
+  let customerActiveAt: string | null = inquiry?.created_at ?? null;
+  {
+    const { data: lastCust } = await db
+      .from('inquiry_replies')
+      .select('created_at')
+      .eq('inquiry_id', draft.inquiry_id)
+      .eq('is_admin', false)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (lastCust && lastCust[0]?.created_at) customerActiveAt = lastCust[0].created_at;
+  }
 
   // 최종 답변 본문: 요청 본문 > 검수 수정본 > 초안
   let finalReply: string =
@@ -177,15 +190,23 @@ export async function POST(request: Request) {
     } else {
       try {
         const inquiryUrl = `${SITE_URL}/inquiries/${draft.inquiry_id}`;
-        const ok = await sendGmailEmail({
-          to: [{ email: inquiry.email }],
+        // 야간(KST 09~21시 외)이면 즉시 발송하지 않고 큐에 적재 → 다음 09:00 KST에 발송.
+        const outcome = await sendOrQueueCsEmail({
+          draftId: id,
+          to: inquiry.email,
           subject: '[모두의 유니폼] 문의 답변드립니다',
           text: finalReply,
           html: buildEmailHtml(finalReply, inquiryUrl),
+          customerActiveAt,
         });
-        if (!ok) throw new Error('gmail_send_failed');
-        await finishLog(db, claim.logId, 'done', { to: inquiry.email });
-        results.push({ type: 'send_email', status: 'done', detail: inquiry.email, at: now() });
+        if (outcome === 'failed') throw new Error('gmail_send_failed');
+        await finishLog(db, claim.logId, outcome === 'queued' ? 'skipped' : 'done', { to: inquiry.email, outcome });
+        results.push({
+          type: 'send_email',
+          status: outcome === 'queued' ? 'skipped' : 'done',
+          detail: outcome === 'queued' ? `${inquiry.email} (오전 9시 발송 예약)` : inquiry.email,
+          at: now(),
+        });
       } catch (e) {
         await finishLog(db, claim.logId, 'failed', { error: String(e) });
         results.push({ type: 'send_email', status: 'failed', detail: String(e), at: now() });
