@@ -7,11 +7,36 @@ import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import type { InquiryRecord, InquiryStatus, InquiryReplyRecord } from './types';
 import { formatDate, getStatusStyle, getStatusLabel, isToday } from './utils';
 import { formatKstDateOnly } from '@/lib/kst';
+import InquiryAiDraftBar, { type CsDraft } from './InquiryAiDraftBar';
+import ReplyAttacher from './ReplyAttacher';
+
+const isImageUrl = (u: string) => /\.(png|jpe?g|webp|gif)(\?|$)/i.test(u);
 
 export default function InquiriesSection() {
   const { data: inquiries = [], error: swrError, isLoading: loading, mutate } = useSWR<InquiryRecord[]>('/api/admin/inquiries');
+  // 검수 대기 중인 AI 응대 초안 (inquiry_id → draft). 답변창에 임시저장 형태로 미리 채움.
+  const { data: csDrafts = [], mutate: mutateDrafts } = useSWR<(CsDraft & { inquiry_id: string; draft_reply: string; reviewer_edited_reply: string | null })[]>('/api/admin/cs/drafts?status=pending_review');
+  const draftByInquiry: Record<string, (typeof csDrafts)[number]> = {};
+  for (const d of csDrafts) draftByInquiry[d.inquiry_id] = d;
   const [error, setError] = useState<string | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [replyFiles, setReplyFiles] = useState<Record<string, string[]>>({});
+
+  // AI 초안을 답변창에 시드 (관리자가 아직 손대지 않은 경우에만)
+  useEffect(() => {
+    if (csDrafts.length === 0) return;
+    setReplyDrafts((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const d of csDrafts) {
+        if (next[d.inquiry_id] === undefined) {
+          next[d.inquiry_id] = d.reviewer_edited_reply ?? d.draft_reply ?? '';
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [csDrafts]);
   const [submittingReplyId, setSubmittingReplyId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [expandedInquiryId, setExpandedInquiryId] = useState<string | null>(null);
@@ -55,8 +80,9 @@ export default function InquiriesSection() {
   };
 
   const handleReplySubmit = async (inquiryId: string) => {
-    const content = replyDrafts[inquiryId]?.trim();
-    if (!content) return;
+    const content = replyDrafts[inquiryId]?.trim() || '';
+    const fileUrls = replyFiles[inquiryId] || [];
+    if (!content && fileUrls.length === 0) return;
 
     setSubmittingReplyId(inquiryId);
     setError(null);
@@ -67,7 +93,7 @@ export default function InquiriesSection() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ inquiryId, content }),
+        body: JSON.stringify({ inquiryId, content, file_urls: fileUrls }),
       });
 
       if (!response.ok) {
@@ -88,6 +114,7 @@ export default function InquiriesSection() {
       );
 
       setReplyDrafts((prev) => ({ ...prev, [inquiryId]: '' }));
+      setReplyFiles((prev) => ({ ...prev, [inquiryId]: [] }));
     } catch (err) {
       console.error('Error submitting reply:', err);
       setError(err instanceof Error ? err.message : '답변 등록에 실패했습니다.');
@@ -358,16 +385,32 @@ export default function InquiriesSection() {
                       {inquiry.inquiry_replies && inquiry.inquiry_replies.length > 0 ? (
                         <div className="space-y-3">
                           {inquiry.inquiry_replies.map((reply) => (
-                            <div key={reply.id} className="border-l-2 border-blue-200 pl-3">
+                            <div key={reply.id} className={`border-l-2 pl-3 ${reply.is_admin === false ? 'border-gray-300' : 'border-blue-200'}`}>
                               <div className="flex items-center justify-between text-xs text-gray-500">
-                                <span>
-                                  관리자 {reply.admin_id ? reply.admin_id.slice(0, 8) : ''}
+                                <span className={reply.is_admin === false ? 'text-gray-700 font-medium' : ''}>
+                                  {reply.is_admin === false ? '고객 답글' : `관리자 ${reply.admin_id ? reply.admin_id.slice(0, 8) : ''}`}
                                 </span>
                                 <span>{formatDate(reply.created_at)}</span>
                               </div>
                               <p className="text-sm text-gray-700 whitespace-pre-wrap">
                                 {reply.content}
                               </p>
+                              {reply.file_urls && reply.file_urls.length > 0 && (
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                  {reply.file_urls.map((url) =>
+                                    isImageUrl(url) ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <a key={url} href={url} target="_blank" rel="noreferrer">
+                                        <img src={url} alt="첨부" className="w-20 h-20 object-cover rounded border border-gray-200" />
+                                      </a>
+                                    ) : (
+                                      <a key={url} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center px-2.5 py-1 rounded-md text-xs bg-blue-50 text-blue-700 hover:bg-blue-100">
+                                        첨부파일
+                                      </a>
+                                    )
+                                  )}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -377,6 +420,9 @@ export default function InquiriesSection() {
                     </div>
 
                     <div className="space-y-2">
+                      {draftByInquiry[inquiry.id] && (
+                        <p className="text-xs font-medium text-indigo-600">🤖 AI 초안이 답변창에 임시저장되었습니다 — 검토 후 발행하세요.</p>
+                      )}
                       <textarea
                         placeholder="답변을 입력하세요."
                         value={replyDrafts[inquiry.id] || ''}
@@ -386,21 +432,40 @@ export default function InquiriesSection() {
                             [inquiry.id]: event.target.value,
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                        rows={3}
+                        className={`w-full px-3 py-2 border rounded-md text-sm ${draftByInquiry[inquiry.id] ? 'border-indigo-300 bg-indigo-50/30' : 'border-gray-300'}`}
+                        rows={draftByInquiry[inquiry.id] ? 8 : 3}
                       />
-                      <div className="flex justify-end">
-                        <button
-                          onClick={() => handleReplySubmit(inquiry.id)}
-                          disabled={
-                            submittingReplyId === inquiry.id ||
-                            !(replyDrafts[inquiry.id] || '').trim()
-                          }
-                          className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
-                        >
-                          {submittingReplyId === inquiry.id ? '전송 중...' : '답변 전송'}
-                        </button>
-                      </div>
+                      {draftByInquiry[inquiry.id] ? (
+                        <InquiryAiDraftBar
+                          draft={draftByInquiry[inquiry.id]}
+                          replyText={replyDrafts[inquiry.id] || ''}
+                          onDone={() => {
+                            mutateDrafts();
+                            mutate();
+                            setReplyDrafts((prev) => ({ ...prev, [inquiry.id]: '' }));
+                          }}
+                        />
+                      ) : (
+                        <>
+                          <ReplyAttacher
+                            urls={replyFiles[inquiry.id] || []}
+                            onChange={(urls) => setReplyFiles((prev) => ({ ...prev, [inquiry.id]: urls }))}
+                            disabled={submittingReplyId === inquiry.id}
+                          />
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => handleReplySubmit(inquiry.id)}
+                              disabled={
+                                submittingReplyId === inquiry.id ||
+                                (!(replyDrafts[inquiry.id] || '').trim() && (replyFiles[inquiry.id] || []).length === 0)
+                              }
+                              className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
+                            >
+                              {submittingReplyId === inquiry.id ? '전송 중...' : '답변 전송'}
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     <div className="pt-4 border-t border-gray-200 flex justify-end">

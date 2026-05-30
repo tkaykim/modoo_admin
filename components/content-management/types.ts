@@ -96,6 +96,8 @@ export type InquiryReplyRecord = {
   id: string;
   content: string;
   admin_id: string | null;
+  file_urls?: string[] | null;
+  is_admin?: boolean | null;
   created_at: string;
 };
 

@@ -75,6 +75,8 @@ export async function GET() {
           id,
           content,
           admin_id,
+          file_urls,
+          is_admin,
           created_at
         )
       `

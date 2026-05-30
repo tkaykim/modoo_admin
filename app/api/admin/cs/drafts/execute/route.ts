@@ -70,6 +70,9 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const id = body?.id;
   const actions: Array<{ type: string; params?: any }> = Array.isArray(body?.actions) ? body.actions : [];
+  const fileUrls: string[] = Array.isArray(body?.file_urls)
+    ? body.file_urls.filter((u: unknown) => typeof u === 'string' && u.length > 0)
+    : [];
   if (!id || typeof id !== 'string') return NextResponse.json({ error: 'id가 필요합니다.' }, { status: 400 });
   if (actions.length === 0) return NextResponse.json({ error: '실행할 액션이 없습니다.' }, { status: 400 });
 
@@ -149,6 +152,7 @@ export async function POST(request: Request) {
           inquiry_id: draft.inquiry_id,
           admin_id: auth.user.id,
           content: finalReply,
+          file_urls: fileUrls,
         });
         if (error) throw new Error(error.message);
         await db.from('inquiries').update({ status: 'ongoing', updated_at: now() }).eq('id', draft.inquiry_id);

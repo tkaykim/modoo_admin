@@ -43,13 +43,17 @@ export async function POST(request: Request) {
     const payload = await request.json().catch(() => null);
     const inquiryId = payload?.inquiryId || payload?.inquiry_id;
     const content = payload?.content;
+    const fileUrls = Array.isArray(payload?.file_urls)
+      ? payload.file_urls.filter((u: unknown) => typeof u === 'string' && u.length > 0)
+      : [];
 
     if (!inquiryId || typeof inquiryId !== 'string') {
       return NextResponse.json({ error: '문의 ID가 필요합니다.' }, { status: 400 });
     }
 
-    if (!content || typeof content !== 'string' || content.trim().length === 0) {
-      return NextResponse.json({ error: '답변 내용이 필요합니다.' }, { status: 400 });
+    // 첨부만 있고 본문이 비어도 허용
+    if ((!content || typeof content !== 'string' || content.trim().length === 0) && fileUrls.length === 0) {
+      return NextResponse.json({ error: '답변 내용 또는 첨부가 필요합니다.' }, { status: 400 });
     }
 
     const adminClient = createAdminClient();
@@ -58,9 +62,10 @@ export async function POST(request: Request) {
       .insert({
         inquiry_id: inquiryId,
         admin_id: authResult.user.id,
-        content: content.trim(),
+        content: typeof content === 'string' ? content.trim() : '',
+        file_urls: fileUrls,
       })
-      .select('id, inquiry_id, admin_id, content, created_at, updated_at')
+      .select('id, inquiry_id, admin_id, content, file_urls, created_at, updated_at')
       .single();
 
     if (error) {
