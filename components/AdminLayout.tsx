@@ -98,6 +98,7 @@ const navGroups: NavGroup[] = [
           { href: '/content/faqs', label: 'FAQ' },
           { href: '/content/inquiries', label: '문의' },
           { href: '/content/chatbot', label: '챗봇 문의' },
+          { href: '/content/cs', label: 'CS 응대 검수' },
         ],
       },
       { type: 'link', href: '/users', label: '사용자 관리', icon: Users, roles: ['admin', 'factory', 'super_admin'] },
