@@ -326,19 +326,26 @@ export default function InquiriesSection() {
 
                     {inquiry.file_urls && inquiry.file_urls.length > 0 && (
                       <div className="space-y-2">
-                        <p className="text-sm font-medium text-gray-700">첨부파일</p>
+                        <p className="text-sm font-medium text-gray-700">첨부파일 ({inquiry.file_urls.length})</p>
                         <div className="flex flex-wrap gap-2">
-                          {inquiry.file_urls.map((url, i) => (
-                            <a
-                              key={i}
-                              href={url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center px-2.5 py-1 rounded-md text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
-                            >
-                              파일 {i + 1}
-                            </a>
-                          ))}
+                          {inquiry.file_urls.map((url, i) =>
+                            isImageUrl(url) ? (
+                              <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={url} alt={`첨부 ${i + 1}`} className="w-24 h-24 object-cover rounded-md border border-gray-200" />
+                              </a>
+                            ) : (
+                              <a
+                                key={i}
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center px-2.5 py-1 rounded-md text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                              >
+                                파일 {i + 1}
+                              </a>
+                            )
+                          )}
                         </div>
                       </div>
                     )}
