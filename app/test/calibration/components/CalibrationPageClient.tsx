@@ -284,7 +284,11 @@ export function CalibrationPageClient() {
             />
           )}
           {tab === 'print-area' && selectedProduct && (
-            <PrintAreaTab productId={selectedProduct.id} onSaved={handleRefresh} />
+            <PrintAreaTab
+              productId={selectedProduct.id}
+              sideId={selectedSide?.id}
+              onSaved={handleRefresh}
+            />
           )}
           {tab === 'anchors' && selectedProduct && selectedSide && (
             <AnchorRegistrar

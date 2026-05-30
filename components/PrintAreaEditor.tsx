@@ -8,11 +8,31 @@ interface PrintAreaEditorProps {
   product: Product;
   onSave: (updatedProduct: Product) => void;
   onCancel: () => void;
+  /** 외부에서 시작/현재 면을 지정 (캘리브 도구에서 상단 '면' 선택과 동기화 용). */
+  initialSideId?: string;
 }
 
-export default function PrintAreaEditor({ product, onSave, onCancel }: PrintAreaEditorProps) {
-  const [currentSideIndex, setCurrentSideIndex] = useState(0);
+export default function PrintAreaEditor({ product, onSave, onCancel, initialSideId }: PrintAreaEditorProps) {
+  const [currentSideIndex, setCurrentSideIndex] = useState(() => {
+    if (initialSideId) {
+      const i = (product.configuration || []).findIndex((s) => s.id === initialSideId);
+      if (i >= 0) return i;
+    }
+    return 0;
+  });
   const [sides, setSides] = useState<ProductSide[]>(product.configuration || []);
+
+  // product 변경 또는 외부 initialSideId 변경 시 sides/현재 면 재동기화.
+  // (deps에 product.id를 사용해 동일 제품의 stable identity는 유지, 다른 제품 진입 시만 reset.)
+  useEffect(() => {
+    const cfg = product.configuration || [];
+    setSides(cfg);
+    if (initialSideId) {
+      const i = cfg.findIndex((s) => s.id === initialSideId);
+      setCurrentSideIndex(i >= 0 ? i : 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product.id, initialSideId]);
   const [saving, setSaving] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
 

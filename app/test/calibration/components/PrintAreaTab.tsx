@@ -8,6 +8,8 @@ import { fetchProductRaw } from '../lib/operationalDb';
 interface Props {
   /** 캘리브 도구 내부 product id (op-{realId}). */
   productId: string;
+  /** 캘리브 도구 내부 side id (op-{realProductId}-{realSideId}). 상단 면 선택과 동기화. */
+  sideId?: string;
   /** 저장 후 캘리브 상태(printAreaPx/실측mm)를 다시 동기화하기 위한 콜백. */
   onSaved?: () => void;
 }
@@ -19,9 +21,14 @@ interface Props {
  * + 실제 크기(mm) 입력 + 저장이 모두 가능. 저장은 PrintAreaEditor가 /api/admin/products
  * PATCH로 products.configuration에 직접 반영(제품관리와 동일 경로). 별도 캘리브 우회 없음.
  */
-export function PrintAreaTab({ productId, onSaved }: Props) {
+export function PrintAreaTab({ productId, sideId, onSaved }: Props) {
   const isOperational = productId.startsWith('op-');
   const realId = isOperational ? productId.slice(3) : productId;
+  // 캘리브 내부 sideId(op-{realProductId}-{realSideId}) → 실제 side id로 환원.
+  const realSideId =
+    sideId && sideId.startsWith(`op-${realId}-`)
+      ? sideId.slice(`op-${realId}-`.length)
+      : sideId;
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,6 +78,7 @@ export function PrintAreaTab({ productId, onSaved }: Props) {
       </div>
       <PrintAreaEditor
         product={product}
+        initialSideId={realSideId}
         onSave={() => onSaved?.()}
         onCancel={() => onSaved?.()}
       />
