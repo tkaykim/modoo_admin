@@ -22,6 +22,7 @@ interface CreateOrderItemInput {
   designTitle?: string;
   quickImage?: boolean;         // 간이 이미지 주문 항목 (디자인 없이 이미지+단가로 생성, 목업은 나중에)
   thumbnailUrl?: string;        // 간이 이미지 항목의 이미지 URL
+  inheritFromOrderItemId?: string; // 차액 수량추가: 원주문 품목의 디자인/목업을 그대로 승계해 N개 더 제작
 }
 
 interface CreateOrderRequest {
@@ -187,6 +188,11 @@ export async function POST(request: Request) {
         if (!item.thumbnailUrl || typeof item.thumbnailUrl !== 'string') {
           return NextResponse.json({ error: '간이 주문에는 이미지가 필요합니다.' }, { status: 400 });
         }
+      } else if (item.inheritFromOrderItemId) {
+        // 차액 수량추가: 원주문 품목에서 디자인을 승계하므로 designId 불필요
+        if (typeof item.inheritFromOrderItemId !== 'string') {
+          return NextResponse.json({ error: '승계할 원주문 품목 정보가 올바르지 않습니다.' }, { status: 400 });
+        }
       } else if (!item.designId || typeof item.designId !== 'string') {
         return NextResponse.json({ error: '디자인 ID가 필요합니다.' }, { status: 400 });
       }
@@ -206,9 +212,23 @@ export async function POST(request: Request) {
 
     const adminClient = createAdminClient();
 
-    // Fetch all designs and products for all items (간이 이미지 항목은 디자인 조회 제외)
-    const designIds = orderItems.filter(i => !i.quickImage && i.designId).map(i => i.designId as string);
+    // Fetch all designs and products for all items (간이 이미지·차액승계 항목은 디자인 조회 제외)
+    const designIds = orderItems.filter(i => !i.quickImage && !i.inheritFromOrderItemId && i.designId).map(i => i.designId as string);
     const productIds = [...new Set(orderItems.map(i => i.productId))];
+
+    // 차액 수량추가(inherit): 원주문 품목을 그대로 복제하기 위해 조회
+    const inheritIds = [...new Set(orderItems.filter(i => i.inheritFromOrderItemId).map(i => i.inheritFromOrderItemId as string))];
+    const inheritMap = new Map<string, Record<string, unknown>>();
+    if (inheritIds.length > 0) {
+      const { data: parentItems, error: parentItemsError } = await adminClient
+        .from('order_items')
+        .select('id, product_id, design_id, product_title, design_title, canvas_state, color_selections, thumbnail_url, image_urls, text_svg_exports, custom_fonts, price_per_item')
+        .in('id', inheritIds);
+      if (parentItemsError || !parentItems || parentItems.length !== inheritIds.length) {
+        return NextResponse.json({ error: '승계할 원주문 품목을 찾을 수 없습니다.' }, { status: 404 });
+      }
+      for (const p of parentItems) inheritMap.set(p.id as string, p as Record<string, unknown>);
+    }
 
     const { data: designs, error: designsError } = await adminClient
       .from('saved_designs')
@@ -249,10 +269,12 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: `제품을 찾을 수 없습니다: ${item.productId}` }, { status: 404 });
       }
 
-      // 간이 이미지 항목 vs 디자인 항목 분기. 디자인 항목 처리는 기존 동작 그대로 유지.
+      // 간이 이미지 / 차액승계(inherit) / 디자인 항목 분기. 디자인 항목 처리는 기존 동작 그대로 유지.
       const isQuick = item.quickImage === true;
-      const design = isQuick ? undefined : designMap.get(item.designId as string);
-      if (!isQuick) {
+      const isInherit = !!item.inheritFromOrderItemId;
+      const parentItem = isInherit ? inheritMap.get(item.inheritFromOrderItemId as string) : undefined;
+      const design = (isQuick || isInherit) ? undefined : designMap.get(item.designId as string);
+      if (!isQuick && !isInherit) {
         if (!design) {
           return NextResponse.json({ error: `디자인을 찾을 수 없습니다: ${item.designId}` }, { status: 404 });
         }
@@ -268,6 +290,10 @@ export async function POST(request: Request) {
       } else if (design) {
         const designPrice = toNumber(design.price_per_item);
         unitPrice = designPrice > 0 ? designPrice : toNumber(product.base_price);
+      } else if (isInherit && parentItem) {
+        // 승계: 원주문 동일 품목 단가를 기본값으로
+        const parentPrice = toNumber(parentItem.price_per_item);
+        unitPrice = parentPrice > 0 ? parentPrice : toNumber(product.base_price);
       } else {
         unitPrice = toNumber(product.base_price);
       }
@@ -278,8 +304,12 @@ export async function POST(request: Request) {
       grandTotalQuantity += itemQuantity;
       grandOriginalAmount += itemSubtotal;
 
-      const colorSelections = design ? normalizeJson<Record<string, unknown>>(design.color_selections ?? null, {}) : {};
-      const canvasState = design ? normalizeJson<Record<string, unknown>>(design.canvas_state ?? null, {}) : {};
+      const colorSelections = design
+        ? normalizeJson<Record<string, unknown>>(design.color_selections ?? null, {})
+        : (isInherit && parentItem ? normalizeJson<Record<string, unknown>>((parentItem.color_selections as Record<string, unknown> | string | null) ?? null, {}) : {});
+      const canvasState = design
+        ? normalizeJson<Record<string, unknown>>(design.canvas_state ?? null, {})
+        : (isInherit && parentItem ? normalizeJson<Record<string, unknown>>((parentItem.canvas_state as Record<string, unknown> | string | null) ?? null, {}) : {});
       const productColor = resolveProductColor(colorSelections);
 
       const usedVariantIds = new Set<string>();
@@ -318,12 +348,15 @@ export async function POST(request: Request) {
         typeof item.designTitle === 'string' && item.designTitle.trim()
           ? item.designTitle.trim()
           : null;
-      const designTitleSnapshot = designTitleOverride ?? (design ? (design.title || null) : (product.title || '간이주문'));
+      const designTitleSnapshot = designTitleOverride
+        ?? (design ? (design.title || null)
+          : (isInherit && parentItem ? ((parentItem.design_title as string) || null)
+            : (product.title || '간이주문')));
 
       processedItems.push({
         payload: {
           product_id: item.productId,
-          design_id: design ? item.designId : null,
+          design_id: design ? item.designId : (isInherit && parentItem ? (parentItem.design_id ?? null) : null),
           product_title: product.title || 'Product',
           design_title: designTitleSnapshot,
           quantity: itemQuantity,
@@ -331,11 +364,12 @@ export async function POST(request: Request) {
           canvas_state: canvasState,
           color_selections: colorSelections,
           item_options: itemOptions,
-          thumbnail_url: design ? (design.preview_url || null) : (item.thumbnailUrl || null),
-          image_urls: design ? (design.image_urls || null) : null,
-          text_svg_exports: design ? (design.text_svg_exports || null) : null,
-          custom_fonts: design ? (design.custom_fonts || null) : null,
-          production_ready: isQuick ? false : true,
+          thumbnail_url: design ? (design.preview_url || null) : (isInherit && parentItem ? (parentItem.thumbnail_url ?? null) : (item.thumbnailUrl || null)),
+          image_urls: design ? (design.image_urls || null) : (isInherit && parentItem ? (parentItem.image_urls ?? null) : null),
+          text_svg_exports: design ? (design.text_svg_exports || null) : (isInherit && parentItem ? (parentItem.text_svg_exports ?? null) : null),
+          custom_fonts: design ? (design.custom_fonts || null) : (isInherit && parentItem ? (parentItem.custom_fonts ?? null) : null),
+          // 승계 항목은 디자인이 이미 완성돼 있으므로 production_ready=true → 발주/공장 배정 정상 진입
+          production_ready: isInherit ? true : (isQuick ? false : true),
         },
         unitPrice,
         quantity: itemQuantity,

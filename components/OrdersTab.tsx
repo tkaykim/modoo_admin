@@ -32,6 +32,12 @@ type OrderWithItemCount = Order & {
 };
 
 function getOrderSourceInfo(order: Pick<Order, 'id' | 'order_category'>): { label: string; color: string } {
+  if (order.order_category === 'surcharge') {
+    return { label: '차액주문', color: 'bg-orange-100 text-orange-800' };
+  }
+  if (order.order_category === 'quick') {
+    return { label: '간이주문', color: 'bg-amber-100 text-amber-800' };
+  }
   if (order.id.startsWith('ORDER-')) {
     return { label: '관리자생성주문', color: 'bg-purple-100 text-purple-800' };
   }
