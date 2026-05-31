@@ -12,12 +12,53 @@ import ReplyAttacher from './ReplyAttacher';
 
 const isImageUrl = (u: string) => /\.(png|jpe?g|webp|gif)(\?|$)/i.test(u);
 
+// 이메일 추적(Track A) 요약 — 문의별 발송/열람/클릭 상태
+type EmailSummary = {
+  inquiry_id: string;
+  to_email: string | null;
+  sent_at: string | null;
+  first_opened_at: string | null;
+  last_opened_at: string | null;
+  open_count: number;
+  first_clicked_at: string | null;
+  click_count: number;
+  status: 'sent' | 'queued' | 'opened' | 'clicked' | 'none';
+};
+
+function EmailStatusBadge({ s }: { s?: EmailSummary }) {
+  if (!s || s.status === 'none') return null;
+  const styleMap: Record<string, { label: string; cls: string }> = {
+    queued: { label: '메일 예약', cls: 'bg-gray-100 text-gray-600' },
+    sent: { label: '메일 발송', cls: 'bg-blue-50 text-blue-700' },
+    opened: { label: `메일 열람${s.open_count > 1 ? ` ${s.open_count}회` : ''}`, cls: 'bg-amber-100 text-amber-800' },
+    clicked: { label: `메일 클릭${s.click_count > 1 ? ` ${s.click_count}회` : ''}`, cls: 'bg-green-100 text-green-800' },
+  };
+  const m = styleMap[s.status];
+  if (!m) return null;
+  const fmt = (t: string | null) => (t ? new Date(t).toLocaleString('ko-KR', { hour12: false }) : null);
+  const title = [
+    s.sent_at && `발송 ${fmt(s.sent_at)}`,
+    s.first_opened_at && `열람 ${fmt(s.first_opened_at)}`,
+    s.first_clicked_at && `클릭 ${fmt(s.first_clicked_at)}`,
+  ].filter(Boolean).join('\n');
+  return (
+    <span title={title} className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${m.cls}`}>
+      {m.label}
+    </span>
+  );
+}
+
 export default function InquiriesSection() {
   const { data: inquiries = [], error: swrError, isLoading: loading, mutate } = useSWR<InquiryRecord[]>('/api/admin/inquiries');
   // 검수 대기 중인 AI 응대 초안 (inquiry_id → draft). 답변창에 임시저장 형태로 미리 채움.
   const { data: csDrafts = [], mutate: mutateDrafts } = useSWR<(CsDraft & { inquiry_id: string; draft_reply: string; reviewer_edited_reply: string | null })[]>('/api/admin/cs/drafts?status=pending_review');
   const draftByInquiry: Record<string, (typeof csDrafts)[number]> = {};
   for (const d of csDrafts) draftByInquiry[d.inquiry_id] = d;
+  // 이메일 추적(Track A) 요약 — 보이는 문의들에 대해 일괄 조회
+  const emailIdsKey = inquiries.map((i) => i.id).sort().join(',');
+  const { data: emailSummaryMap = {} } = useSWR<Record<string, EmailSummary>>(
+    emailIdsKey ? `/api/admin/email-events?inquiry_ids=${emailIdsKey}` : null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [replyFiles, setReplyFiles] = useState<Record<string, string[]>>({});
@@ -251,6 +292,7 @@ export default function InquiriesSection() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
+                    <EmailStatusBadge s={emailSummaryMap[inquiry.id]} />
                     <span
                       className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusStyle(
                         inquiry.status
