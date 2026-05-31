@@ -36,7 +36,28 @@ function trackClick(messageId: string, url: string): string {
   return `${TRACK_BASE}/click?m=${messageId}&u=${encodeURIComponent(url)}`;
 }
 
-function buildEmailHtml(replyText: string, inquiryUrl: string, messageId: string): string {
+interface EmailOrderCard { payUrl: string; productTitle: string | null; thumbnailUrl: string | null; unitPrice: number; }
+
+// 연결된 (결제 가능한) 주문을 이메일 본문에 카드로 렌더. 버튼 클릭 시 주문 결제 페이지로 이동.
+function buildOrderCardsHtml(orders: EmailOrderCard[], messageId: string): string {
+  if (!orders.length) return '';
+  const cards = orders.map((o) => {
+    const payHref = trackClick(messageId, o.payUrl);
+    const img = o.thumbnailUrl
+      ? `<tr><td style="padding:10px 10px 0;"><img src="${o.thumbnailUrl}" width="100%" style="display:block;width:100%;border-radius:8px;" alt="시안" /></td></tr>`
+      : '';
+    const title = escapeHtml(o.productTitle || '주문');
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eee;border-radius:12px;overflow:hidden;margin-bottom:12px;background:#fff;">
+${img}
+<tr><td style="padding:10px 14px 2px;font-size:14px;font-weight:600;color:#333;">${title}</td></tr>
+<tr><td style="padding:0 14px 8px;font-size:13px;color:#666;">장당 ${o.unitPrice.toLocaleString('ko-KR')}원 · 사이즈별 수량 선택 후 결제</td></tr>
+<tr><td style="padding:0 14px 14px;"><a href="${payHref}" style="display:block;background:${BRAND};color:#fff;text-align:center;padding:13px 0;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;">바로 결제하기</a></td></tr>
+</table>`;
+  }).join('');
+  return `<tr><td style="padding:4px 32px 4px;"><p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#333;">시안 · 결제</p>${cards}</td></tr>`;
+}
+
+function buildEmailHtml(replyText: string, inquiryUrl: string, messageId: string, orderCardsHtml = ''): string {
   const body = escapeHtml(replyText).replace(/\n/g, '<br>');
   const inquiryHref = trackClick(messageId, inquiryUrl);
   const kakaoHref = trackClick(messageId, KAKAO_URL);
@@ -46,8 +67,9 @@ function buildEmailHtml(replyText: string, inquiryUrl: string, messageId: string
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:24px 0;"><tr><td align="center">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.06);">
 <tr><td style="background:${BRAND};padding:24px 32px;text-align:center;"><img src="${LOGO_URL}" alt="모두의 유니폼" width="132" style="display:inline-block;max-width:132px;height:auto;"></td></tr>
-<tr><td style="padding:32px;font-size:15px;line-height:1.75;color:#333;">${body}</td></tr>
-<tr><td style="padding:0 32px 8px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr><td style="padding:32px 32px 8px;font-size:15px;line-height:1.75;color:#333;">${body}</td></tr>
+${orderCardsHtml}
+<tr><td style="padding:8px 32px 8px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">
 <tr><td align="center" style="padding-bottom:12px;"><a href="${inquiryHref}" style="display:inline-block;background:${BRAND};color:#fff;font-size:15px;font-weight:700;text-decoration:none;padding:15px 0;width:100%;max-width:480px;border-radius:10px;text-align:center;">문의 게시판에서 답변하기</a></td></tr>
 <tr><td align="center"><a href="${kakaoHref}" style="display:inline-block;background:#FEE500;color:#191600;font-size:15px;font-weight:700;text-decoration:none;padding:15px 0;width:100%;max-width:480px;border-radius:10px;text-align:center;">카카오톡으로 상담하기</a></td></tr>
 </table></td></tr>
@@ -223,13 +245,35 @@ export async function POST(request: Request) {
         const inquiryUrl = `${SITE_URL}/inquiries/${draft.inquiry_id}`;
         // 추적(Track A): 메일 1통당 고유 messageId. 픽셀/링크에 심어 열람·클릭을 기록.
         const messageId = randomUUID();
+        // 연결된 (결제 가능한) 주문을 이메일에 카드로 첨부 — 버튼 클릭 시 결제 페이지로 이동.
+        let orderCardsHtml = '';
+        try {
+          const { data: linkedOrders } = await db
+            .from('orders')
+            .select('payment_status, payment_link_token, created_at, order_items(product_title, thumbnail_url, price_per_item)')
+            .eq('inquiry_id', draft.inquiry_id)
+            .not('payment_link_token', 'is', null)
+            .neq('payment_status', 'completed')
+            .order('created_at', { ascending: true });
+          const cards = (linkedOrders ?? []).map((o) => {
+            const its = o.order_items as unknown as Array<{ product_title: string | null; thumbnail_url: string | null; price_per_item: number | null }> | null;
+            const it = Array.isArray(its) ? its[0] : null;
+            return {
+              payUrl: `${SITE_URL}/order/custom/${o.payment_link_token}`,
+              productTitle: it?.product_title ?? null,
+              thumbnailUrl: it?.thumbnail_url ?? null,
+              unitPrice: Number(it?.price_per_item) || 0,
+            };
+          });
+          orderCardsHtml = buildOrderCardsHtml(cards, messageId);
+        } catch { /* 카드 생성 실패해도 메일 발송은 진행 */ }
         // 야간(KST 09~21시 외)이면 즉시 발송하지 않고 큐에 적재 → 다음 09:00 KST에 발송.
         const outcome = await sendOrQueueCsEmail({
           draftId: id,
           to: inquiry.email,
           subject: '[모두의 유니폼] 문의 답변드립니다',
           text: finalReply,
-          html: buildEmailHtml(finalReply, inquiryUrl, messageId),
+          html: buildEmailHtml(finalReply, inquiryUrl, messageId, orderCardsHtml),
           customerActiveAt,
         });
         if (outcome === 'failed') throw new Error('gmail_send_failed');
