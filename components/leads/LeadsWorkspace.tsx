@@ -3,17 +3,21 @@
 import { useState } from 'react';
 import LeadsSection from './LeadsSection';
 import LeadsImportSection from './LeadsImportSection';
+import LeadsAnalyticsSection from './LeadsAnalyticsSection';
 
 export default function LeadsWorkspace() {
-  const [tab, setTab] = useState<'list' | 'import'>('list');
+  const [tab, setTab] = useState<'list' | 'import' | 'analytics'>('list');
 
   return (
     <div>
       <div className="flex gap-1 mb-4 border-b border-gray-200">
         <TabBtn active={tab === 'list'} onClick={() => setTab('list')}>리드 목록</TabBtn>
         <TabBtn active={tab === 'import'} onClick={() => setTab('import')}>수집 · 가져오기</TabBtn>
+        <TabBtn active={tab === 'analytics'} onClick={() => setTab('analytics')}>분석</TabBtn>
       </div>
-      {tab === 'list' ? <LeadsSection /> : <LeadsImportSection onPromoted={() => setTab('list')} />}
+      {tab === 'list' && <LeadsSection />}
+      {tab === 'import' && <LeadsImportSection onPromoted={() => setTab('list')} />}
+      {tab === 'analytics' && <LeadsAnalyticsSection />}
     </div>
   );
 }
