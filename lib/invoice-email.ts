@@ -1,4 +1,16 @@
-import type { InvoiceItem } from '@/types/types';
+import type { InvoiceItem, InvoiceDocumentType, InvoiceRecipientBusiness, CashReceiptMethod } from '@/types/types';
+
+const DOCUMENT_TITLES: Record<InvoiceDocumentType, string> = {
+  transaction_statement: '거 래 명 세 표',
+  tax_invoice: '세 금 계 산 서',
+  cash_receipt: '현 금 영 수 증',
+};
+
+const CASH_RECEIPT_METHOD_LABELS: Record<CashReceiptMethod, string> = {
+  phone: '휴대폰번호',
+  business: '사업자번호',
+  card: '카드/식별번호',
+};
 
 /** 거래명세표에 표시하는 공급자(발행처) 고정 정보 */
 export const INVOICE_SUPPLIER = {
@@ -25,6 +37,13 @@ export interface InvoiceEmailParams {
   memo: string | null;
   /** 이메일: cid:… / PDF·미리보기: data:image/png;base64,… */
   companySealImageSrc?: string | null;
+  /** 문서 종류 (기본: 거래명세표) */
+  documentType?: InvoiceDocumentType;
+  /** 세금계산서 공급받는자(사업자) 정보 */
+  recipientBusiness?: InvoiceRecipientBusiness | null;
+  /** 현금영수증 발급수단/식별번호 */
+  cashReceiptMethod?: CashReceiptMethod | null;
+  cashReceiptIdentifier?: string | null;
 }
 
 const MIN_TABLE_ROWS = 14;
@@ -79,7 +98,13 @@ export function renderTransactionStatementHtml(params: InvoiceEmailParams): stri
     recipientName,
     memo,
     companySealImageSrc,
+    documentType = 'transaction_statement',
+    recipientBusiness,
+    cashReceiptMethod,
+    cashReceiptIdentifier,
   } = params;
+
+  const docTitle = DOCUMENT_TITLES[documentType] ?? DOCUMENT_TITLES.transaction_statement;
 
   const customerParts = [recipientOrg, recipientName].filter((x): x is string => Boolean(x?.trim()));
   const customerLine = customerParts.length ? customerParts.map(escapeHtml).join(' ') : '—';
@@ -130,6 +155,31 @@ export function renderTransactionStatementHtml(params: InvoiceEmailParams): stri
     ? `<div style="margin-top:10px;padding:8px;border:1px solid #ccc;font-size:11px;"><strong>비고(전체)</strong><br/>${escapeHtml(memo.trim()).replace(/\n/g, '<br/>')}</div>`
     : '';
 
+  // 세금계산서: 공급받는자(사업자) 정보 블록
+  const rb = recipientBusiness;
+  const recipientBusinessBlock =
+    documentType === 'tax_invoice' && rb && (rb.biz_no || rb.org || rb.ceo)
+      ? `<div style="margin-top:10px;padding:8px;border:1px solid #222;font-size:11px;">
+          <strong style="display:block;margin-bottom:4px;">공급받는자</strong>
+          <table role="presentation" style="width:100%;border-collapse:collapse;">
+            <tr><td style="${border}padding:3px 5px;font-size:10px;font-weight:700;background:#fafafa;width:22%;">등록번호</td><td style="${border}padding:3px 5px;font-size:10px;">${escapeHtml(rb.biz_no || '—')}</td></tr>
+            <tr><td style="${border}padding:3px 5px;font-size:10px;font-weight:700;background:#fafafa;">상 호</td><td style="${border}padding:3px 5px;font-size:10px;">${escapeHtml(rb.org || '—')}</td><td style="${border}padding:3px 5px;font-size:10px;font-weight:700;background:#fafafa;">대표자</td><td style="${border}padding:3px 5px;font-size:10px;">${escapeHtml(rb.ceo || '—')}</td></tr>
+            <tr><td style="${border}padding:3px 5px;font-size:10px;font-weight:700;background:#fafafa;">사업장</td><td colspan="3" style="${border}padding:3px 5px;font-size:10px;">${escapeHtml(rb.address || '—')}</td></tr>
+            <tr><td style="${border}padding:3px 5px;font-size:10px;font-weight:700;background:#fafafa;">업 태</td><td style="${border}padding:3px 5px;font-size:10px;">${escapeHtml(rb.biz_type || '—')}</td><td style="${border}padding:3px 5px;font-size:10px;font-weight:700;background:#fafafa;">종 목</td><td style="${border}padding:3px 5px;font-size:10px;">${escapeHtml(rb.biz_item || '—')}</td></tr>
+          </table>
+        </div>`
+      : '';
+
+  // 현금영수증: 발급수단 블록
+  const cashReceiptBlock =
+    documentType === 'cash_receipt' && cashReceiptMethod
+      ? `<div style="margin-top:10px;padding:8px;border:1px solid #222;font-size:11px;">
+          <strong style="display:block;margin-bottom:4px;">현금영수증 발급정보</strong>
+          <div>발급수단: ${escapeHtml(CASH_RECEIPT_METHOD_LABELS[cashReceiptMethod] || cashReceiptMethod)}</div>
+          <div>식별번호: ${escapeHtml(cashReceiptIdentifier || '—')}</div>
+        </div>`
+      : '';
+
   const sealOverlay =
     companySealImageSrc && companySealImageSrc.length > 0
       ? `<img src="${companySealImageSrc}" alt="" width="60" height="60" style="position:absolute;top:4px;right:4px;width:60px;height:60px;object-fit:contain;opacity:0.85;pointer-events:none;" />`
@@ -155,7 +205,7 @@ export function renderTransactionStatementHtml(params: InvoiceEmailParams): stri
       <div style="font-size:10px;font-weight:700;text-align:center;">No. ${escapeHtml(invoiceNumber)}</div>
     </td>
     <td colspan="7" style="${border}padding:10px 4px;text-align:center;">
-      <div style="font-size:22px;font-weight:800;letter-spacing:0.4em;">거 래 명 세 표</div>
+      <div style="font-size:22px;font-weight:800;letter-spacing:0.4em;">${docTitle}</div>
     </td>
   </tr>
   <!-- 상단 정보: 좌측(날짜·귀하) + 우측(공급자) -->
@@ -232,8 +282,10 @@ export function renderTransactionStatementHtml(params: InvoiceEmailParams): stri
     </td>
   </tr>
 </table>
+${recipientBusinessBlock}
+${cashReceiptBlock}
 ${memoBlock}
-<p style="margin:12px 0 0;font-size:10px;color:#6b7280;text-align:center;">본 거래명세서는 모두의 유니폼(피스코프)에서 발송되었습니다.</p>
+<p style="margin:12px 0 0;font-size:10px;color:#6b7280;text-align:center;">본 ${documentType === 'tax_invoice' ? '세금계산서' : documentType === 'cash_receipt' ? '현금영수증' : '거래명세서'}는 모두의 유니폼(피스코프)에서 발송되었습니다.${documentType === 'tax_invoice' || documentType === 'cash_receipt' ? ' (국세청 전자발행 별도)' : ''}</p>
 `;
 }
 

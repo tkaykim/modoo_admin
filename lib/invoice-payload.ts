@@ -24,3 +24,24 @@ export function computeInvoiceTotals(includeVat: boolean, items: InvoiceItem[]) 
   const totalAmount = subtotal + vatAmount;
   return { subtotal, vatAmount, totalAmount };
 }
+
+/**
+ * 부가세 처리를 입력 기준(vatMode)에 따라 계산.
+ *  - 'none'      : 부가세 없음 (거래명세서 VAT 미포함)
+ *  - 'exclusive' : 입력 금액 = 공급가액 → 부가세 10% 가산 (기존 거래명세서 VAT 포함과 동일)
+ *  - 'inclusive' : 입력 금액 = VAT 포함 합계 → 공급가액=합계/1.1, 부가세=합계-공급가액 (B2C 표시가→세금계산서)
+ * 세금계산서/현금영수증은 보통 'inclusive'(주문 표시가가 부가세 포함이므로).
+ */
+export function computeInvoiceTotalsByMode(items: InvoiceItem[], vatMode: 'none' | 'exclusive' | 'inclusive') {
+  const sum = items.reduce((s, item) => s + item.amount, 0);
+  if (vatMode === 'none') {
+    return { subtotal: sum, vatAmount: 0, totalAmount: sum };
+  }
+  if (vatMode === 'inclusive') {
+    const subtotal = Math.round(sum / 1.1);
+    return { subtotal, vatAmount: sum - subtotal, totalAmount: sum };
+  }
+  // exclusive
+  const vatAmount = Math.round(sum * 0.1);
+  return { subtotal: sum, vatAmount, totalAmount: sum + vatAmount };
+}

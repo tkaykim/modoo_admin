@@ -1145,9 +1145,26 @@ export interface InvoiceItem {
   day?: string;
 }
 
+export type InvoiceDocumentType = 'transaction_statement' | 'tax_invoice' | 'cash_receipt';
+export type InvoiceStatus = 'draft' | 'issued' | 'sent' | 'external_issued' | 'void';
+export type CashReceiptMethod = 'phone' | 'business' | 'card';
+
+/** 세금계산서 공급받는자(사업자) 정보 */
+export interface InvoiceRecipientBusiness {
+  biz_no?: string;     // 사업자등록번호
+  org?: string;        // 상호
+  ceo?: string;        // 대표자
+  address?: string;    // 사업장 주소
+  biz_type?: string;   // 업태
+  biz_item?: string;   // 종목
+}
+
 export interface Invoice {
   id: string;
   invoice_number: string;
+  document_type: InvoiceDocumentType;
+  order_id: string | null;
+  status: InvoiceStatus;
   include_vat: boolean;
   items: InvoiceItem[];
   subtotal: number;
@@ -1156,9 +1173,18 @@ export interface Invoice {
   recipient_org: string | null;
   recipient_name: string | null;
   recipient_email: string;
+  recipient_business: InvoiceRecipientBusiness | null;
+  cash_receipt_method: CashReceiptMethod | null;
+  cash_receipt_identifier: string | null;
+  issue_date: string | null;
   memo: string | null;
   sent_at: string;
   created_at: string;
+  // 향후 홈택스/대행 실발행 연동(Phase A)
+  external_provider: string | null;
+  external_doc_id: string | null;
+  external_status: string | null;
+  external_issued_at: string | null;
 }
 
 // ============================================================================

@@ -3,8 +3,14 @@ import { sendGmailEmail, type GmailAttachment } from '@/lib/gmail';
 import { renderInvoicePdfBuffer } from '@/lib/invoice-html-to-pdf';
 import { fetchCompanySealBuffer } from '@/lib/company-seal';
 import { INVOICE_SUPPLIER, type InvoiceEmailParams } from '@/lib/invoice-email';
-import type { InvoiceItem } from '@/types/types';
+import type { InvoiceItem, InvoiceDocumentType, InvoiceRecipientBusiness, CashReceiptMethod } from '@/types/types';
 import { formatKstDateOnly } from '@/lib/kst';
+
+const DOC_LABELS: Record<InvoiceDocumentType, string> = {
+  transaction_statement: '거래명세서',
+  tax_invoice: '세금계산서',
+  cash_receipt: '현금영수증',
+};
 
 export type SendInvoiceEmailInput = {
   invoiceNumber: string;
@@ -19,6 +25,10 @@ export type SendInvoiceEmailInput = {
   recipientName: string | null;
   recipientEmail: string;
   memo: string | null;
+  documentType?: InvoiceDocumentType;
+  recipientBusiness?: InvoiceRecipientBusiness | null;
+  cashReceiptMethod?: CashReceiptMethod | null;
+  cashReceiptIdentifier?: string | null;
   attach_invoice?: boolean;
   attach_pdf?: boolean;
   attach_business_registration?: boolean;
@@ -41,12 +51,17 @@ export async function sendInvoiceEmail(
     recipientName,
     recipientEmail,
     memo,
+    documentType = 'transaction_statement',
+    recipientBusiness,
+    cashReceiptMethod,
+    cashReceiptIdentifier,
     attach_invoice,
     attach_pdf,
     attach_business_registration,
     attach_bank_account,
   } = input;
 
+  const docLabel = DOC_LABELS[documentType] ?? DOC_LABELS.transaction_statement;
   const dateStr = formatKstDateOnly(statementDate);
 
   const pdfParams: InvoiceEmailParams = {
@@ -60,6 +75,10 @@ export async function sendInvoiceEmail(
     recipientOrg,
     recipientName,
     memo,
+    documentType,
+    recipientBusiness,
+    cashReceiptMethod,
+    cashReceiptIdentifier,
   };
 
   const sealBuffer = await fetchCompanySealBuffer(adminClient);
@@ -81,7 +100,7 @@ export async function sendInvoiceEmail(
   </div>
   <div style="border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
     <p style="margin: 0 0 16px; color: #374151; font-size: 15px;">${greeting}</p>
-    <p style="margin: 0 0 16px; color: #374151;">모두의 유니폼 거래명세서 전달드립니다.</p>
+    <p style="margin: 0 0 16px; color: #374151;">모두의 유니폼 ${docLabel} 전달드립니다.</p>
     <p style="margin: 0 0 16px; color: #374151;">첨부된 PDF 파일을 확인해 주세요.</p>
     <table style="margin: 16px 0 20px; border-collapse: collapse;">
       <tr><td style="padding: 4px 12px 4px 0; color: #6b7280; font-size: 13px;">상호</td><td style="padding: 4px 0; color: #374151; font-size: 13px; font-weight: 600;">${INVOICE_SUPPLIER.tradeName}</td></tr>
@@ -98,7 +117,7 @@ export async function sendInvoiceEmail(
   const text = [
     greeting,
     '',
-    '모두의 유니폼 거래명세서 전달드립니다.',
+    `모두의 유니폼 ${docLabel} 전달드립니다.`,
     '첨부된 PDF 파일을 확인해 주세요.',
     '',
     `상호: ${INVOICE_SUPPLIER.tradeName}`,
@@ -148,7 +167,7 @@ export async function sendInvoiceEmail(
     const pdfBuf = await renderInvoicePdfBuffer(pdfParams);
     if (pdfBuf) {
       attachments.push({
-        filename: `거래명세표-${invoiceNumber}.pdf`,
+        filename: `${docLabel}-${invoiceNumber}.pdf`,
         content: pdfBuf,
         contentType: 'application/pdf',
       });
@@ -163,7 +182,7 @@ export async function sendInvoiceEmail(
   const emailSent = await sendGmailEmail({
     to: [{ email: recipientEmail.trim(), name: nameTrim || undefined }],
     subject: includeInvoiceBody
-      ? `[모두의 유니폼] 거래명세서 (${invoiceNumber})`
+      ? `[모두의 유니폼] ${docLabel} (${invoiceNumber})`
       : `[모두의 유니폼] 서류 전달 (${invoiceNumber})`,
     html,
     text,

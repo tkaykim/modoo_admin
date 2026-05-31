@@ -2067,6 +2067,15 @@ export default function OrderDetail({
                     차액 추가청구
                   </button>
                 )}
+                {!isFactoryUser && (
+                  <button
+                    onClick={() => router.push(`/invoices/new?orderId=${encodeURIComponent(order.id)}`)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white text-gray-700 text-sm rounded-md border border-gray-300 hover:bg-gray-50 transition-colors mt-2"
+                  >
+                    <Receipt className="w-4 h-4" />
+                    명세서/계산서 발행
+                  </button>
+                )}
               </div>
             </div>
           )}

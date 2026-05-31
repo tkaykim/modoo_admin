@@ -1,11 +1,23 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Trash2, Send, Eye, ArrowLeft, X, Paperclip } from 'lucide-react';
-import type { InvoiceItem } from '@/types/types';
+import type { InvoiceItem, InvoiceDocumentType, InvoiceRecipientBusiness, CashReceiptMethod } from '@/types/types';
 import { generateInvoiceEmailHtml, INVOICE_SUPPLIER } from '@/lib/invoice-email';
+import { computeInvoiceTotalsByMode } from '@/lib/invoice-payload';
 import { formatKstTodayLong } from '@/lib/kst';
+
+const DOC_TYPE_OPTIONS: { value: InvoiceDocumentType; label: string }[] = [
+  { value: 'transaction_statement', label: '거래명세서' },
+  { value: 'tax_invoice', label: '세금계산서' },
+  { value: 'cash_receipt', label: '현금영수증' },
+];
+const CASH_METHOD_OPTIONS: { value: CashReceiptMethod; label: string }[] = [
+  { value: 'phone', label: '휴대폰번호' },
+  { value: 'business', label: '사업자번호(지출증빙)' },
+  { value: 'card', label: '카드/식별번호' },
+];
 
 interface AdminDocument {
   id: string;
@@ -36,13 +48,30 @@ function emptyItem(): InvoiceItem {
 
 export default function NewInvoicePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const orderIdParam = searchParams.get('orderId');
+  const docTypeParam = searchParams.get('docType') as InvoiceDocumentType | null;
 
+  const [documentType, setDocumentType] = useState<InvoiceDocumentType>(
+    docTypeParam && DOC_TYPE_OPTIONS.some((o) => o.value === docTypeParam) ? docTypeParam : 'transaction_statement',
+  );
+  const [orderId, setOrderId] = useState<string | null>(orderIdParam);
   const [includeVat, setIncludeVat] = useState(true);
   const [items, setItems] = useState<InvoiceItem[]>([emptyItem()]);
   const [recipientOrg, setRecipientOrg] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
   const [memo, setMemo] = useState('');
+  // 세금계산서: 공급받는자 사업자정보
+  const [rbBizNo, setRbBizNo] = useState('');
+  const [rbOrg, setRbOrg] = useState('');
+  const [rbCeo, setRbCeo] = useState('');
+  const [rbAddress, setRbAddress] = useState('');
+  const [rbBizType, setRbBizType] = useState('');
+  const [rbBizItem, setRbBizItem] = useState('');
+  // 현금영수증
+  const [cashMethod, setCashMethod] = useState<CashReceiptMethod>('phone');
+  const [cashIdentifier, setCashIdentifier] = useState('');
   const [sending, setSending] = useState(false);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [documents, setDocuments] = useState<AdminDocument[]>([]);
@@ -67,11 +96,57 @@ export default function NewInvoicePage() {
       .catch(() => {});
   }, []);
 
+  // 주문 원클릭 자동채움
+  useEffect(() => {
+    if (!orderIdParam) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [ordRes, itemsRes] = await Promise.all([
+          fetch(`/api/admin/orders?orderId=${encodeURIComponent(orderIdParam)}`),
+          fetch(`/api/admin/orders/items?orderId=${encodeURIComponent(orderIdParam)}`),
+        ]);
+        const ordJson = await ordRes.json().catch(() => null);
+        const itemsJson = await itemsRes.json().catch(() => null);
+        if (cancelled) return;
+        const ord = ordJson?.data?.[0];
+        if (ord) {
+          setRecipientOrg((ord.customer_name as string) || '');
+          if (ord.customer_email) setRecipientEmail(ord.customer_email as string);
+          setMemo((m) => m || `주문번호 ${ord.id}`);
+        }
+        const oItems = Array.isArray(itemsJson?.data) ? itemsJson.data : [];
+        if (oItems.length > 0) {
+          setItems(
+            oItems.map((it: { product_title?: string; design_title?: string; quantity?: number; price_per_item?: number }) => {
+              const quantity = Math.max(1, Number(it.quantity) || 1);
+              const unit_price = Math.max(0, Number(it.price_per_item) || 0);
+              return {
+                name: it.product_title || it.design_title || '품목',
+                quantity,
+                unit_price,
+                amount: quantity * unit_price,
+                spec: '',
+                remarks: it.design_title && it.design_title !== it.product_title ? it.design_title : '',
+                month: '',
+                day: '',
+              } as InvoiceItem;
+            }),
+          );
+        }
+      } catch { /* 자동채움 실패는 무시 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [orderIdParam]);
+
   const hasDoc = (docType: string) => documents.some((d) => d.doc_type === docType);
 
-  const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
-  const vatAmount = includeVat ? Math.round(subtotal * 0.1) : 0;
-  const totalAmount = subtotal + vatAmount;
+  // 부가세 계산 모드: 거래명세서는 includeVat(공급가액 기준 가산/없음),
+  // 세금계산서·현금영수증은 inclusive(주문 표시가=부가세 포함 → 역산).
+  const vatMode: 'none' | 'exclusive' | 'inclusive' =
+    documentType === 'transaction_statement' ? (includeVat ? 'exclusive' : 'none') : 'inclusive';
+  const { subtotal, vatAmount, totalAmount } = computeInvoiceTotalsByMode(items, vatMode);
+  const showVat = vatMode !== 'none';
 
   const updateItem = useCallback((index: number, field: keyof InvoiceItem, value: string | number) => {
     setItems((prev) => {
@@ -110,12 +185,24 @@ export default function NewInvoicePage() {
     updateItem(index, 'name', name);
   }, [updateItem]);
 
+  const buildRecipientBusiness = (): InvoiceRecipientBusiness | null => {
+    if (documentType !== 'tax_invoice') return null;
+    return {
+      biz_no: rbBizNo.trim() || undefined,
+      org: rbOrg.trim() || undefined,
+      ceo: rbCeo.trim() || undefined,
+      address: rbAddress.trim() || undefined,
+      biz_type: rbBizType.trim() || undefined,
+      biz_item: rbBizItem.trim() || undefined,
+    };
+  };
+
   const handlePreview = () => {
     const dateStr = formatKstTodayLong();
     const html = generateInvoiceEmailHtml({
       invoiceNumber: 'INV-PREVIEW',
       date: dateStr,
-      includeVat,
+      includeVat: showVat,
       items: items.filter((item) => item.name.trim()),
       subtotal,
       vatAmount,
@@ -124,6 +211,10 @@ export default function NewInvoicePage() {
       recipientName: recipientName.trim() || null,
       memo: memo.trim() || null,
       companySealImageSrc: sealBase64 ? `data:image/png;base64,${sealBase64}` : null,
+      documentType,
+      recipientBusiness: buildRecipientBusiness(),
+      cashReceiptMethod: documentType === 'cash_receipt' ? cashMethod : null,
+      cashReceiptIdentifier: documentType === 'cash_receipt' ? cashIdentifier.trim() || null : null,
     });
     setPreviewHtml(html);
   };
@@ -142,8 +233,17 @@ export default function NewInvoicePage() {
       alert('최소 1개 이상의 발송 항목을 선택해주세요.');
       return;
     }
+    if (documentType === 'tax_invoice' && !rbBizNo.trim()) {
+      alert('세금계산서는 공급받는자 사업자등록번호가 필요합니다.');
+      return;
+    }
+    if (documentType === 'cash_receipt' && !cashIdentifier.trim()) {
+      alert('현금영수증은 식별번호가 필요합니다.');
+      return;
+    }
 
-    if (!confirm('거래명세서를 발송하시겠습니까?')) return;
+    const docLabel = DOC_TYPE_OPTIONS.find((o) => o.value === documentType)?.label || '거래명세서';
+    if (!confirm(`${docLabel}를 발송하시겠습니까?`)) return;
 
     setSending(true);
     try {
@@ -151,11 +251,17 @@ export default function NewInvoicePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          include_vat: includeVat,
+          document_type: documentType,
+          order_id: orderId || undefined,
+          vat_mode: vatMode,
+          include_vat: showVat,
           items: validItems,
           recipient_org: recipientOrg.trim() || undefined,
           recipient_name: recipientName.trim() || undefined,
           recipient_email: recipientEmail.trim(),
+          recipient_business: buildRecipientBusiness() || undefined,
+          cash_receipt_method: documentType === 'cash_receipt' ? cashMethod : undefined,
+          cash_receipt_identifier: documentType === 'cash_receipt' ? cashIdentifier.trim() : undefined,
           memo: memo.trim() || undefined,
           attach_invoice: attachInvoice,
           attach_pdf: attachPdf,
@@ -174,7 +280,7 @@ export default function NewInvoicePage() {
       if (result.warning) {
         alert(result.warning);
       } else {
-        alert('거래명세서가 성공적으로 발송되었습니다.');
+        alert(`${docLabel}가 성공적으로 발송되었습니다.`);
       }
 
       router.push('/invoices');
@@ -197,10 +303,33 @@ export default function NewInvoicePage() {
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-xl font-bold text-gray-900">거래명세서 작성</h1>
+        <h1 className="text-xl font-bold text-gray-900">{DOC_TYPE_OPTIONS.find((o) => o.value === documentType)?.label} 작성</h1>
       </div>
 
       <div className="space-y-6">
+        {/* 문서 종류 */}
+        <section className="bg-white border border-gray-200 rounded-lg p-5">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">문서 종류</h2>
+          <div className="flex flex-wrap gap-2">
+            {DOC_TYPE_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => setDocumentType(o.value)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium border ${documentType === o.value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          {orderId && (
+            <p className="mt-2 text-xs text-gray-500">주문 <span className="font-mono">{orderId}</span> 정보로 자동 채움됨 (수정 가능)</p>
+          )}
+          {documentType !== 'transaction_statement' && (
+            <p className="mt-2 text-xs text-amber-700">⚠ 본 문서는 내부 발행용입니다. 국세청 전자 {documentType === 'tax_invoice' ? '세금계산서' : '현금영수증'} 발행은 홈택스에서 별도로 진행하세요.</p>
+          )}
+        </section>
+
         {/* Supplier Info */}
         <section className="bg-white border border-gray-200 rounded-lg p-5">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">공급자 정보 (명세표에 인쇄)</h2>
@@ -284,31 +413,75 @@ export default function NewInvoicePage() {
           </div>
         </section>
 
+        {/* 세금계산서: 공급받는자 사업자정보 */}
+        {documentType === 'tax_invoice' && (
+          <section className="bg-white border border-gray-200 rounded-lg p-5">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">공급받는자 (사업자)</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">사업자등록번호 <span className="text-red-500">*</span></label>
+                <input type="text" value={rbBizNo} onChange={(e) => setRbBizNo(e.target.value)} placeholder="000-00-00000" className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">상호</label>
+                <input type="text" value={rbOrg} onChange={(e) => setRbOrg(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">대표자</label>
+                <input type="text" value={rbCeo} onChange={(e) => setRbCeo(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">사업장 주소</label>
+                <input type="text" value={rbAddress} onChange={(e) => setRbAddress(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">업태</label>
+                <input type="text" value={rbBizType} onChange={(e) => setRbBizType(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">종목</label>
+                <input type="text" value={rbBizItem} onChange={(e) => setRbBizItem(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* 현금영수증: 발급정보 */}
+        {documentType === 'cash_receipt' && (
+          <section className="bg-white border border-gray-200 rounded-lg p-5">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">현금영수증 발급정보</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">발급수단 <span className="text-red-500">*</span></label>
+                <select value={cashMethod} onChange={(e) => setCashMethod(e.target.value as CashReceiptMethod)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  {CASH_METHOD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">식별번호 <span className="text-red-500">*</span></label>
+                <input type="text" value={cashIdentifier} onChange={(e) => setCashIdentifier(e.target.value)} placeholder="휴대폰/사업자/카드번호" className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* VAT Option */}
         <section className="bg-white border border-gray-200 rounded-lg p-5">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">VAT 옵션</h2>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="vat"
-                checked={includeVat}
-                onChange={() => setIncludeVat(true)}
-                className="w-4 h-4 text-blue-600"
-              />
-              <span className="text-sm font-medium text-gray-700">VAT 포함 (10%)</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="vat"
-                checked={!includeVat}
-                onChange={() => setIncludeVat(false)}
-                className="w-4 h-4 text-blue-600"
-              />
-              <span className="text-sm font-medium text-gray-700">VAT 미포함</span>
-            </label>
-          </div>
+          {documentType === 'transaction_statement' ? (
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="vat" checked={includeVat} onChange={() => setIncludeVat(true)} className="w-4 h-4 text-blue-600" />
+                <span className="text-sm font-medium text-gray-700">VAT 포함 (10%)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="vat" checked={!includeVat} onChange={() => setIncludeVat(false)} className="w-4 h-4 text-blue-600" />
+                <span className="text-sm font-medium text-gray-700">VAT 미포함</span>
+              </label>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-600">입력 금액을 <b>부가세 포함가</b>로 보고 공급가액(합계÷1.1)·세액을 자동 역산합니다. (주문 표시가 기준)</p>
+          )}
         </section>
 
         {/* Items */}
@@ -438,7 +611,7 @@ export default function NewInvoicePage() {
         <section className="bg-white border border-gray-200 rounded-lg p-5">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">금액 요약</h2>
           <div className="space-y-2 max-w-xs ml-auto">
-            {includeVat && (
+            {showVat && (
               <>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">공급가액</span>
@@ -450,7 +623,7 @@ export default function NewInvoicePage() {
                 </div>
               </>
             )}
-            <div className={`flex justify-between text-base font-bold ${includeVat ? 'pt-2 border-t border-gray-200' : ''}`}>
+            <div className={`flex justify-between text-base font-bold ${showVat ? 'pt-2 border-t border-gray-200' : ''}`}>
               <span className="text-gray-900">합계금액</span>
               <span className="text-blue-700">{formatNumber(totalAmount)}원</span>
             </div>

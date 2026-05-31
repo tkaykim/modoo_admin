@@ -232,6 +232,7 @@ export default function InvoicesPage() {
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">번호</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">종류</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">받는분</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">이메일</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">합계금액</th>
@@ -243,13 +244,13 @@ export default function InvoicesPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-sm text-gray-400">
+                  <td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
                     불러오는 중...
                   </td>
                 </tr>
               ) : invoices.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-sm text-gray-400">
+                  <td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
                     발송된 거래명세서가 없습니다.
                   </td>
                 </tr>
@@ -262,6 +263,14 @@ export default function InvoicesPage() {
                   return (
                     <tr key={invoice.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3 text-sm font-mono text-gray-700">{invoice.invoice_number}</td>
+                      <td className="px-4 py-3">
+                        {(() => {
+                          const dt = invoice.document_type || 'transaction_statement';
+                          const label = dt === 'tax_invoice' ? '세금계산서' : dt === 'cash_receipt' ? '현금영수증' : '거래명세서';
+                          const cls = dt === 'tax_invoice' ? 'bg-indigo-50 text-indigo-700' : dt === 'cash_receipt' ? 'bg-teal-50 text-teal-700' : 'bg-gray-100 text-gray-600';
+                          return <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${cls}`}>{label}</span>;
+                        })()}
+                      </td>
                       <td className="px-4 py-3 text-sm text-gray-900">{recipientDisplay}</td>
                       <td className="px-4 py-3 text-sm text-gray-600">{invoice.recipient_email}</td>
                       <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
