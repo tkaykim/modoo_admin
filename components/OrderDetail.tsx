@@ -3,8 +3,9 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { CoBuyParticipant, Factory, Order, OrderItem } from '@/types/types';
-import { ChevronLeft, ChevronDown, CreditCard, Package, Factory as FactoryIcon, Download, Share2, Copy, Check, Link2Off, RotateCcw, MessageSquare, User, Receipt, Truck, Link2, Pencil, X, Loader2, Send, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronDown, CreditCard, Package, Factory as FactoryIcon, Download, Share2, Copy, Check, Link2Off, RotateCcw, MessageSquare, User, Receipt, Truck, Link2, Pencil, X, Loader2, Send, Plus, Trash2, Coins } from 'lucide-react';
 import RefundModal from '@/components/orders/RefundModal';
+import SurchargeModal from '@/components/orders/SurchargeModal';
 import DesignChatPanel from '@/components/orders/DesignChatPanel';
 import OrderAttachmentSection from '@/components/orders/OrderAttachmentSection';
 import AddOrderItemModal from '@/components/orders/AddOrderItemModal';
@@ -78,6 +79,9 @@ export default function OrderDetail({
   const [cobuyParticipantsError, setCobuyParticipantsError] = useState<string | null>(null);
 
   const [showRefundModal, setShowRefundModal] = useState(false);
+  const [showSurchargeModal, setShowSurchargeModal] = useState(false);
+  // 이 주문에 연결된 차액(추가) 주문 목록 (이 주문이 원주문일 때)
+  const [childSurcharges, setChildSurcharges] = useState<Array<{ id: string; total_amount: number; payment_status: string; order_status: string }>>([]);
   const [factoryAccordionOpen, setFactoryAccordionOpen] = useState(false);
   const [chatItemId, setChatItemId] = useState<string | null>(null);
   const [localAttachmentUrls, setLocalAttachmentUrls] = useState<string[]>(order.attachment_urls || []);
@@ -130,6 +134,26 @@ export default function OrderDetail({
   useEffect(() => {
     fetchCobuySession();
   }, [order.id]);
+
+  // 연결된 차액(추가) 주문 조회 — 원주문 상세에서 "추가분 N건" 안내용. 공장 사용자/차액주문 자신은 생략.
+  useEffect(() => {
+    if (isFactoryUser || order.order_category === 'surcharge') {
+      setChildSurcharges([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/orders?parentOrderId=${encodeURIComponent(order.id)}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled) setChildSurcharges(Array.isArray(json?.data) ? json.data : []);
+      } catch {
+        /* noop */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [order.id, order.order_category, isFactoryUser]);
 
   useEffect(() => {
     if (order.order_category !== 'cobuy') {
@@ -829,6 +853,44 @@ export default function OrderDetail({
       {shareError && (
         <div className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-md px-3 py-2">
           {shareError}
+        </div>
+      )}
+
+      {/* 차액(추가) 주문 경고 배너 — 작업자/발주자가 "전체 주문"으로 착각하지 않도록 */}
+      {order.order_category === 'surcharge' && order.parent_order_id && (
+        <div className="rounded-md border-2 border-orange-300 bg-orange-50 px-4 py-3">
+          <p className="text-sm font-bold text-orange-900 flex items-center gap-2">
+            <Coins className="w-4 h-4" />
+            차액(추가) 주문입니다 — 전체 주문이 아닙니다
+          </p>
+          <p className="mt-1 text-sm text-orange-800">
+            원주문 <span className="font-mono font-semibold">{order.parent_order_id}</span>의 <b>추가 제작분만</b> 포함된 주문입니다.
+            아래 표기된 수량은 <b>추가 수량</b>이므로, 원주문 수량과 별개로 이만큼만 추가 제작·발주해 주세요.
+          </p>
+        </div>
+      )}
+
+      {/* 원주문에 연결된 차액(추가) 주문 안내 */}
+      {childSurcharges.length > 0 && (
+        <div className="rounded-md border border-orange-200 bg-orange-50/60 px-4 py-3">
+          <p className="text-sm font-semibold text-orange-900 flex items-center gap-2">
+            <Coins className="w-4 h-4" />
+            이 주문에 연결된 차액(추가) 주문 {childSurcharges.length}건
+          </p>
+          <p className="mt-1 text-xs text-orange-800">
+            수량/사양 변경으로 생긴 추가 제작분이 별도 주문으로 있습니다. 추가분은 아래 주문에서 별도로 제작·발주됩니다(이 원주문 수량은 변동 없음).
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {childSurcharges.map((c) => (
+              <span key={c.id} className="inline-flex items-center gap-1 rounded bg-white border border-orange-200 px-2 py-1 text-xs text-orange-900">
+                <span className="font-mono">{c.id}</span>
+                <span className="text-orange-400">·</span>
+                <span>{Number(c.total_amount).toLocaleString()}원</span>
+                <span className="text-orange-400">·</span>
+                <span>{c.payment_status === 'completed' ? '결제완료' : '결제대기'}</span>
+              </span>
+            ))}
+          </div>
         </div>
       )}
 
@@ -1984,6 +2046,15 @@ export default function OrderDetail({
                     환불 처리
                   </button>
                 )}
+                {!isFactoryUser && order.payment_status === 'completed' && order.order_category !== 'surcharge' && (
+                  <button
+                    onClick={() => setShowSurchargeModal(true)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-amber-600 text-white text-sm rounded-md hover:bg-amber-700 transition-colors mt-2"
+                  >
+                    <Coins className="w-4 h-4" />
+                    차액 추가청구
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -2211,6 +2282,18 @@ export default function OrderDetail({
           onClose={() => setShowRefundModal(false)}
           onSuccess={() => {
             setShowRefundModal(false);
+            onUpdate();
+          }}
+        />
+      )}
+
+      {/* 차액 추가청구 모달 */}
+      {showSurchargeModal && (
+        <SurchargeModal
+          order={order}
+          orderItems={orderItems}
+          onClose={() => setShowSurchargeModal(false)}
+          onCreated={() => {
             onUpdate();
           }}
         />

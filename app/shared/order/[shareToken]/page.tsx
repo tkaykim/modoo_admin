@@ -34,6 +34,7 @@ interface PublicOrder {
   id: string;
   order_status: string;
   order_category: string | null;
+  parent_order_id: string | null;
   shipping_method: string;
   country_code: string | null;
   state: string | null;
@@ -530,6 +531,18 @@ export default function SharedOrderPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6">
+        {/* 차액(추가) 주문 경고 — 작업자가 전체 주문으로 착각하지 않도록 최상단 고정 */}
+        {order.order_category === 'surcharge' && (
+          <div className="mb-6 rounded-lg border-2 border-orange-400 bg-orange-50 px-5 py-4">
+            <p className="text-base font-bold text-orange-900">⚠ 차액(추가) 제작 주문 — 전체 주문이 아닙니다</p>
+            <p className="mt-1.5 text-sm text-orange-800">
+              {order.parent_order_id && (
+                <>원주문 <span className="font-mono font-semibold">{order.parent_order_id}</span>의 </>
+              )}
+              <b>추가 제작분만</b> 포함된 주문입니다. 아래 표기된 수량은 <b>추가 수량</b>이니, 원주문과 별개로 이만큼만 추가 제작해 주세요.
+            </p>
+          </div>
+        )}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Order Items */}
           <div className="lg:col-span-2 space-y-4">

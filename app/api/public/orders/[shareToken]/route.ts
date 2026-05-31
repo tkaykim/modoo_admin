@@ -30,6 +30,7 @@ export async function GET(
         id,
         order_status,
         order_category,
+        parent_order_id,
         shipping_method,
         country_code,
         state,

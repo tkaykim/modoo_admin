@@ -8,6 +8,7 @@ export interface Product {
   thumbnail_image_link?: string[] | null;
   description_image?: string[] | null;
   sizing_chart_image?: string | null;
+  sizing_data?: SizingData | null;
   product_code?: string | null;
   discount_rates?: Array<{ min_quantity: number; discount_rate: number }> | null;
   manufacturer_id?: string | null;
@@ -18,6 +19,13 @@ export interface Product {
   keywords: string[];
   created_at: string;
   updated_at: string;
+}
+
+export interface SizingData {
+  unit: string;
+  headers: string[];
+  rows: Record<string, (number | string)[]>;
+  order?: string[];
 }
 
 export interface Manufacturer {
@@ -298,8 +306,11 @@ export interface Order {
   customer_email: string;
   customer_phone: string | null;
 
-  order_category?: 'cobuy' | 'regular' | 'salesman_direct' | null;
+  order_category?: 'cobuy' | 'regular' | 'salesman_direct' | 'quick' | 'surcharge' | null;
   cobuy_session_id?: string | null;
+  // 간이주문(문의 연결) / 차액주문(원주문 연결)
+  inquiry_id?: string | null;
+  parent_order_id?: string | null;
 
   shipping_method: 'domestic' | 'international' | 'pickup';
   country_code: string | null;

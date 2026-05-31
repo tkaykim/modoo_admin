@@ -205,12 +205,18 @@ export async function POST(request: Request) {
     const updateData: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
       refund_reason: reason.trim(),
-      order_status: 'cancelled',
-      factory_status: 'cancelled',
     };
 
     if (isFullRefund) {
+      // 전액환불: 기존 동작 그대로 — 주문/공장 모두 취소, 결제상태 refunded
+      updateData.order_status = 'cancelled';
+      updateData.factory_status = 'cancelled';
       updateData.payment_status = 'refunded';
+    } else {
+      // 부분환불(차액 감소 등): 주문은 부분취소로 표기하되 살아있음.
+      //  - factory_status는 보존(공장 생산 계속) — 절대 cancelled로 만들지 않음
+      //  - payment_status는 completed 유지(다른 코드가 모르는 새 enum 값 도입 안 함). 사유만 기록.
+      updateData.order_status = 'partially_cancelled';
     }
 
     const { data: updatedOrder, error: updateError } = await adminClient

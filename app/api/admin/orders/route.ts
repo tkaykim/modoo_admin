@@ -48,13 +48,19 @@ export async function GET(request: Request) {
 
     // Factory fields are now on order_items, include them in the join
     const selectFields = isFactoryUser
-      ? `id, order_category, order_status, customer_note, attachment_urls, created_at, order_items!inner(id, design_title, thumbnail_url, assigned_manufacturer_id, factory_status, factory_amount, deadline, factory_payment_date, factory_payment_status)`
-      : `id, customer_name, customer_email, customer_phone, order_category, delivery_fee, created_at, total_amount, order_status, payment_status, payment_method, shipping_method, country_code, postal_code, state, city, address_line_1, address_line_2, tracking_number, tracking_carrier, logen_registered_at, logen_slip_printed, refund_reason, customer_note, attachment_urls, notes, original_amount, custom_unit_price, admin_discount, admin_surcharge, coupon_discount, applied_coupon_id, pricing_note, payment_link_token, share_token, salesman_id, attributed_salesman:salesman_profiles!salesman_id(id,display_name,salesman_code), order_items(id, purchase_order_status, design_title, assigned_manufacturer_id, factory_status, factory_amount, deadline, factory_payment_date, factory_payment_status)`;
+      ? `id, order_category, parent_order_id, order_status, customer_note, attachment_urls, created_at, order_items!inner(id, design_title, thumbnail_url, assigned_manufacturer_id, factory_status, factory_amount, deadline, factory_payment_date, factory_payment_status)`
+      : `id, customer_name, customer_email, customer_phone, order_category, parent_order_id, inquiry_id, delivery_fee, created_at, total_amount, order_status, payment_status, payment_method, shipping_method, country_code, postal_code, state, city, address_line_1, address_line_2, tracking_number, tracking_carrier, logen_registered_at, logen_slip_printed, refund_reason, customer_note, attachment_urls, notes, original_amount, custom_unit_price, admin_discount, admin_surcharge, coupon_discount, applied_coupon_id, pricing_note, payment_link_token, share_token, salesman_id, attributed_salesman:salesman_profiles!salesman_id(id,display_name,salesman_code), order_items(id, purchase_order_status, design_title, assigned_manufacturer_id, factory_status, factory_amount, deadline, factory_payment_date, factory_payment_status)`;
 
     let query = adminClient.from('orders').select(selectFields as string);
 
     if (orderId) {
       query = query.eq('id', orderId);
+    }
+
+    // 차액(추가) 주문 조회 — 특정 원주문의 자식 차액주문 목록
+    const parentOrderId = url.searchParams.get('parentOrderId');
+    if (parentOrderId) {
+      query = query.eq('parent_order_id', parentOrderId);
     }
 
     if (isFactoryUser) {

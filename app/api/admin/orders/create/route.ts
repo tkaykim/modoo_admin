@@ -37,6 +37,7 @@ interface CreateOrderRequest {
   customerPhone?: string;
   notes?: string;
   inquiryId?: string;           // 문의에서 만든 간이주문이면 연결
+  parentOrderId?: string;       // 차액(추가결제) 주문이면 원주문 id 연결 → order_category='surcharge'
   shippingMethod?: 'pickup' | 'domestic';
   deliveryFee?: number;
   postalCode?: string;
@@ -377,6 +378,21 @@ export async function POST(request: Request) {
 
     const orderId = buildOrderId();
     const hasQuickItem = orderItems.some((i) => i.quickImage === true);
+    const isSurcharge = typeof payload.parentOrderId === 'string' && payload.parentOrderId.length > 0;
+
+    // 차액(추가결제) 주문이면 원주문 검증 + 문의 연결 상속
+    let surchargeInquiryId: string | null = null;
+    if (isSurcharge) {
+      const { data: parentOrder, error: parentErr } = await adminClient
+        .from('orders')
+        .select('id, inquiry_id')
+        .eq('id', payload.parentOrderId as string)
+        .single();
+      if (parentErr || !parentOrder) {
+        return NextResponse.json({ error: '원주문을 찾을 수 없습니다.' }, { status: 404 });
+      }
+      surchargeInquiryId = parentOrder.inquiry_id ?? null;
+    }
 
     // Payment method/status
     let paymentMethod: string;
@@ -407,9 +423,10 @@ export async function POST(request: Request) {
     const orderPayload: Record<string, unknown> = {
       id: orderId,
       user_id: null,
-      order_category: hasQuickItem ? 'quick' : 'regular',
+      order_category: isSurcharge ? 'surcharge' : (hasQuickItem ? 'quick' : 'regular'),
+      parent_order_id: isSurcharge ? payload.parentOrderId : null,
       cobuy_session_id: null,
-      inquiry_id: payload.inquiryId || null,
+      inquiry_id: payload.inquiryId || surchargeInquiryId || null,
       customer_name: customerName,
       customer_email: customerEmail,
       customer_phone: customerPhone || null,
