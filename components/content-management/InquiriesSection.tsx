@@ -26,6 +26,10 @@ type EmailSummary = {
   status: 'sent' | 'queued' | 'opened' | 'clicked' | 'none';
 };
 
+// 문의에 연결된 주문(간이주문 등) 카드
+type OrderCardItem = { productTitle: string | null; thumbnailUrl: string | null; unitPrice: number; quantity: number; keywords: string[] };
+type OrderCard = { orderId: string; orderCategory: string | null; paymentStatus: string; orderStatus: string; totalAmount: number; payUrl: string | null; items: OrderCardItem[] };
+
 function EmailStatusBadge({ s }: { s?: EmailSummary }) {
   if (!s || s.status === 'none') return null;
   const styleMap: Record<string, { label: string; cls: string }> = {
@@ -59,6 +63,10 @@ export default function InquiriesSection() {
   const emailIdsKey = inquiries.map((i) => i.id).sort().join(',');
   const { data: emailSummaryMap = {} } = useSWR<Record<string, EmailSummary>>(
     emailIdsKey ? `/api/admin/email-events?inquiry_ids=${emailIdsKey}` : null,
+  );
+  // 문의에 연결된 주문(간이주문 등)
+  const { data: inquiryOrdersMap = {} } = useSWR<Record<string, OrderCard[]>>(
+    emailIdsKey ? `/api/admin/inquiries/orders?inquiry_ids=${emailIdsKey}` : null,
   );
   const [error, setError] = useState<string | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
@@ -439,6 +447,42 @@ export default function InquiriesSection() {
                         <span className="text-xs text-gray-500">업데이트 중...</span>
                       )}
                     </div>
+
+                    {(inquiryOrdersMap[inquiry.id] || []).length > 0 && (
+                      <div className="rounded-md border border-amber-200 bg-amber-50/40 p-3 space-y-2">
+                        <p className="text-sm font-medium text-amber-800">연결된 주문/결제</p>
+                        {(inquiryOrdersMap[inquiry.id] || []).map((ord) => {
+                          const it = ord.items?.[0];
+                          const paid = ord.paymentStatus === 'completed';
+                          return (
+                            <div key={ord.orderId} className="flex items-center gap-3 bg-white rounded-md border border-gray-200 p-2">
+                              <div className="w-12 h-12 bg-gray-100 rounded overflow-hidden shrink-0 flex items-center justify-center">
+                                {it?.thumbnailUrl ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={it.thumbnailUrl} alt="" className="w-full h-full object-cover" />
+                                ) : <span className="text-[10px] text-gray-300">이미지</span>}
+                              </div>
+                              <div className="flex-1 min-w-0 text-xs">
+                                <p className="font-medium text-gray-900 truncate">{it?.productTitle || '주문'} <span className="text-gray-400">· {ord.orderId}</span></p>
+                                <p className="text-gray-600">{it ? `${it.unitPrice.toLocaleString()}원 × ${it.quantity}개 · ` : ''}총 {ord.totalAmount.toLocaleString()}원</p>
+                              </div>
+                              <span className={`text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap ${paid ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                {paid ? '결제완료' : '결제대기'}
+                              </span>
+                              {ord.payUrl && (
+                                <button
+                                  type="button"
+                                  onClick={() => { try { navigator.clipboard?.writeText(ord.payUrl!); } catch { /* noop */ } }}
+                                  className="text-[11px] px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 whitespace-nowrap"
+                                >
+                                  링크복사
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     <div className="space-y-3">
                       <p className="text-sm font-medium text-gray-700">답변</p>
