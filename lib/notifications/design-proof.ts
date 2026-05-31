@@ -125,7 +125,7 @@ export async function sendDesignProofEmail(params: DesignProofEmailParams): Prom
 export async function sendDesignConfirmedNotification(params: DesignConfirmedEmailParams): Promise<boolean> {
   const { orderId, customerName, productTitle, designTitle } = params;
   const itemLabel = designTitle || productTitle;
-  const adminUrl = `https://admin.modoogoods.com/orders/${orderId}`;
+  const adminUrl = `https://modoo-admin-gilt.vercel.app/orders/${orderId}`;
   const adminEmail = process.env.ADMIN_EMAIL;
 
   if (!adminEmail) return false;
@@ -172,7 +172,7 @@ export async function sendDesignConfirmedNotification(params: DesignConfirmedEma
 export async function sendDesignRevisionNotification(params: DesignRevisionEmailParams): Promise<boolean> {
   const { orderId, customerName, productTitle, designTitle, revisionNote } = params;
   const itemLabel = designTitle || productTitle;
-  const adminUrl = `https://admin.modoogoods.com/orders/${orderId}`;
+  const adminUrl = `https://modoo-admin-gilt.vercel.app/orders/${orderId}`;
   const adminEmail = process.env.ADMIN_EMAIL;
 
   if (!adminEmail) return false;
