@@ -91,6 +91,13 @@ export default function LeadsImportSection({ onPromoted }: { onPromoted?: () => 
   const [neisSize, setNeisSize] = useState(100);
   const [neisLoading, setNeisLoading] = useState(false);
 
+  // LocalData (지방행정 인허가)
+  const [ldSvcId, setLdSvcId] = useState('07_24_05_P');
+  const [ldLocalCode, setLdLocalCode] = useState('');
+  const [ldCategory, setLdCategory] = useState('매장');
+  const [ldSize, setLdSize] = useState(100);
+  const [ldLoading, setLdLoading] = useState(false);
+
   const parsed = useMemo(() => parseTable(raw), [raw]);
   const mappedFields = useMemo(() => parsed.mapping.filter(Boolean) as string[], [parsed.mapping]);
 
@@ -196,6 +203,30 @@ export default function LeadsImportSection({ onPromoted }: { onPromoted?: () => 
     }
   };
 
+  const doLocalData = async () => {
+    setLdLoading(true);
+    setMsg(null);
+    try {
+      const res = await fetch('/api/admin/leads/import/localdata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ opnSvcId: ldSvcId, localCode: ldLocalCode || undefined, category: ldCategory, pageSize: ldSize }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setMsg(json.needsKey ? `🔑 ${json.error} ${json.hint || ''}` : `⚠ ${json.error || 'LocalData 실패'}`);
+        return;
+      }
+      setLastBatch(json.batch_id);
+      setMsg(`✅ LocalData ${json.fetched}건 조회(영업중 ${json.active}) — 신규 ${json.inserted} 적재 · 기존 ${json.skipped_existing} 스킵. 아래에서 "승격"하세요.`);
+      loadStaging();
+    } catch (e) {
+      setMsg(`⚠ ${e instanceof Error ? e.message : 'LocalData 실패'}`);
+    } finally {
+      setLdLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* 상태 메시지 */}
@@ -260,10 +291,40 @@ export default function LeadsImportSection({ onPromoted }: { onPromoted?: () => 
         </div>
       </section>
 
+      {/* LocalData (지방행정 인허가) */}
+      <section className="space-y-2 border-t border-gray-100 pt-5">
+        <h3 className="text-sm font-bold text-gray-900">③ 지방행정 인허가 (LocalData)</h3>
+        <p className="text-xs text-gray-500">
+          학원·체육시설·카페·음식점 등 사업장 대표연락처를 업종×지역으로 수집.{' '}
+          <a href="https://www.localdata.go.kr/data/dataView.do" target="_blank" rel="noreferrer" className="text-blue-600 underline">업종코드(opnSvcId) 조회</a> · LocalData API 키 필요.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <input value={ldSvcId} onChange={(e) => setLdSvcId(e.target.value)} placeholder="opnSvcId (예: 07_24_05_P)"
+            className="px-2.5 py-1.5 text-sm border border-gray-300 rounded-md w-56 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <input value={ldLocalCode} onChange={(e) => setLdLocalCode(e.target.value)} placeholder="자치단체코드(선택)"
+            className="px-2.5 py-1.5 text-sm border border-gray-300 rounded-md w-40 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <select value={ldCategory} onChange={(e) => setLdCategory(e.target.value)} className={selectCls}>
+            {['매장', '기업', '동호회', '댄스', '학교', '기타'].map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select value={ldSize} onChange={(e) => setLdSize(Number(e.target.value))} className={selectCls}>
+            {[50, 100, 300, 500].map((n) => <option key={n} value={n}>{n}건</option>)}
+          </select>
+          <button onClick={doLocalData} disabled={ldLoading}
+            className="px-4 py-2 text-sm font-medium bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50">
+            {ldLoading ? '가져오는 중...' : 'LocalData 가져오기'}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-1 text-xs items-center">
+          <span className="text-gray-400">자주 쓰는 코드:</span>
+          <button onClick={() => setLdSvcId('07_24_04_P')} className="px-1.5 py-0.5 bg-gray-100 rounded hover:bg-gray-200">일반음식점 07_24_04_P</button>
+          <button onClick={() => setLdSvcId('07_24_05_P')} className="px-1.5 py-0.5 bg-gray-100 rounded hover:bg-gray-200">휴게음식점·카페 07_24_05_P</button>
+        </div>
+      </section>
+
       {/* 스테이징 목록 + 승격 */}
       <section className="space-y-2 border-t border-gray-100 pt-5">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <h3 className="text-sm font-bold text-gray-900">③ 스테이징 (승격 대기)</h3>
+          <h3 className="text-sm font-bold text-gray-900">④ 스테이징 (승격 대기)</h3>
           <div className="flex items-center gap-2">
             {lastBatch && (
               <button
