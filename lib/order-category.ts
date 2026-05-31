@@ -1,15 +1,17 @@
 /** Matches public.orders.orders_order_category_check */
-export type OrderCategoryValue = 'cobuy' | 'regular' | 'salesman_direct' | null | undefined;
+export type OrderCategoryValue = 'cobuy' | 'regular' | 'salesman_direct' | 'quick' | null | undefined;
 
 export function orderCategoryLabel(cat: OrderCategoryValue): string {
   if (cat === 'cobuy') return '공동구매';
   if (cat === 'salesman_direct') return '영업 직판';
+  if (cat === 'quick') return '간이주문';
   return '일반';
 }
 
 export function orderCategoryBadgeClass(cat: OrderCategoryValue): string {
   if (cat === 'cobuy') return 'bg-purple-100 text-purple-800';
   if (cat === 'salesman_direct') return 'bg-emerald-100 text-emerald-800';
+  if (cat === 'quick') return 'bg-amber-100 text-amber-800';
   return 'bg-gray-100 text-gray-700';
 }
 
@@ -17,5 +19,6 @@ export function orderCategoryBadgeClass(cat: OrderCategoryValue): string {
 export function orderCategoryLabelShare(cat: OrderCategoryValue): string {
   if (cat === 'cobuy') return '공동구매';
   if (cat === 'salesman_direct') return '영업 직판';
+  if (cat === 'quick') return '간이주문';
   return '일반 주문';
 }

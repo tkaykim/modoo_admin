@@ -63,8 +63,20 @@ export async function PATCH(request: NextRequest) {
     const itemIds = items.map((i) => i.orderItemId);
     const { data: existingItems } = await adminClient
       .from('order_items')
-      .select('id, assigned_manufacturer_id')
+      .select('id, assigned_manufacturer_id, production_ready')
       .in('id', itemIds);
+
+    // 간이주문 가드: 제작 사양(목업·면별 아트워크) 미완성(production_ready=false) 품목은 공장배정 차단.
+    // 기존/일반 주문 품목은 production_ready=true(기본)이라 이 분기에 진입하지 않음 → 동작 무변경.
+    const notReady = (existingItems || []).filter((ei) => ei.production_ready === false);
+    if (notReady.length > 0) {
+      return NextResponse.json(
+        {
+          error: '아직 제작 사양(목업·면별 아트워크)이 입력되지 않은 간이주문 품목이 있습니다. 에디터에서 디자인 작업을 완료한 뒤 배정해 주세요.',
+        },
+        { status: 400 }
+      );
+    }
 
     const previousAssignments = new Map<string, string | null>();
     for (const ei of existingItems || []) {

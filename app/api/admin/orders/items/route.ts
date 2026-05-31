@@ -274,6 +274,7 @@ export async function PATCH(request: Request) {
         updateData.image_urls = design.image_urls || null;
         updateData.text_svg_exports = design.text_svg_exports || null;
         updateData.custom_fonts = design.custom_fonts || null;
+        updateData.production_ready = true;  // 디자인 연결됨 → 공장배정 가능(간이주문 게이트 해제)
 
         if (pricePerItem == null) {
           const designPrice = toNumber(design.price_per_item);
@@ -404,6 +405,7 @@ export async function PATCH(request: Request) {
 
     const updateData: Record<string, unknown> = {
       canvas_state: canvasState,
+      production_ready: true,  // 목업/아트워크가 채워지면 공장배정 가능(간이주문 게이트 해제). 일반 주문은 이미 true라 무영향.
       updated_at: new Date().toISOString(),
     };
     if (typeof thumbnailUrl === 'string') {
