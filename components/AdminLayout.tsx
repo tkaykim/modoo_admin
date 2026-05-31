@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp, LayoutTemplate, DollarSign } from 'lucide-react';
+import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp, LayoutTemplate, DollarSign, Target } from 'lucide-react';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import BugReportButton from '@/components/BugReportButton';
 
@@ -107,6 +107,7 @@ const navGroups: NavGroup[] = [
   {
     label: '영업 조직 (프로토타입)',
     items: [
+      { type: 'link', href: '/leads', label: '리드 관리', icon: Target, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/salespersons', label: '영업사원 관리', icon: UserCheck, roles: ['admin', 'super_admin'] },
     ],
   },
