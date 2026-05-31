@@ -283,6 +283,9 @@ export default function InquiriesSection() {
                       {inquiry.manager_name && (
                         <span className="text-xs text-gray-600">{inquiry.manager_name}</span>
                       )}
+                      {inquiry.email && (
+                        <span className="text-xs text-blue-600">{inquiry.email}</span>
+                      )}
                       {inquiry.phone && (
                         <span className="text-xs text-gray-500">{inquiry.phone}</span>
                       )}
@@ -310,7 +313,7 @@ export default function InquiriesSection() {
 
                 {isExpanded && (
                   <div id={detailsId} className="px-4 pb-4 space-y-4">
-                    {(inquiry.group_name || inquiry.manager_name || inquiry.phone || inquiry.kakao_id || inquiry.desired_date || inquiry.expected_qty || inquiry.fabric_color) && (
+                    {(inquiry.group_name || inquiry.manager_name || inquiry.email || inquiry.phone || inquiry.kakao_id || inquiry.desired_date || inquiry.expected_qty || inquiry.fabric_color) && (
                       <div className="bg-gray-50 rounded-md p-3">
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-sm">
                           {inquiry.group_name && (
@@ -323,6 +326,12 @@ export default function InquiriesSection() {
                             <div>
                               <span className="text-gray-500">담당자</span>
                               <p className="font-medium text-gray-900">{inquiry.manager_name}</p>
+                            </div>
+                          )}
+                          {inquiry.email && (
+                            <div>
+                              <span className="text-gray-500">이메일</span>
+                              <p className="font-medium text-gray-900">{inquiry.email}</p>
                             </div>
                           )}
                           {inquiry.phone && (

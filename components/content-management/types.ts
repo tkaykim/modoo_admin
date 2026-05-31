@@ -111,6 +111,7 @@ export type InquiryRecord = {
   group_name: string | null;
   manager_name: string | null;
   phone: string | null;
+  email: string | null;
   kakao_id: string | null;
   desired_date: string | null;
   expected_qty: number | null;

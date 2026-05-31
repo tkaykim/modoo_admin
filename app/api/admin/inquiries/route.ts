@@ -56,6 +56,7 @@ export async function GET() {
         group_name,
         manager_name,
         phone,
+        email,
         kakao_id,
         desired_date,
         expected_qty,
