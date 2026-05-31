@@ -14,12 +14,14 @@ interface CreateOrderVariant {
 type PaymentType = 'completed' | 'bank_transfer' | 'customer_payment';
 
 interface CreateOrderItemInput {
-  designId: string;
+  designId?: string;            // 간이 이미지 항목은 디자인이 없으므로 optional
   productId: string;
   variants: CreateOrderVariant[];
   pricingMode?: 'auto' | 'custom_unit_price';
   customUnitPrice?: number;
   designTitle?: string;
+  quickImage?: boolean;         // 간이 이미지 주문 항목 (디자인 없이 이미지+단가로 생성, 목업은 나중에)
+  thumbnailUrl?: string;        // 간이 이미지 항목의 이미지 URL
 }
 
 interface CreateOrderRequest {
@@ -34,6 +36,7 @@ interface CreateOrderRequest {
   customerEmail: string;
   customerPhone?: string;
   notes?: string;
+  inquiryId?: string;           // 문의에서 만든 간이주문이면 연결
   shippingMethod?: 'pickup' | 'domestic';
   deliveryFee?: number;
   postalCode?: string;
@@ -179,7 +182,11 @@ export async function POST(request: Request) {
     }
 
     for (const item of orderItems) {
-      if (!item.designId || typeof item.designId !== 'string') {
+      if (item.quickImage) {
+        if (!item.thumbnailUrl || typeof item.thumbnailUrl !== 'string') {
+          return NextResponse.json({ error: '간이 주문에는 이미지가 필요합니다.' }, { status: 400 });
+        }
+      } else if (!item.designId || typeof item.designId !== 'string') {
         return NextResponse.json({ error: '디자인 ID가 필요합니다.' }, { status: 400 });
       }
       if (!item.productId || typeof item.productId !== 'string') {
@@ -198,8 +205,8 @@ export async function POST(request: Request) {
 
     const adminClient = createAdminClient();
 
-    // Fetch all designs and products for all items
-    const designIds = orderItems.map(i => i.designId);
+    // Fetch all designs and products for all items (간이 이미지 항목은 디자인 조회 제외)
+    const designIds = orderItems.filter(i => !i.quickImage && i.designId).map(i => i.designId as string);
     const productIds = [...new Set(orderItems.map(i => i.productId))];
 
     const { data: designs, error: designsError } = await adminClient
@@ -236,25 +243,32 @@ export async function POST(request: Request) {
     let grandOriginalAmount = 0;
 
     for (const item of orderItems) {
-      const design = designMap.get(item.designId);
-      if (!design) {
-        return NextResponse.json({ error: `디자인을 찾을 수 없습니다: ${item.designId}` }, { status: 404 });
-      }
       const product = productMap.get(item.productId);
       if (!product) {
         return NextResponse.json({ error: `제품을 찾을 수 없습니다: ${item.productId}` }, { status: 404 });
       }
-      if (design.product_id !== item.productId) {
-        return NextResponse.json({ error: `디자인과 제품이 일치하지 않습니다: ${product.title}` }, { status: 400 });
+
+      // 간이 이미지 항목 vs 디자인 항목 분기. 디자인 항목 처리는 기존 동작 그대로 유지.
+      const isQuick = item.quickImage === true;
+      const design = isQuick ? undefined : designMap.get(item.designId as string);
+      if (!isQuick) {
+        if (!design) {
+          return NextResponse.json({ error: `디자인을 찾을 수 없습니다: ${item.designId}` }, { status: 404 });
+        }
+        if (design.product_id !== item.productId) {
+          return NextResponse.json({ error: `디자인과 제품이 일치하지 않습니다: ${product.title}` }, { status: 400 });
+        }
       }
 
       // Per-item pricing
       let unitPrice: number;
       if (item.pricingMode === 'custom_unit_price' && item.customUnitPrice != null && item.customUnitPrice > 0) {
         unitPrice = item.customUnitPrice;
-      } else {
+      } else if (design) {
         const designPrice = toNumber(design.price_per_item);
         unitPrice = designPrice > 0 ? designPrice : toNumber(product.base_price);
+      } else {
+        unitPrice = toNumber(product.base_price);
       }
 
       const itemQuantity = item.variants.reduce((sum, v) => sum + (v.quantity || 0), 0);
@@ -263,8 +277,8 @@ export async function POST(request: Request) {
       grandTotalQuantity += itemQuantity;
       grandOriginalAmount += itemSubtotal;
 
-      const colorSelections = normalizeJson<Record<string, unknown>>(design.color_selections ?? null, {});
-      const canvasState = normalizeJson<Record<string, unknown>>(design.canvas_state ?? null, {});
+      const colorSelections = design ? normalizeJson<Record<string, unknown>>(design.color_selections ?? null, {}) : {};
+      const canvasState = design ? normalizeJson<Record<string, unknown>>(design.canvas_state ?? null, {}) : {};
       const productColor = resolveProductColor(colorSelections);
 
       const usedVariantIds = new Set<string>();
@@ -303,12 +317,12 @@ export async function POST(request: Request) {
         typeof item.designTitle === 'string' && item.designTitle.trim()
           ? item.designTitle.trim()
           : null;
-      const designTitleSnapshot = designTitleOverride ?? (design.title || null);
+      const designTitleSnapshot = designTitleOverride ?? (design ? (design.title || null) : (product.title || '간이주문'));
 
       processedItems.push({
         payload: {
           product_id: item.productId,
-          design_id: item.designId,
+          design_id: design ? item.designId : null,
           product_title: product.title || 'Product',
           design_title: designTitleSnapshot,
           quantity: itemQuantity,
@@ -316,10 +330,11 @@ export async function POST(request: Request) {
           canvas_state: canvasState,
           color_selections: colorSelections,
           item_options: itemOptions,
-          thumbnail_url: design.preview_url || null,
-          image_urls: design.image_urls || null,
-          text_svg_exports: design.text_svg_exports || null,
-          custom_fonts: design.custom_fonts || null,
+          thumbnail_url: design ? (design.preview_url || null) : (item.thumbnailUrl || null),
+          image_urls: design ? (design.image_urls || null) : null,
+          text_svg_exports: design ? (design.text_svg_exports || null) : null,
+          custom_fonts: design ? (design.custom_fonts || null) : null,
+          production_ready: isQuick ? false : true,
         },
         unitPrice,
         quantity: itemQuantity,
@@ -361,6 +376,7 @@ export async function POST(request: Request) {
     }
 
     const orderId = buildOrderId();
+    const hasQuickItem = orderItems.some((i) => i.quickImage === true);
 
     // Payment method/status
     let paymentMethod: string;
@@ -391,8 +407,9 @@ export async function POST(request: Request) {
     const orderPayload: Record<string, unknown> = {
       id: orderId,
       user_id: null,
-      order_category: 'regular',
+      order_category: hasQuickItem ? 'quick' : 'regular',
       cobuy_session_id: null,
+      inquiry_id: payload.inquiryId || null,
       customer_name: customerName,
       customer_email: customerEmail,
       customer_phone: customerPhone || null,

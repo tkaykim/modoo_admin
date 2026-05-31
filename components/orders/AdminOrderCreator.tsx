@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import {
   ArrowRight, CheckCircle2, Package, Search, X, Copy, Check, ExternalLink,
   Clock, Link2, Plus, Trash2, ChevronDown, ChevronUp, Minus,
-  Palette, User, ChevronLeft, ChevronRight, Loader2,
+  Palette, User, ChevronLeft, ChevronRight, Loader2, ImageIcon,
 } from 'lucide-react';
 import { Product, SavedDesign, SizeOption } from '@/types/types';
 import OrderDetailsForm from './OrderDetailsForm';
+import QuickImageItemModal from './QuickImageItemModal';
 
 type Step = 'items' | 'product-select' | 'design-select' | 'details' | 'success';
 type PaymentType = 'completed' | 'bank_transfer' | 'customer_payment';
@@ -25,6 +26,7 @@ export interface OrderItemDraft {
   productTitle: string;
   productThumbnail: string | null;
   designId: string;
+  quickImage?: boolean;          // 간이 이미지 주문 항목(디자인 없음, 목업은 결제 후 에디터에서)
   designTitle: string;
   designPreviewUrl: string | null;
   basePrice: number;
@@ -125,6 +127,7 @@ export default function AdminOrderCreator({
   const [designLoading, setDesignLoading] = useState(false);
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(new Set());
   const [addingDesigns, setAddingDesigns] = useState(false);
+  const [showQuickImage, setShowQuickImage] = useState(false);
   const designLimit = 12;
 
   const initRef = useRef(false);
@@ -499,6 +502,13 @@ export default function AdminOrderCreator({
                       <Palette className="w-5 h-5" />
                       기존 디자인 불러오기
                     </button>
+                    <button
+                      onClick={() => setShowQuickImage(true)}
+                      className="inline-flex items-center gap-2 px-6 py-3 border-2 border-emerald-600 text-emerald-700 rounded-lg font-medium hover:bg-emerald-50 transition-colors"
+                    >
+                      <ImageIcon className="w-5 h-5" />
+                      간이 이미지 주문
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -718,6 +728,13 @@ export default function AdminOrderCreator({
                       >
                         <Palette className="w-5 h-5" />
                         기존 디자인 불러오기
+                      </button>
+                      <button
+                        onClick={() => setShowQuickImage(true)}
+                        className="flex-1 flex items-center justify-center gap-2 py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-emerald-400 hover:text-emerald-600 transition-colors font-medium"
+                      >
+                        <ImageIcon className="w-5 h-5" />
+                        간이 이미지 주문
                       </button>
                     </div>
                     <button
@@ -1058,6 +1075,18 @@ export default function AdminOrderCreator({
               </div>
             </div>
           </div>
+        )}
+
+        {showQuickImage && (
+          <QuickImageItemModal
+            products={products}
+            onClose={() => setShowQuickImage(false)}
+            onAdd={(item) => {
+              setItems((prev) => [...prev, item]);
+              setExpandedItemId(item.id);
+              setShowQuickImage(false);
+            }}
+          />
         )}
       </div>
     </div>

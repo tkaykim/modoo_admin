@@ -174,7 +174,9 @@ export default function OrderDetailsForm({ items, customerEditableFields, onCust
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: items.map(item => ({
-            designId: item.designId,
+            designId: item.quickImage ? undefined : item.designId,
+            quickImage: item.quickImage || undefined,
+            thumbnailUrl: item.quickImage ? (item.designPreviewUrl || undefined) : undefined,
             productId: item.productId,
             designTitle: item.designTitle?.trim() || undefined,
             variants: ceq ? item.variants : item.variants.filter(v => v.quantity > 0),
