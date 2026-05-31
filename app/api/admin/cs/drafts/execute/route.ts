@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { requireAdmin } from '@/lib/admin-api';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { sendOrQueueCsEmail } from '@/lib/cs/email-schedule';
@@ -30,8 +30,17 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }
 
-function buildEmailHtml(replyText: string, inquiryUrl: string): string {
+// 이메일 추적(Track A): 링크는 click 추적으로 래핑하고, 본문 끝에 open 추적 픽셀을 심는다.
+const TRACK_BASE = `${SITE_URL}/api/email`;
+function trackClick(messageId: string, url: string): string {
+  return `${TRACK_BASE}/click?m=${messageId}&u=${encodeURIComponent(url)}`;
+}
+
+function buildEmailHtml(replyText: string, inquiryUrl: string, messageId: string): string {
   const body = escapeHtml(replyText).replace(/\n/g, '<br>');
+  const inquiryHref = trackClick(messageId, inquiryUrl);
+  const kakaoHref = trackClick(messageId, KAKAO_URL);
+  const pixel = `<img src="${TRACK_BASE}/open?m=${messageId}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;opacity:0;overflow:hidden;" />`;
   return `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0;padding:0;background:#f4f5f7;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:24px 0;"><tr><td align="center">
@@ -39,13 +48,13 @@ function buildEmailHtml(replyText: string, inquiryUrl: string): string {
 <tr><td style="background:${BRAND};padding:24px 32px;text-align:center;"><img src="${LOGO_URL}" alt="모두의 유니폼" width="132" style="display:inline-block;max-width:132px;height:auto;"></td></tr>
 <tr><td style="padding:32px;font-size:15px;line-height:1.75;color:#333;">${body}</td></tr>
 <tr><td style="padding:0 32px 8px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-<tr><td align="center" style="padding-bottom:12px;"><a href="${inquiryUrl}" style="display:inline-block;background:${BRAND};color:#fff;font-size:15px;font-weight:700;text-decoration:none;padding:15px 0;width:100%;max-width:480px;border-radius:10px;text-align:center;">문의 게시판에서 답변하기</a></td></tr>
-<tr><td align="center"><a href="${KAKAO_URL}" style="display:inline-block;background:#FEE500;color:#191600;font-size:15px;font-weight:700;text-decoration:none;padding:15px 0;width:100%;max-width:480px;border-radius:10px;text-align:center;">카카오톡으로 상담하기</a></td></tr>
+<tr><td align="center" style="padding-bottom:12px;"><a href="${inquiryHref}" style="display:inline-block;background:${BRAND};color:#fff;font-size:15px;font-weight:700;text-decoration:none;padding:15px 0;width:100%;max-width:480px;border-radius:10px;text-align:center;">문의 게시판에서 답변하기</a></td></tr>
+<tr><td align="center"><a href="${kakaoHref}" style="display:inline-block;background:#FEE500;color:#191600;font-size:15px;font-weight:700;text-decoration:none;padding:15px 0;width:100%;max-width:480px;border-radius:10px;text-align:center;">카카오톡으로 상담하기</a></td></tr>
 </table></td></tr>
 <tr><td style="padding:24px 32px 28px;border-top:1px solid #eee;text-align:center;">
 <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:${BRAND};">모두의 유니폼</p>
 <p style="margin:0;font-size:12px;color:#aaa;">단체 유니폼·굿즈 제작 · <a href="${SITE_URL}" style="color:#aaa;">modoouniform.com</a></p>
-</td></tr></table></td></tr></table></body></html>`;
+</td></tr></table></td></tr></table>${pixel}</body></html>`;
 }
 
 /** 멱등성 클레임. 이미 done이면 alreadyDone=true. */
@@ -212,17 +221,27 @@ export async function POST(request: Request) {
     } else {
       try {
         const inquiryUrl = `${SITE_URL}/inquiries/${draft.inquiry_id}`;
+        // 추적(Track A): 메일 1통당 고유 messageId. 픽셀/링크에 심어 열람·클릭을 기록.
+        const messageId = randomUUID();
         // 야간(KST 09~21시 외)이면 즉시 발송하지 않고 큐에 적재 → 다음 09:00 KST에 발송.
         const outcome = await sendOrQueueCsEmail({
           draftId: id,
           to: inquiry.email,
           subject: '[모두의 유니폼] 문의 답변드립니다',
           text: finalReply,
-          html: buildEmailHtml(finalReply, inquiryUrl),
+          html: buildEmailHtml(finalReply, inquiryUrl, messageId),
           customerActiveAt,
         });
         if (outcome === 'failed') throw new Error('gmail_send_failed');
-        await finishLog(db, claim.logId, outcome === 'queued' ? 'skipped' : 'done', { to: inquiry.email, outcome });
+        // 추적 앵커 행: messageId ↔ 문의/수신자 매핑 (open/click 이벤트가 이 행으로 연결됨)
+        await db.from('email_events').insert({
+          message_id: messageId,
+          inquiry_id: draft.inquiry_id,
+          draft_id: id,
+          to_email: inquiry.email,
+          event_type: outcome === 'queued' ? 'queued' : 'sent',
+        });
+        await finishLog(db, claim.logId, outcome === 'queued' ? 'skipped' : 'done', { to: inquiry.email, outcome, messageId });
         results.push({
           type: 'send_email',
           status: outcome === 'queued' ? 'skipped' : 'done',
