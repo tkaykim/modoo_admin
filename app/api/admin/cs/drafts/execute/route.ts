@@ -18,7 +18,12 @@ interface ActionResult {
 }
 
 function genCouponCode(): string {
-  return 'CS' + randomBytes(3).toString('hex').toUpperCase(); // CS + 6 hex
+  // 영문 대문자+숫자 5자리. 혼동 문자(I, O, 0, 1) 제외해 수기 입력 오류 방지.
+  const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32자
+  const bytes = randomBytes(5);
+  let code = '';
+  for (let i = 0; i < 5; i++) code += ALPHABET[bytes[i] % ALPHABET.length];
+  return code;
 }
 
 function escapeHtml(s: string): string {
