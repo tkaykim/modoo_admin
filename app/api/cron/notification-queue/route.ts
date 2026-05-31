@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { flushNotificationQueue } from '@/lib/notifications/order-status';
+import { flushCsEmailQueue } from '@/lib/cs/email-schedule';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,13 +20,14 @@ export async function GET(request: Request) {
     }
 
     const result = await flushNotificationQueue();
+    const cs = await flushCsEmailQueue();
 
     console.log(
-      `Cron notification-queue: picked=${result.picked}, sent=${result.sent}, failed=${result.failed}`,
+      `Cron notification-queue: orders(picked=${result.picked}, sent=${result.sent}, failed=${result.failed}) cs(picked=${cs.picked}, sent=${cs.sent}, failed=${cs.failed})`,
     );
 
     return NextResponse.json({
-      data: { ...result, timestamp: new Date().toISOString() },
+      data: { ...result, cs, timestamp: new Date().toISOString() },
     });
   } catch (err: any) {
     console.error('Cron notification-queue error:', err);
