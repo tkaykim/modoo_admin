@@ -496,12 +496,21 @@ export async function POST(request: Request) {
 
     const { data: order, error: orderError } = await adminClient
       .from('orders')
-      .select('id, order_category')
+      .select('id, order_category, payment_status')
       .eq('id', orderId)
       .single();
 
     if (orderError || !order) {
       return NextResponse.json({ error: '주문을 찾을 수 없습니다.' }, { status: 404 });
+    }
+
+    // 결제 완료 주문에는 상품을 직접 추가할 수 없음 — 추가하면 결제금액과 주문총액이 어긋나 정합성이 깨진다.
+    // 수량/사양 증가는 '차액 추가청구'(별도 결제건)로 처리해야 함.
+    if (order.payment_status === 'completed') {
+      return NextResponse.json(
+        { error: "결제 완료된 주문에는 상품을 직접 추가할 수 없습니다. 수량·사양 추가는 '차액 추가청구'로 진행해 주세요." },
+        { status: 400 },
+      );
     }
 
     const { data: design, error: designError } = await adminClient

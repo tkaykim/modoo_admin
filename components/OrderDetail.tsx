@@ -948,13 +948,25 @@ export default function OrderDetail({
                 {!loading && <span className="text-xs text-gray-400">({orderItems.length})</span>}
               </div>
               {!isFactoryUser && order.order_category !== 'cobuy' && (
-                <button
-                  onClick={() => setShowAddItemModal(true)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  상품 추가
-                </button>
+                order.payment_status === 'completed' ? (
+                  // 결제 완료 주문은 상품 직접 추가 불가(정합성). 차액 추가청구로 유도.
+                  <button
+                    onClick={() => setShowSurchargeModal(true)}
+                    title="결제 완료 주문은 상품을 직접 추가할 수 없습니다. 차액 추가청구로 진행하세요."
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-md hover:bg-amber-100 transition-colors"
+                  >
+                    <Coins className="w-3.5 h-3.5" />
+                    차액 추가청구
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowAddItemModal(true)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    상품 추가
+                  </button>
+                )
               )}
             </div>
             <div className="p-4">
