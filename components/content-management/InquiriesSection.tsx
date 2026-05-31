@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
-import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Trash2, ImageIcon } from 'lucide-react';
 import type { InquiryRecord, InquiryStatus, InquiryReplyRecord } from './types';
 import { formatDate, getStatusStyle, getStatusLabel, isToday } from './utils';
 import { formatKstDateOnly } from '@/lib/kst';
 import InquiryAiDraftBar, { type CsDraft } from './InquiryAiDraftBar';
 import ReplyAttacher from './ReplyAttacher';
+import AdminOrderCreator from '@/components/orders/AdminOrderCreator';
 
 const isImageUrl = (u: string) => /\.(png|jpe?g|webp|gif)(\?|$)/i.test(u);
 
@@ -81,6 +82,7 @@ export default function InquiriesSection() {
   const [submittingReplyId, setSubmittingReplyId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [expandedInquiryId, setExpandedInquiryId] = useState<string | null>(null);
+  const [quickOrderInquiry, setQuickOrderInquiry] = useState<InquiryRecord | null>(null);
   const [adminFilter, setAdminFilter] = useState<'all' | 'real' | 'admin'>('real');
   const searchParams = useSearchParams();
   const focusId = searchParams.get('focus');
@@ -526,7 +528,14 @@ export default function InquiriesSection() {
                       )}
                     </div>
 
-                    <div className="pt-4 border-t border-gray-200 flex justify-end">
+                    <div className="pt-4 border-t border-gray-200 flex items-center justify-between">
+                      <button
+                        onClick={() => setQuickOrderInquiry(inquiry)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition-colors"
+                      >
+                        <ImageIcon className="w-4 h-4" />
+                        간이주문/결제링크 만들기
+                      </button>
                       <button
                         onClick={() => handleDeleteInquiry(inquiry.id)}
                         className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 rounded-md transition-colors"
@@ -541,6 +550,19 @@ export default function InquiriesSection() {
             );
           })}
         </div>
+      )}
+
+      {quickOrderInquiry && (
+        <AdminOrderCreator
+          inquiryId={quickOrderInquiry.id}
+          initialCustomer={{
+            name: quickOrderInquiry.manager_name,
+            email: quickOrderInquiry.email,
+            phone: quickOrderInquiry.phone,
+          }}
+          onClose={() => setQuickOrderInquiry(null)}
+          onSuccess={() => { setQuickOrderInquiry(null); mutate(); }}
+        />
       )}
     </div>
   );

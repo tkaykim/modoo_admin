@@ -32,13 +32,15 @@ interface OrderDetailsFormProps {
   onCustomerEditableFieldsChange?: (fields: CustomerEditableFields) => void;
   onSubmit: (orderId: string, result?: OrderCreateResult) => void;
   onBack: () => void;
+  inquiryId?: string;
+  initialCustomer?: { name?: string | null; email?: string | null; phone?: string | null };
 }
 
-export default function OrderDetailsForm({ items, customerEditableFields, onCustomerEditableFieldsChange, onSubmit, onBack }: OrderDetailsFormProps) {
+export default function OrderDetailsForm({ items, customerEditableFields, onCustomerEditableFieldsChange, onSubmit, onBack, inquiryId, initialCustomer }: OrderDetailsFormProps) {
   const hasAnyEditable = !!(customerEditableFields?.quantities || customerEditableFields?.customerInfo || customerEditableFields?.shipping);
-  const [customerName, setCustomerName] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerName, setCustomerName] = useState(initialCustomer?.name || '');
+  const [customerEmail, setCustomerEmail] = useState(initialCustomer?.email || '');
+  const [customerPhone, setCustomerPhone] = useState(initialCustomer?.phone || '');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -183,6 +185,7 @@ export default function OrderDetailsForm({ items, customerEditableFields, onCust
             pricingMode: item.pricingMode,
             customUnitPrice: item.pricingMode === 'custom_unit_price' ? getItemUnitPrice(item) : undefined,
           })),
+          inquiryId: inquiryId || undefined,
           customerName: customerName.trim() || (ceInfo ? '고객 입력 대기' : ''),
           customerEmail: customerEmail.trim() || (ceInfo ? 'pending@placeholder.com' : ''),
           customerPhone: customerPhone.trim() || undefined,

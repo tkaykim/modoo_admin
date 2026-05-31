@@ -64,6 +64,8 @@ interface AdminOrderCreatorProps {
   initialProductId?: string;
   initialDesignId?: string;
   initialDesignItems?: InitialDesignItem[];
+  inquiryId?: string;            // 문의에서 만든 간이주문이면 연결
+  initialCustomer?: { name?: string | null; email?: string | null; phone?: string | null };
 }
 
 const SESSION_KEY = 'admin_order_draft_items';
@@ -100,7 +102,7 @@ export function getItemSubtotal(item: OrderItemDraft): number {
 }
 
 export default function AdminOrderCreator({
-  onClose, onSuccess, initialProductId, initialDesignId, initialDesignItems,
+  onClose, onSuccess, initialProductId, initialDesignId, initialDesignItems, inquiryId, initialCustomer,
 }: AdminOrderCreatorProps) {
   const router = useRouter();
 
@@ -978,6 +980,8 @@ export default function AdminOrderCreator({
             onCustomerEditableFieldsChange={setCustomerEditableFields}
             onSubmit={handleOrderCreated}
             onBack={() => setCurrentStep('items')}
+            inquiryId={inquiryId}
+            initialCustomer={initialCustomer}
           />
         )}
 
