@@ -149,9 +149,26 @@ export async function POST(request: Request) {
       }
     }
   }
-  // 코드 치환 (플레이스홀더 또는 발급된 코드 반영)
+  // 코드 치환 (플레이스홀더 또는 발급된 코드 반영). 대소문자 무시로 변형 토큰도 흡수.
   if (issuedCouponCode) {
-    finalReply = finalReply.replace(/\{\{\s*COUPON_CODE\s*\}\}/g, issuedCouponCode);
+    finalReply = finalReply.replace(/\{\{\s*COUPON_CODE\s*\}\}/gi, issuedCouponCode);
+  }
+
+  // 안전 가드: 쿠폰 자리표시자가 남아있으면(=쿠폰 미발급인데 본문엔 쿠폰 문구가 남음) 게시/발송 전면 차단.
+  // 검수자가 issue_coupon을 끄고 쿠폰 문구는 지우지 않은 경우 {{COUPON_CODE}}가 고객에게 그대로 나가는 사고 방지.
+  // 이 시점에 토큰이 남아있다는 건 issuedCouponCode가 비었다는 뜻 → 발급된 쿠폰도 없으므로 안전하게 검수 대기로 되돌린다.
+  if (/\{\{\s*COUPON_CODE\s*\}\}/i.test(finalReply)) {
+    await db
+      .from('cs_draft_replies')
+      .update({ status: 'pending_review', updated_at: now() })
+      .eq('id', id);
+    return NextResponse.json(
+      {
+        error:
+          '답변 본문에 미발급 쿠폰 자리표시자 {{COUPON_CODE}}가 남아 있습니다. 쿠폰 발급을 함께 실행하거나, 본문에서 쿠폰 문구를 제거한 뒤 다시 시도하세요.',
+      },
+      { status: 400 },
+    );
   }
 
   // 2) 게시판 답변 등록
