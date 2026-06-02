@@ -10,6 +10,7 @@ import { formatMm } from '@/lib/canvasUtils';
 import '@/lib/curvedText';
 import { setupCurvedTextEditing, loadCustomFonts, isCurvedText } from '@/lib/curvedText';
 import { fetchProductCalibrations } from '@/lib/calibrationFetch';
+import { collectFontFamilies, ensureFontsLoaded } from '@/lib/ensureFonts';
 
 // Stable empty array to avoid creating a new reference on every render
 // (prevents unnecessary effect re-fires when no custom fonts are provided)
@@ -1262,16 +1263,15 @@ const SingleSideCanvas: React.FC<SingleSideCanvasProps> = ({
     const applyObjects = async () => {
       await waitForBackground();
 
-      // Load custom fonts before enliving objects that may use them
+      // Load EVERY font used by this side — system webfonts (e.g. Freshman) AND
+      // uploaded custom fonts — before enlivening, so text is measured/rendered
+      // with the selected font instead of a fallback. Canvas 2D does not trigger
+      // lazy @font-face loads on its own, so this guarantee is essential.
       if (customFonts.length > 0) {
-        console.log(`[SingleSideCanvas] Loading ${customFonts.length} custom font(s) before rendering...`);
         await loadCustomFonts(customFonts.map(f => ({ fontFamily: f.fontFamily, url: f.url })));
-        // Wait for document fonts to be ready (ensures FontFace API fonts are fully available)
-        if (typeof document !== 'undefined' && document.fonts?.ready) {
-          await document.fonts.ready;
-        }
-        console.log(`[SingleSideCanvas] Custom fonts loaded and ready.`);
       }
+      const usedFontFamilies = collectFontFamilies(parsedState.objects);
+      await ensureFontsLoaded([...usedFontFamilies, ...customFonts.map(f => f.fontFamily)]);
 
       suppressObjectAddedRef.current = true; // Always suppress during state loading to avoid per-object history entries
       const objects = await fabric.util.enlivenObjects(parsedState.objects);
@@ -1310,12 +1310,18 @@ const SingleSideCanvas: React.FC<SingleSideCanvasProps> = ({
       }
       canvas.requestRenderAll();
 
-      // Additional render pass after a short delay to ensure fonts are applied
-      if (customFonts.length > 0) {
+      // Additional re-measure/render pass to ensure text dimensions reflect the
+      // now-loaded font. Runs whenever any font was used (system or custom), not
+      // just for uploaded custom fonts.
+      if (usedFontFamilies.length > 0 || customFonts.length > 0) {
         requestAnimationFrame(() => {
           canvas.getObjects().forEach((obj) => {
             const objType = obj.type?.toLowerCase() || '';
             if (objType === 'i-text' || objType === 'itext' || objType === 'text' || objType === 'textbox') {
+              const textObj = obj as fabric.IText | fabric.Text | fabric.Textbox;
+              if ('initDimensions' in textObj && typeof textObj.initDimensions === 'function') {
+                textObj.initDimensions();
+              }
               obj.setCoords();
               obj.dirty = true;
             } else if (isCurvedText(obj)) {
@@ -1324,6 +1330,8 @@ const SingleSideCanvas: React.FC<SingleSideCanvasProps> = ({
             }
           });
           canvas.requestRenderAll();
+          // Refresh any toDataURL-based previews now that fonts are applied.
+          incrementCanvasVersion();
         });
       }
       // Re-apply color filter after object restoration. The productColor prop
