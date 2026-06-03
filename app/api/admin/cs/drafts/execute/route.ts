@@ -57,8 +57,24 @@ ${img}
   return `<tr><td style="padding:4px 32px 4px;"><p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#333;">시안 · 결제</p>${cards}</td></tr>`;
 }
 
-function buildEmailHtml(replyText: string, inquiryUrl: string, messageId: string, orderCardsHtml = ''): string {
+// 첨부된 이미지 파일을 메일 본문에 인라인으로 렌더 (이미지 확장자만; 비이미지 첨부는 게시판에서 확인).
+function buildAttachmentsHtml(fileUrls: string[]): string {
+  const imgs = (fileUrls || []).filter(
+    (u) => typeof u === 'string' && /\.(jpe?g|png|gif|webp)(\?|$)/i.test(u),
+  );
+  if (!imgs.length) return '';
+  const rows = imgs
+    .map(
+      (u) =>
+        `<tr><td style="padding:6px 32px 0;"><img src="${u}" alt="첨부 이미지" style="display:block;width:100%;max-width:536px;border-radius:8px;border:1px solid #eee;" /></td></tr>`,
+    )
+    .join('');
+  return rows;
+}
+
+function buildEmailHtml(replyText: string, inquiryUrl: string, messageId: string, orderCardsHtml = '', fileUrls: string[] = []): string {
   const body = escapeHtml(replyText).replace(/\n/g, '<br>');
+  const attachmentsHtml = buildAttachmentsHtml(fileUrls);
   const inquiryHref = trackClick(messageId, inquiryUrl);
   const kakaoHref = trackClick(messageId, KAKAO_URL);
   const pixel = `<img src="${TRACK_BASE}/open?m=${messageId}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;opacity:0;overflow:hidden;" />`;
@@ -68,6 +84,7 @@ function buildEmailHtml(replyText: string, inquiryUrl: string, messageId: string
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.06);">
 <tr><td style="background:${BRAND};padding:24px 32px;text-align:center;"><img src="${LOGO_URL}" alt="모두의 유니폼" width="132" style="display:inline-block;max-width:132px;height:auto;"></td></tr>
 <tr><td style="padding:32px 32px 8px;font-size:15px;line-height:1.75;color:#333;">${body}</td></tr>
+${attachmentsHtml}
 ${orderCardsHtml}
 <tr><td style="padding:8px 32px 8px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">
 <tr><td align="center" style="padding-bottom:12px;"><a href="${inquiryHref}" style="display:inline-block;background:${BRAND};color:#fff;font-size:15px;font-weight:700;text-decoration:none;padding:15px 0;width:100%;max-width:480px;border-radius:10px;text-align:center;">문의 게시판에서 답변하기</a></td></tr>
@@ -273,7 +290,7 @@ export async function POST(request: Request) {
           to: inquiry.email,
           subject: '[모두의 유니폼] 문의 답변드립니다',
           text: finalReply,
-          html: buildEmailHtml(finalReply, inquiryUrl, messageId, orderCardsHtml),
+          html: buildEmailHtml(finalReply, inquiryUrl, messageId, orderCardsHtml, fileUrls),
           customerActiveAt,
         });
         if (outcome === 'failed') throw new Error('gmail_send_failed');
