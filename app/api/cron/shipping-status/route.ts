@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { trackCargoLast } from '@/lib/logen';
+import { automationPing } from '@/lib/automation-ping';
 
 /** Vercel Hobby: 하루 1회. schedule 0 9 * * * = 매일 09:00 UTC = 한국 18:00 (KST) */
 const CRON_SECRET = process.env.CRON_SECRET || '';
@@ -69,6 +70,8 @@ export async function GET(request: Request) {
     }
 
     console.log(`Cron shipping-status: checked=${slipNos.length}, delivered=${totalDelivered}`);
+
+    await automationPing({ key: 'modoo:shipping-status', title: '배송 추적 → delivered 전환', triggerDesc: '매일 18:00 KST', source: 'modoo_admin /api/cron/shipping-status', detail: { checked: slipNos.length, delivered: totalDelivered } });
 
     return NextResponse.json({
       data: {

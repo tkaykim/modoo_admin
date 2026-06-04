@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendGmailEmail } from '@/lib/gmail';
+import { automationPing } from '@/lib/automation-ping';
 import { fetchMetaAdInsights, summarize, diagnoseLeaks, type InsightSummary } from '@/lib/marketing-report/fetchMeta';
 import {
   fetchGA4Overall,
@@ -135,6 +136,7 @@ export async function GET(req: NextRequest) {
       html,
     });
 
+    await automationPing({ key: 'modoo:marketing-weekly', title: '마케팅 주간 보고 (메일)', triggerDesc: '일 23:00 KST', source: 'modoo_admin /api/cron/marketing-weekly', detail: { sent, revenue: supaSummary.revenue, orders: supaSummary.orders } });
     return NextResponse.json({ ok: true, sent, range: { from, to }, revenue: supaSummary.revenue, orders: supaSummary.orders, narrative });
   } catch (err) {
     console.error('[marketing-weekly] failed:', err);

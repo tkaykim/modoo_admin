@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendGmailEmail } from '@/lib/gmail';
+import { automationPing } from '@/lib/automation-ping';
 import { fetchMetaAdInsights, summarize, diagnoseLeaks, type InsightSummary } from '@/lib/marketing-report/fetchMeta';
 import {
   fetchGA4Overall,
@@ -185,6 +186,8 @@ export async function GET(req: NextRequest) {
       text,
       html,
     });
+
+    await automationPing({ key: 'modoo:marketing-daily', title: '마케팅 일일 보고 (GA4·Meta·Clarity 메일)', triggerDesc: '매일 23:00 KST', source: 'modoo_admin /api/cron/marketing-daily', detail: { sent, revenue: supaSummary.revenue, orders: supaSummary.orders } });
 
     return NextResponse.json({
       ok: true,

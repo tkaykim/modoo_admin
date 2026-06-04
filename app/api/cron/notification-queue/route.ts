@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { flushNotificationQueue } from '@/lib/notifications/order-status';
 import { flushCsEmailQueue } from '@/lib/cs/email-schedule';
+import { automationPing } from '@/lib/automation-ping';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,6 +26,8 @@ export async function GET(request: Request) {
     console.log(
       `Cron notification-queue: orders(picked=${result.picked}, sent=${result.sent}, failed=${result.failed}) cs(picked=${cs.picked}, sent=${cs.sent}, failed=${cs.failed})`,
     );
+
+    await automationPing({ key: 'modoo:notification-queue', title: '주문알림·CS 야간큐 발송', triggerDesc: '매일 09:00 KST', source: 'modoo_admin /api/cron/notification-queue', detail: { sent: result.sent, cs_sent: cs.sent } });
 
     return NextResponse.json({
       data: { ...result, cs, timestamp: new Date().toISOString() },
