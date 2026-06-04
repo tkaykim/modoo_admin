@@ -9,7 +9,7 @@ import {
   type CustomAnchorDef,
   type TestSide,
 } from '../lib/types';
-import { activeNativeMmPerPx } from '../lib/calibrationMath';
+import { effectiveNativeMmPerPx } from '../lib/calibrationMath';
 import { AnchorCanvas } from './AnchorCanvas';
 
 interface Props {
@@ -56,7 +56,7 @@ export function AnchorRegistrar({
     setSelectedAnchor(side.applicableAnchors[0] ?? null);
   }, [side.id, side.applicableAnchors]);
 
-  const mmPerPx = activeNativeMmPerPx(side.mockup);
+  const mmPerPx = effectiveNativeMmPerPx(side);
   const registered = new Map(side.registeredAnchors.map((a) => [a.id, a]));
 
   const handleCanvasClick = (xMm: number, yMm: number) => {
@@ -106,6 +106,7 @@ export function AnchorRegistrar({
         <div>
           <AnchorCanvas
             mockup={side.mockup}
+            mmPerPxOverride={mmPerPx}
             anchors={side.registeredAnchors}
             containerWidth={containerWidth}
             selectedAnchorId={selectedAnchor}

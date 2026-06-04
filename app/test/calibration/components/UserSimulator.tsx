@@ -26,14 +26,14 @@ export function UserSimulator({ side, customAnchors = [] }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 두 환산비 (둘 다 mm per native mockup px → 직접 비교 가능)
-  const calibRatio = activeNativeMmPerPx(side.mockup); // ② 캘리브 선분 기준
+  const calibRatio = activeNativeMmPerPx(side.mockup); // ② 캘리브 선분 (참고용)
   const printAreaRatio =
     side.printAreaWidthMm && side.printAreaPx?.width
       ? side.printAreaWidthMm / side.printAreaPx.width
       : 0; // ① 인쇄영역 실측 기준 (환산 1순위)
-  // 시뮬레이터 캔버스는 캘리브 비율로 배치하므로, selected.widthMm는 '캘리브 기준' 값.
-  // 동일 아트워크를 인쇄영역 비율로 재면: widthMm × (printAreaRatio / calibRatio).
-  const mmPerPx = calibRatio;
+  // 환산 기준 = 인쇄영역 실측(1순위) → 캘리브 선분(폴백). 시뮬레이터 캔버스는 이 값으로
+  // 배치/측정하므로 selected.widthMm 는 '인쇄영역 실측 기준' 값(printAreaRatio 있을 때).
+  const mmPerPx = printAreaRatio || calibRatio;
 
   useEffect(() => {
     setArtworks([]);
@@ -199,6 +199,7 @@ export function UserSimulator({ side, customAnchors = [] }: Props) {
         <div>
           <SimulatorCanvas
             mockup={side.mockup}
+            mmPerPxOverride={mmPerPx}
             containerWidth={containerWidth}
             artworks={artworks}
             anchors={showAnchors ? side.registeredAnchors : []}
@@ -217,11 +218,14 @@ export function UserSimulator({ side, customAnchors = [] }: Props) {
           {/* 환산비 요약 (입력은 ② 인쇄영역 실측 탭에서) */}
           <div className="border rounded p-3 bg-gray-50 text-[11px] font-mono text-gray-600 space-y-0.5">
             <div className={printAreaRatio ? 'text-indigo-700 font-semibold' : 'text-gray-400'}>
-              ① 인쇄영역 비율: {printAreaRatio ? `${printAreaRatio.toFixed(4)} mm/px` : '미설정 (② 탭에서 입력)'}
+              ① 인쇄영역 비율(기준): {printAreaRatio ? `${printAreaRatio.toFixed(4)} mm/px` : '미설정 (② 탭에서 입력)'}
             </div>
-            <div className={calibRatio ? 'text-gray-700' : 'text-gray-400'}>
-              ② 캘리브 비율: {calibRatio ? `${calibRatio.toFixed(4)} mm/px` : '미설정 (① 탭)'}
+            <div className={calibRatio ? 'text-gray-500' : 'text-gray-400'}>
+              ② 캘리브 비율(참고): {calibRatio ? `${calibRatio.toFixed(4)} mm/px` : '미설정 (① 탭)'}
             </div>
+            {!printAreaRatio && calibRatio ? (
+              <div className="text-amber-600">인쇄영역 실측 미입력 → 캘리브 비율로 폴백 중</div>
+            ) : null}
           </div>
 
           <div className={`border rounded p-3 bg-white ${!showAnchors ? 'opacity-50' : ''}`}>
@@ -264,22 +268,31 @@ export function UserSimulator({ side, customAnchors = [] }: Props) {
                 </div>
                 <div>회전: {selected.angleDeg.toFixed(1)}°</div>
                 <div className="border-t border-dashed border-gray-200 pt-1.5 mt-1.5 space-y-0.5 not-italic">
-                  <div className="text-[10px] text-gray-400">크기 — 기준별 비교</div>
-                  <div className="text-gray-700">② 캘리브 기준: {selected.widthMm.toFixed(1)} × {selected.heightMm.toFixed(1)}mm</div>
-                  {printAreaRatio && calibRatio ? (
+                  <div className="text-[10px] text-gray-400">크기 — 환산 기준</div>
+                  {printAreaRatio ? (
                     <>
-                      <div className="text-indigo-700 font-semibold">① 인쇄영역 기준: {(selected.widthMm * printAreaRatio / calibRatio).toFixed(1)} × {(selected.heightMm * printAreaRatio / calibRatio).toFixed(1)}mm</div>
-                      {(() => {
-                        const pct = (printAreaRatio / calibRatio - 1) * 100;
-                        return (
-                          <div className={Math.abs(pct) > 5 ? 'text-red-700 font-bold' : 'text-green-700'}>
-                            두 기준 차이: {pct > 0 ? '+' : ''}{pct.toFixed(1)}%
-                          </div>
-                        );
-                      })()}
+                      <div className="text-indigo-700 font-semibold">① 인쇄영역 실측 기준: {selected.widthMm.toFixed(1)} × {selected.heightMm.toFixed(1)}mm</div>
+                      {calibRatio ? (
+                        <>
+                          <div className="text-gray-500">② 캘리브 기준(참고): {(selected.widthMm * calibRatio / printAreaRatio).toFixed(1)} × {(selected.heightMm * calibRatio / printAreaRatio).toFixed(1)}mm</div>
+                          {(() => {
+                            const pct = (calibRatio / printAreaRatio - 1) * 100;
+                            return (
+                              <div className={Math.abs(pct) > 5 ? 'text-amber-700' : 'text-green-700'}>
+                                캘리브 편차: {pct > 0 ? '+' : ''}{pct.toFixed(1)}%
+                              </div>
+                            );
+                          })()}
+                        </>
+                      ) : (
+                        <div className="text-gray-400">② 캘리브 기준: 선분 미설정 (참고용)</div>
+                      )}
                     </>
                   ) : (
-                    <div className="text-gray-400">① 인쇄영역 기준: ② 인쇄영역 실측 탭에서 입력 시 표시</div>
+                    <>
+                      <div className="text-gray-700">② 캘리브 기준(폴백): {selected.widthMm.toFixed(1)} × {selected.heightMm.toFixed(1)}mm</div>
+                      <div className="text-amber-600">① 인쇄영역 실측 미입력 — ② 인쇄영역 실측 탭에서 입력하면 그 값이 기준이 됩니다.</div>
+                    </>
                   )}
                 </div>
                 {selected.alphaTrimmed && selected.originalRasterWh && (

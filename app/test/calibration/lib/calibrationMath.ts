@@ -1,4 +1,4 @@
-import type { CalibrationLine, MockupCalibration } from './types';
+import type { CalibrationLine, MockupCalibration, TestSide } from './types';
 
 export function lineNativePx(line: CalibrationLine): number {
   const dx = line.p2.xPx - line.p1.xPx;
@@ -19,6 +19,31 @@ export function activeLine(mockup: MockupCalibration): CalibrationLine | null {
 export function activeNativeMmPerPx(mockup: MockupCalibration): number {
   const line = activeLine(mockup);
   return line ? nativeMmPerPx(line) : 0;
+}
+
+/**
+ * 인쇄영역 실측 기반 native mm/px (환산 1순위).
+ * printAreaWidthMm / printAreaPx.width. 둘 중 하나라도 없으면 0.
+ */
+export function printAreaNativeMmPerPx(
+  side: Pick<TestSide, 'printAreaWidthMm' | 'printAreaPx'>,
+): number {
+  const w = side.printAreaWidthMm ?? 0;
+  const px = side.printAreaPx?.width ?? 0;
+  if (w <= 0 || px <= 0) return 0;
+  return w / px;
+}
+
+/**
+ * 실효 native mm/px. 인쇄영역 실측(환산 1순위) → 캘리브 선분(폴백) 순.
+ * 앵커 등록·사용자 시뮬레이션은 이 값을 기준으로 환산한다(캘리브 선분은 참고용).
+ */
+export function effectiveNativeMmPerPx(
+  side: Pick<TestSide, 'printAreaWidthMm' | 'printAreaPx' | 'mockup'>,
+): number {
+  const printArea = printAreaNativeMmPerPx(side);
+  if (printArea > 0) return printArea;
+  return activeNativeMmPerPx(side.mockup);
 }
 
 export function displayMmPerPx(

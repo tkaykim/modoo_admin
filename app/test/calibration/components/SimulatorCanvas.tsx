@@ -25,6 +25,8 @@ export interface ArtworkObject {
 
 interface Props {
   mockup: MockupCalibration;
+  /** 환산 기준 native mm/px (인쇄영역 실측 1순위). 없으면 캘리브 선분으로 폴백. */
+  mmPerPxOverride?: number;
   containerWidth: number;
   artworks: ArtworkObject[];
   anchors: AnchorPlacement[];
@@ -45,6 +47,7 @@ interface SystemFabricObject extends fabric.FabricObject {
 
 export function SimulatorCanvas({
   mockup,
+  mmPerPxOverride,
   containerWidth,
   artworks,
   anchors,
@@ -64,7 +67,7 @@ export function SimulatorCanvas({
     onUpdateRef.current = onUpdate;
   }, [onSelect, onUpdate]);
 
-  const mmPerPx = activeNativeMmPerPx(mockup);
+  const mmPerPx = mmPerPxOverride && mmPerPxOverride > 0 ? mmPerPxOverride : activeNativeMmPerPx(mockup);
   const displayScale =
     mockup.imageNativeWidthPx > 0
       ? Math.min(containerWidth / mockup.imageNativeWidthPx, 1.5)

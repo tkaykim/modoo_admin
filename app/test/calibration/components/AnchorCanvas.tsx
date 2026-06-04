@@ -8,6 +8,8 @@ import { activeNativeMmPerPx } from '../lib/calibrationMath';
 
 interface Props {
   mockup: MockupCalibration;
+  /** 환산 기준 native mm/px (인쇄영역 실측 1순위). 없으면 캘리브 선분으로 폴백. */
+  mmPerPxOverride?: number;
   anchors: AnchorPlacement[];
   containerWidth: number;
   selectedAnchorId: string | null;
@@ -23,6 +25,7 @@ interface SystemFabricObject extends fabric.FabricObject {
 
 export function AnchorCanvas({
   mockup,
+  mmPerPxOverride,
   anchors,
   containerWidth,
   selectedAnchorId,
@@ -33,7 +36,7 @@ export function AnchorCanvas({
   const fabricCanvasRef = useRef<fabric.Canvas | null>(null);
   const [hoverMm, setHoverMm] = useState<{ xMm: number; yMm: number } | null>(null);
 
-  const mmPerPx = activeNativeMmPerPx(mockup);
+  const mmPerPx = mmPerPxOverride && mmPerPxOverride > 0 ? mmPerPxOverride : activeNativeMmPerPx(mockup);
   const displayScale =
     mockup.imageNativeWidthPx > 0
       ? Math.min(containerWidth / mockup.imageNativeWidthPx, 1.5)
@@ -99,7 +102,7 @@ export function AnchorCanvas({
         });
         canvas.add(img);
         canvas.sendObjectToBack(img);
-        drawAnchors(canvas, anchors, mockup, displayScale, selectedAnchorId, customAnchors);
+        drawAnchors(canvas, anchors, mmPerPx, displayScale, selectedAnchorId, customAnchors);
         canvas.requestRenderAll();
       },
     );
@@ -107,7 +110,7 @@ export function AnchorCanvas({
     return () => {
       cancelled = true;
     };
-  }, [mockup, displayScale, anchors, selectedAnchorId]);
+  }, [mockup, mmPerPx, displayScale, anchors, selectedAnchorId]);
 
   const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!mockup.mockupDataUrl || !mmPerPx) {
@@ -163,12 +166,11 @@ export function AnchorCanvas({
 function drawAnchors(
   canvas: fabric.Canvas,
   anchors: AnchorPlacement[],
-  mockup: MockupCalibration,
+  mmPerPx: number,
   displayScale: number,
   selectedAnchorId: string | null,
   customAnchors: CustomAnchorDef[] = [],
 ) {
-  const mmPerPx = activeNativeMmPerPx(mockup);
   if (!mmPerPx) return;
 
   anchors.forEach((a) => {
