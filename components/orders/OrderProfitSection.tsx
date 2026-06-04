@@ -147,7 +147,9 @@ export default function OrderProfitSection({ order, orderItems }: Props) {
     refresh();
   }, [refresh]);
 
-  if (!isSuperAdmin && !isFactory) return null;
+  // 원가/순이익(매출·인쇄비·공장가공비·내부배송)은 슈퍼 관리자 전용.
+  // 공장은 이 섹션을 보지 않는다 — 공장의 단가 입력은 "작업 시작 시 정산 단가 모달" 하나로 일원화.
+  if (!isSuperAdmin) return null;
 
   const totals = useMemo(() => {
     const itemCost = itemCosts.reduce((s, r) => s + Number(r.total_cost || 0), 0);
@@ -435,9 +437,9 @@ function ItemCard({
             <div className="text-xs text-gray-500 mt-0.5">
               총 {item.quantity}개 · 매당 {won(Number(item.price_per_item))} · 매출 <b>{won(itemRevenue)}</b>
             </div>
-            {variants.length > 0 && (
+            {variants.some((v: any) => Number(v?.quantity || 0) > 0) && (
               <div className="flex flex-wrap gap-1 mt-1.5">
-                {variants.map((v: any, idx: number) => (
+                {variants.filter((v: any) => Number(v?.quantity || 0) > 0).map((v: any, idx: number) => (
                   <span key={idx} className="text-[10px] bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded">
                     {v.size_name || v.size_id} × {v.quantity}
                   </span>
