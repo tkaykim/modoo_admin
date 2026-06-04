@@ -754,39 +754,6 @@ export default function SharedOrderPage() {
               </p>
             </div>
 
-            {/* Factory Payment Info */}
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <CreditCard className="w-5 h-5 text-gray-600" />
-                <h2 className="text-base font-semibold text-gray-900">결제 정보</h2>
-              </div>
-              <div className="space-y-3 text-sm">
-                <div>
-                  <p className="text-gray-500">금액</p>
-                  <p className="font-medium text-gray-900">
-                    {order.factory_amount ? `${order.factory_amount.toLocaleString()}원` : '-'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-gray-500">결제 예정일</p>
-                  <p className="font-medium text-gray-900">
-                    {order.factory_payment_date ? formatDate(order.factory_payment_date) : '-'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-gray-500">결제 상태</p>
-                  <p className={`font-medium ${
-                    order.factory_payment_status === 'completed' ? 'text-green-600' :
-                    order.factory_payment_status === 'cancelled' ? 'text-red-600' :
-                    'text-yellow-600'
-                  }`}>
-                    {order.factory_payment_status === 'pending' ? '대기' :
-                     order.factory_payment_status === 'completed' ? '완료' :
-                     order.factory_payment_status === 'cancelled' ? '취소' : '-'}
-                  </p>
-                </div>
-              </div>
-            </div>
 
             {/* Customer Note & Attachments */}
             {(order.customer_note || order.attachment_urls.length > 0) && (

@@ -14,6 +14,7 @@ import WorkPhotoModal from '@/components/orders/WorkPhotoModal';
 import OrderItemArtworksModal from '@/components/orders/OrderItemArtworksModal';
 import OrderItemPrintRowsInline from '@/components/orders/OrderItemPrintRowsInline';
 import { extractVariants } from '@/lib/orderUtils';
+import FactoryPriceConfirmModal from '@/components/factory/FactoryPriceConfirmModal';
 import { coerceImageUrlsBySide, isPreviewableImageEntry, fileExtensionLabel } from '@/lib/downloadUtils';
 import { formatKstDateLong, formatKstDateTimeMedium, getKstYYYYMMDD } from '@/lib/kst';
 import { orderCategoryBadgeClass, orderCategoryLabel } from '@/lib/order-category';
@@ -64,6 +65,8 @@ export default function OrderDetail({
   // 작업사진 모달 (카메라 촬영·업로드 + Drive 폴더 열기 통합)
   const [workPhotoModalItemId, setWorkPhotoModalItemId] = useState<string | null>(null);
   const [artworksModalItemId, setArtworksModalItemId] = useState<string | null>(null);
+  const [priceModalItem, setPriceModalItem] = useState<OrderItem | null>(null);
+  const [savingPriceModal, setSavingPriceModal] = useState(false);
   const [itemAlloc, setItemAlloc] = useState<Record<string, { factory_id: string; amount: string; deadline: string; pay_date: string; pay_status: string }>>({});
   const [savingItemAlloc, setSavingItemAlloc] = useState<string | null>(null);
   const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
@@ -2282,30 +2285,38 @@ export default function OrderDetail({
                       </p>
                     </div>
 
-                    {/* 아트워크 단가 — admin: 전체 편집, factory: 공장가만 조정 */}
-                    <div>
-                      <button
-                        type="button"
-                        onClick={() => setArtworksModalItemId(item.id)}
-                        className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
-                      >
-                        💲 아트워크 단가
-                      </button>
-                      <p className="text-[11px] text-gray-500 mt-1 text-center">
-                        {isFactoryUser ? '공장 단가만 조정 가능' : '인쇄 아트워크별 단가 (자동 매칭 포함)'}
-                      </p>
-                    </div>
+                    {/* 아트워크 단가 — 관리자 전용 (공장에는 노출하지 않음: 정산 단가는 작업 시작 시 한 번에 확인) */}
+                    {!isFactoryUser && (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => setArtworksModalItemId(item.id)}
+                          className="inline-flex items-center gap-1.5 w-full justify-center px-3 py-2 rounded-md text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                        >
+                          💲 아트워크 단가
+                        </button>
+                        <p className="text-[11px] text-gray-500 mt-1 text-center">
+                          인쇄 아트워크별 단가 (자동 매칭 포함)
+                        </p>
+                      </div>
+                    )}
 
                     <div>
                       <p className="text-xs text-gray-500 mb-1">배정 상태</p>
                       <select
                         value={item.factory_status || 'assigned'}
                         onChange={async (e) => {
+                          const nextStatus = e.target.value;
+                          // 공장이 "작업중"으로 전환 → 정산 단가 확인 모달을 먼저 띄운다 (링크/에디터와 동일 경험)
+                          if (isFactoryUser && nextStatus === 'in_progress') {
+                            setPriceModalItem(item);
+                            return;
+                          }
                           try {
                             const response = await fetch('/api/admin/orders', {
                               method: 'PATCH',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ orderId: order.id, orderItemId: item.id, factoryStatus: e.target.value }),
+                              body: JSON.stringify({ orderId: order.id, orderItemId: item.id, factoryStatus: nextStatus }),
                             });
                             if (!response.ok) {
                               const payload = await response.json().catch(() => ({}));
@@ -2445,6 +2456,45 @@ export default function OrderDetail({
           />
         );
       })()}
+
+      {/* 공장 단가 확정 모달 — "작업중" 전환 시 정산 단가 확인 (링크/에디터와 동일 컴포넌트) */}
+      {priceModalItem && (
+        <FactoryPriceConfirmModal
+          open={true}
+          itemTitle={priceModalItem.product_title}
+          quantity={priceModalItem.quantity}
+          initialAmount={priceModalItem.factory_amount ?? 0}
+          submitting={savingPriceModal}
+          onConfirm={async (amount) => {
+            setSavingPriceModal(true);
+            try {
+              const response = await fetch('/api/admin/orders', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  orderId: order.id,
+                  orderItemId: priceModalItem.id,
+                  factoryStatus: 'in_progress',
+                  factoryAmount: amount,
+                  confirmFactoryPrice: true,
+                }),
+              });
+              if (!response.ok) {
+                const payload = await response.json().catch(() => ({}));
+                throw new Error(payload?.error || '상태 변경에 실패했습니다.');
+              }
+              setPriceModalItem(null);
+              await fetchOrderItems();
+              onUpdate();
+            } catch (error) {
+              alert(error instanceof Error ? error.message : '상태 변경에 실패했습니다.');
+            } finally {
+              setSavingPriceModal(false);
+            }
+          }}
+          onClose={() => setPriceModalItem(null)}
+        />
+      )}
     </div>
   );
 }

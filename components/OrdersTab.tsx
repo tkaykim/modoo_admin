@@ -946,6 +946,11 @@ export default function OrdersTab() {
                                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getFactoryStatusColor('mixed')}`}>
                                     {getFactoryStatusLabel('mixed')}
                                   </span>
+                                ) : isFactoryUser ? (
+                                  // 공장: 목록에선 상태를 읽기전용으로만 표시. 변경은 주문을 열어 품목별로(단가 확인 포함) 진행.
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getFactoryStatusColor(factoryStatus)}`}>
+                                    {getFactoryStatusLabel(factoryStatus)}
+                                  </span>
                                 ) : (
                                   <select
                                     value={factoryStatus || 'pending'}
