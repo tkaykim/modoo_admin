@@ -12,6 +12,9 @@ interface Props {
   sideId?: string;
   /** 저장 후 캘리브 상태(printAreaPx/실측mm)를 다시 동기화하기 위한 콜백. */
   onSaved?: () => void;
+  /** 내부 캐러셀로 면을 바꾸면 캘리브 도구의 면 선택(드롭다운)도 맞추기 위한 콜백.
+   *  PrintAreaEditor가 주는 realSideId를 캘리브 내부 sideId(op-{realProductId}-{realSideId})로 변환해 전달. */
+  onSideChange?: (calibSideId: string) => void;
 }
 
 /**
@@ -21,7 +24,7 @@ interface Props {
  * + 실제 크기(mm) 입력 + 저장이 모두 가능. 저장은 PrintAreaEditor가 /api/admin/products
  * PATCH로 products.configuration에 직접 반영(제품관리와 동일 경로). 별도 캘리브 우회 없음.
  */
-export function PrintAreaTab({ productId, sideId, onSaved }: Props) {
+export function PrintAreaTab({ productId, sideId, onSaved, onSideChange }: Props) {
   const isOperational = productId.startsWith('op-');
   const realId = isOperational ? productId.slice(3) : productId;
   // 캘리브 내부 sideId(op-{realProductId}-{realSideId}) → 실제 side id로 환원.
@@ -81,6 +84,7 @@ export function PrintAreaTab({ productId, sideId, onSaved }: Props) {
         initialSideId={realSideId}
         onSave={() => onSaved?.()}
         onCancel={() => onSaved?.()}
+        onSideChange={(realSid) => onSideChange?.(`op-${realId}-${realSid}`)}
       />
     </div>
   );

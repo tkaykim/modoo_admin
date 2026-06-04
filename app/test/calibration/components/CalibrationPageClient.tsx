@@ -288,6 +288,7 @@ export function CalibrationPageClient() {
               productId={selectedProduct.id}
               sideId={selectedSide?.id}
               onSaved={handleRefresh}
+              onSideChange={selectSide}
             />
           )}
           {tab === 'anchors' && selectedProduct && selectedSide && (

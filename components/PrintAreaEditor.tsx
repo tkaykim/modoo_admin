@@ -10,9 +10,11 @@ interface PrintAreaEditorProps {
   onCancel: () => void;
   /** 외부에서 시작/현재 면을 지정 (캘리브 도구에서 상단 '면' 선택과 동기화 용). */
   initialSideId?: string;
+  /** 내부 캐러셀(◀▶)로 면을 바꿀 때 부모에 알림 — 외부 면 선택기(캘리브 드롭다운)와 양방향 동기화. */
+  onSideChange?: (sideId: string) => void;
 }
 
-export default function PrintAreaEditor({ product, onSave, onCancel, initialSideId }: PrintAreaEditorProps) {
+export default function PrintAreaEditor({ product, onSave, onCancel, initialSideId, onSideChange }: PrintAreaEditorProps) {
   const [currentSideIndex, setCurrentSideIndex] = useState(() => {
     if (initialSideId) {
       const i = (product.configuration || []).findIndex((s) => s.id === initialSideId);
@@ -52,6 +54,15 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
 
   const currentSide = sides[currentSideIndex];
+
+  // Change side via the internal carousel AND notify the parent, so an external
+  // side selector (calibration tool dropdown) stays in sync.
+  const goToSide = (index: number) => {
+    const clamped = Math.max(0, Math.min(sides.length - 1, index));
+    setCurrentSideIndex(clamped);
+    const sid = sides[clamped]?.id;
+    if (sid) onSideChange?.(sid);
+  };
 
   const resolveBaseImageUrl = (side: ProductSide) => {
     if (side.imageUrl) return side.imageUrl;
@@ -398,7 +409,7 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
           <div className="bg-white border border-gray-200/60 rounded-md p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <button
-                onClick={() => setCurrentSideIndex(Math.max(0, currentSideIndex - 1))}
+                onClick={() => goToSide(currentSideIndex - 1)}
                 disabled={currentSideIndex === 0}
                 className="p-2 text-gray-600 hover:bg-gray-100 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
               >
@@ -413,7 +424,7 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
               </div>
 
               <button
-                onClick={() => setCurrentSideIndex(Math.min(sides.length - 1, currentSideIndex + 1))}
+                onClick={() => goToSide(currentSideIndex + 1)}
                 disabled={currentSideIndex === sides.length - 1}
                 className="p-2 text-gray-600 hover:bg-gray-100 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
               >
