@@ -70,6 +70,7 @@ interface PublicOrderItem {
   factory_amount?: number | null;
   factory_unit_price?: number | null;
   factory_price_confirmed_at?: string | null;
+  factory_price_locked?: boolean | null;
   products?: {
     product_code: string | null;
     title: string;
@@ -629,6 +630,7 @@ export default function SharedOrderPage() {
                   factory_amount: item.factory_amount,
                   factory_unit_price: item.factory_unit_price ?? null,
                   factory_price_confirmed_at: item.factory_price_confirmed_at,
+                  factory_price_locked: item.factory_price_locked ?? false,
                   variantsText: extractVariantsFromOptions(item.item_options, item.quantity)
                     .filter((v) => (v.quantity ?? 0) > 0)
                     .map((v) => `${v.color_name || ''}${v.size_name ? ' ' + v.size_name : ''} x${v.quantity}`.trim())

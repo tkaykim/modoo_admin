@@ -27,6 +27,7 @@ export interface FactoryWorkItem {
   factory_amount?: number | null;
   factory_unit_price?: number | null;
   factory_price_confirmed_at?: string | null;
+  factory_price_locked?: boolean | null;
   variantsText?: string | null;
 }
 
@@ -72,21 +73,35 @@ export default function FactoryWorkView({
   onOpenDesign?: (item: FactoryWorkItem) => void;
 }) {
   const [pending, setPending] = useState<FactoryWorkItem | null>(null);
+  const [modalMode, setModalMode] = useState<'start' | 'edit'>('start');
   const [submitting, setSubmitting] = useState(false);
 
   const handleSelect = async (item: FactoryWorkItem, next: string) => {
     if (next === (item.factory_status || 'assigned')) return;
     if (next === 'in_progress') {
-      setPending(item); // 단가 확인 모달
+      if (item.factory_price_locked) {
+        // 정산 확정(잠금)된 건은 확정 단가 그대로 → 모달 없이 바로 작업 시작
+        await onApply(item, { status: 'in_progress' });
+      } else {
+        setModalMode('start');
+        setPending(item); // 단가 확인 모달
+      }
       return;
     }
     await onApply(item, { status: next });
   };
 
+  // 작업 진행 중에도 단가를 자유롭게 수정 (잠금 전까지)
+  const openEditPrice = (item: FactoryWorkItem) => {
+    setModalMode('edit');
+    setPending(item);
+  };
+
   const handleConfirm = async (result: FactoryPriceResult) => {
     if (!pending) return;
     setSubmitting(true);
-    const ok = await onApply(pending, { status: 'in_progress', price: result });
+    const targetStatus = modalMode === 'start' ? 'in_progress' : (pending.factory_status || 'assigned');
+    const ok = await onApply(pending, { status: targetStatus, price: result });
     setSubmitting(false);
     if (ok) setPending(null);
   };
@@ -187,6 +202,19 @@ export default function FactoryWorkView({
                     <span className="text-xs text-gray-500">기본 {won(unit)}/장 (작업 시작 시 확정)</span>
                   ) : (
                     <span className="text-xs text-gray-400">작업 시작 시 단가 입력</span>
+                  )}
+
+                  {item.factory_price_locked ? (
+                    <span className="inline-flex items-center gap-0.5 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] font-medium text-white">🔒 정산확정</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => openEditPrice(item)}
+                      disabled={busy}
+                      className="text-xs font-medium text-blue-600 hover:underline disabled:opacity-50"
+                    >
+                      단가 수정
+                    </button>
                   )}
 
                   {busy && <span className="text-xs text-gray-400">처리 중...</span>}

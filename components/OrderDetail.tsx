@@ -2337,6 +2337,48 @@ export default function OrderDetail({
                         <option value="shipped">출고완료</option>
                       </select>
                     </div>
+                    {/* 관리자 정산 확정(잠금) — 확정 후 공장은 단가 수정 불가 */}
+                    {!isFactoryUser && (
+                      <div className="flex items-center justify-between rounded-md bg-gray-50 px-2 py-1.5">
+                        <span className="text-xs text-gray-600">
+                          정산 단가{' '}
+                          <span className="font-semibold text-gray-900">
+                            {item.factory_amount ? `${item.factory_amount.toLocaleString()}원` : '미입력'}
+                          </span>
+                          {(item as any).factory_price_locked && (
+                            <span className="ml-1 text-[10px] font-medium text-gray-800">🔒 확정</span>
+                          )}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const locked = !(item as any).factory_price_locked;
+                            try {
+                              const res = await fetch('/api/admin/orders', {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ orderId: order.id, orderItemId: item.id, lockFactoryPrice: locked }),
+                              });
+                              if (!res.ok) {
+                                const p = await res.json().catch(() => ({}));
+                                throw new Error(p?.error || '처리에 실패했습니다.');
+                              }
+                              await fetchOrderItems();
+                              onUpdate();
+                            } catch (e) {
+                              alert(e instanceof Error ? e.message : '처리에 실패했습니다.');
+                            }
+                          }}
+                          className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                            (item as any).factory_price_locked
+                              ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                              : 'bg-gray-900 text-white hover:bg-black'
+                          }`}
+                        >
+                          {(item as any).factory_price_locked ? '잠금 해제' : '정산 확정'}
+                        </button>
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
                         <p className="text-gray-500">마감일</p>

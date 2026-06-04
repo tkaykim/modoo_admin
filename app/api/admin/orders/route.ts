@@ -156,7 +156,7 @@ export async function PATCH(request: Request) {
       const factoryPriceModeInput = payload?.factoryPriceMode;
       const orderItemId = payload?.orderItemId;
 
-      if (!factoryStatusInput && factoryAmountInput === undefined) {
+      if (!factoryStatusInput && factoryAmountInput === undefined && factoryUnitPriceInput === undefined) {
         return NextResponse.json({ error: '변경할 항목이 없습니다.' }, { status: 400 });
       }
 
@@ -167,25 +167,42 @@ export async function PATCH(request: Request) {
         }
       }
 
-      // 단가 확정 게이트: "작업중" 전환(= 작업 시작)은 반드시 단가 확인을 거쳐야 한다.
-      // 프론트가 항상 확정 모달을 띄우고 confirmFactoryPrice=true를 함께 보낸다.
-      const confirmFactoryPrice = payload?.confirmFactoryPrice === true;
-      if (factoryStatusInput === 'in_progress' && !confirmFactoryPrice) {
-        return NextResponse.json(
-          { error: '작업 시작 전 정산 단가를 확인해 주세요.', code: 'FACTORY_PRICE_REQUIRED' },
-          { status: 400 }
-        );
-      }
-
-      // Verify this factory has items assigned in this order
+      // Verify this factory has items assigned in this order (+ 잠금 상태 확인)
       const { data: factoryItems, error: itemCheckError } = await adminClient
         .from('order_items')
-        .select('id, assigned_manufacturer_id')
+        .select('id, assigned_manufacturer_id, factory_price_locked')
         .eq('order_id', orderId)
         .eq('assigned_manufacturer_id', profile.manufacturer_id);
 
       if (itemCheckError || !factoryItems || factoryItems.length === 0) {
         return NextResponse.json({ error: '이 주문에 대한 권한이 없습니다.' }, { status: 403 });
+      }
+
+      // 정산 확정(잠금) 판정 — 대상 품목 기준
+      const targetItem = orderItemId ? factoryItems.find((i) => i.id === orderItemId) : null;
+      const targetLocked = orderItemId
+        ? !!targetItem?.factory_price_locked
+        : factoryItems.every((i) => i.factory_price_locked);
+
+      const wantsPriceChange =
+        factoryAmountInput !== undefined || factoryUnitPriceInput !== undefined || factoryPriceModeInput !== undefined;
+
+      // 잠금된 단가는 공장이 수정 불가 (관리자만 해제/수정)
+      if (targetLocked && wantsPriceChange) {
+        return NextResponse.json(
+          { error: '관리자가 정산 확정한 단가입니다. 수정하려면 관리자에게 요청해 주세요.', code: 'FACTORY_PRICE_LOCKED' },
+          { status: 403 }
+        );
+      }
+
+      // 단가 확정 게이트: "작업중" 전환은 단가 확인을 거쳐야 한다.
+      // 단, 이미 정산 확정(잠금)된 건은 확정값을 그대로 쓰므로 게이트 생략.
+      const confirmFactoryPrice = payload?.confirmFactoryPrice === true;
+      if (!targetLocked && factoryStatusInput === 'in_progress' && !confirmFactoryPrice) {
+        return NextResponse.json(
+          { error: '작업 시작 전 정산 단가를 확인해 주세요.', code: 'FACTORY_PRICE_REQUIRED' },
+          { status: 400 }
+        );
       }
 
       const itemUpdateData: Record<string, unknown> = {
@@ -195,19 +212,22 @@ export async function PATCH(request: Request) {
       if (factoryStatusInput) {
         itemUpdateData.factory_status = factoryStatusInput;
       }
-      if (factoryAmountInput !== undefined) {
-        itemUpdateData.factory_amount = factoryAmountInput;
-      }
-      if (factoryUnitPriceInput !== undefined) {
-        itemUpdateData.factory_unit_price = factoryUnitPriceInput;
-      }
-      if (factoryPriceModeInput !== undefined) {
-        itemUpdateData.factory_price_mode = factoryPriceModeInput;
-      }
-      // 단가 확정 시각·주체 기록 (0원 의도 확정 vs 미입력 구분)
-      if (confirmFactoryPrice) {
-        itemUpdateData.factory_price_confirmed_at = new Date().toISOString();
-        itemUpdateData.factory_price_confirmed_by = user.id;
+      // 단가 관련 필드는 잠금 안 됐을 때만 반영 (잠금 시 상태 진행만 허용)
+      if (!targetLocked) {
+        if (factoryAmountInput !== undefined) {
+          itemUpdateData.factory_amount = factoryAmountInput;
+        }
+        if (factoryUnitPriceInput !== undefined) {
+          itemUpdateData.factory_unit_price = factoryUnitPriceInput;
+        }
+        if (factoryPriceModeInput !== undefined) {
+          itemUpdateData.factory_price_mode = factoryPriceModeInput;
+        }
+        // 단가 확정 시각·주체 기록 (0원 의도 확정 vs 미입력 구분)
+        if (confirmFactoryPrice) {
+          itemUpdateData.factory_price_confirmed_at = new Date().toISOString();
+          itemUpdateData.factory_price_confirmed_by = user.id;
+        }
       }
 
       // Update specific item or all items assigned to this factory in this order
@@ -280,6 +300,25 @@ export async function PATCH(request: Request) {
         .single();
 
       return NextResponse.json({ data: updatedOrder });
+    }
+
+    // 관리자: 공장 단가 정산 확정(잠금) / 해제 — 잠금되면 공장은 단가 수정 불가.
+    if (payload?.lockFactoryPrice !== undefined && payload?.orderItemId) {
+      const locked = payload.lockFactoryPrice === true;
+      const { error: lockErr } = await adminClient
+        .from('order_items')
+        .update({
+          factory_price_locked: locked,
+          factory_price_locked_by: locked ? user.id : null,
+          factory_price_locked_at: locked ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', payload.orderItemId)
+        .eq('order_id', orderId);
+      if (lockErr) {
+        return NextResponse.json({ error: lockErr.message }, { status: 500 });
+      }
+      return NextResponse.json({ data: { id: payload.orderItemId, factory_price_locked: locked } });
     }
 
     // Admin flow below

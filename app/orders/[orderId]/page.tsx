@@ -225,6 +225,7 @@ export default function OrderDetailPage() {
         factory_amount: it.factory_amount,
         factory_unit_price: it.factory_unit_price,
         factory_price_confirmed_at: it.factory_price_confirmed_at,
+        factory_price_locked: it.factory_price_locked,
       }));
     return (
       <div className="mx-auto max-w-2xl p-4">
