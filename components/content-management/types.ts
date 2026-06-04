@@ -55,6 +55,9 @@ export type HeroBannerRecord = {
   redirect_link: string | null;
   sort_order: number;
   is_active: boolean | null;
+  image_focal_x: number | null;
+  image_focal_y: number | null;
+  image_zoom: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -150,6 +153,9 @@ export type HeroBannerFormState = {
   redirect_link: string;
   sort_order: number;
   is_active: boolean;
+  image_focal_x: number;
+  image_focal_y: number;
+  image_zoom: number;
 };
 
 export type FaqFormState = {

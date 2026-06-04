@@ -36,7 +36,20 @@ const requireAdmin = async () => {
 };
 
 const HERO_BANNER_SELECT_FIELDS =
-  'id, title, subtitle, image_link, redirect_link, sort_order, is_active, created_at, updated_at';
+  'id, title, subtitle, image_link, redirect_link, sort_order, is_active, image_focal_x, image_focal_y, image_zoom, created_at, updated_at';
+
+// 위치(0~100) / 줌(1.0~4.0) 값을 안전 범위로 정규화
+const clampFocal = (value: unknown, fallback: number) => {
+  const num = Number(value);
+  if (Number.isNaN(num)) return fallback;
+  return Math.min(100, Math.max(0, num));
+};
+
+const clampZoom = (value: unknown, fallback: number) => {
+  const num = Number(value);
+  if (Number.isNaN(num)) return fallback;
+  return Math.min(4, Math.max(1, num));
+};
 
 export async function GET() {
   try {
@@ -101,6 +114,9 @@ export async function POST(request: Request) {
         redirect_link: redirectLink,
         sort_order: Number.isNaN(sortOrder) ? 0 : sortOrder,
         is_active: Boolean(isActive),
+        image_focal_x: clampFocal(payload?.image_focal_x, 50),
+        image_focal_y: clampFocal(payload?.image_focal_y, 50),
+        image_zoom: clampZoom(payload?.image_zoom, 1),
       })
       .select(HERO_BANNER_SELECT_FIELDS)
       .single();
@@ -159,6 +175,18 @@ export async function PATCH(request: Request) {
 
     if (typeof payload?.is_active === 'boolean') {
       updateData.is_active = payload.is_active;
+    }
+
+    if (payload?.image_focal_x !== undefined) {
+      updateData.image_focal_x = clampFocal(payload.image_focal_x, 50);
+    }
+
+    if (payload?.image_focal_y !== undefined) {
+      updateData.image_focal_y = clampFocal(payload.image_focal_y, 50);
+    }
+
+    if (payload?.image_zoom !== undefined) {
+      updateData.image_zoom = clampZoom(payload.image_zoom, 1);
     }
 
     if (Object.keys(updateData).length === 1) {

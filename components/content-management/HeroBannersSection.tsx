@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ChangeEvent } from 'react';
+import { useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import useSWR from 'swr';
 import { createClient } from '@/lib/supabase-client';
 import { uploadFileToStorage } from '@/lib/supabase-storage';
@@ -27,6 +27,51 @@ export default function HeroBannersSection() {
   const [linkType, setLinkType] = useState<'url' | 'announcement'>('url');
   const [announcementPickerOpen, setAnnouncementPickerOpen] = useState(false);
   const [linkedAnnouncementTitle, setLinkedAnnouncementTitle] = useState<string | null>(null);
+
+  // 배너 이미지 위치/줌 조정 (드래그 이동 + 줌 슬라이더)
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const dragStateRef = useRef<{ x: number; y: number; fx: number; fy: number } | null>(null);
+  const [isDraggingPreview, setIsDraggingPreview] = useState(false);
+
+  const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+  const handlePreviewPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!bannerForm.image_link) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragStateRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      fx: bannerForm.image_focal_x,
+      fy: bannerForm.image_focal_y,
+    };
+    setIsDraggingPreview(true);
+  };
+
+  const handlePreviewPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragStateRef.current;
+    const node = previewRef.current;
+    if (!drag || !node) return;
+    const rect = node.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    // 커서를 오른쪽으로 끌면 이미지가 오른쪽으로 이동(왼쪽 영역 노출) → focalX 감소
+    const nextX = clamp(drag.fx - ((event.clientX - drag.x) / rect.width) * 100, 0, 100);
+    const nextY = clamp(drag.fy - ((event.clientY - drag.y) / rect.height) * 100, 0, 100);
+    setBannerForm((prev) => ({
+      ...prev,
+      image_focal_x: Math.round(nextX),
+      image_focal_y: Math.round(nextY),
+    }));
+  };
+
+  const handlePreviewPointerEnd = () => {
+    dragStateRef.current = null;
+    setIsDraggingPreview(false);
+  };
+
+  const resetBannerTransform = () => {
+    setBannerForm((prev) => ({ ...prev, image_focal_x: 50, image_focal_y: 50, image_zoom: 1 }));
+  };
 
   const { data: rawAnnouncements } = useSWR<AnnouncementRecord[]>(
     announcementPickerOpen ? '/api/admin/announcements' : null
@@ -61,6 +106,9 @@ export default function HeroBannersSection() {
       redirect_link: link,
       sort_order: banner.sort_order ?? 0,
       is_active: Boolean(banner.is_active),
+      image_focal_x: Number(banner.image_focal_x ?? 50),
+      image_focal_y: Number(banner.image_focal_y ?? 50),
+      image_zoom: Number(banner.image_zoom ?? 1) || 1,
     });
     setLinkType(isAnnouncementLink ? 'announcement' : 'url');
     setLinkedAnnouncementTitle(isAnnouncementLink ? link : null);
@@ -140,6 +188,9 @@ export default function HeroBannersSection() {
       redirect_link: bannerForm.redirect_link.trim() || null,
       sort_order: bannerForm.sort_order,
       is_active: bannerForm.is_active,
+      image_focal_x: bannerForm.image_focal_x,
+      image_focal_y: bannerForm.image_focal_y,
+      image_zoom: bannerForm.image_zoom,
     };
 
     try {
@@ -392,6 +443,81 @@ export default function HeroBannersSection() {
                 />
               </label>
             </div>
+            {/* 배너 위치/크기 조정 — 실제 홈 화면과 동일한 가로형(2:1) 미리보기 */}
+            <div className="space-y-2 text-sm text-gray-700">
+              <div className="flex items-center justify-between">
+                <span>배너 위치/크기 조정</span>
+                {bannerForm.image_link && (
+                  <button
+                    type="button"
+                    onClick={resetBannerTransform}
+                    className="text-xs text-gray-500 hover:text-blue-600 transition-colors"
+                  >
+                    초기화
+                  </button>
+                )}
+              </div>
+              {bannerForm.image_link ? (
+                <>
+                  <div
+                    ref={previewRef}
+                    onPointerDown={handlePreviewPointerDown}
+                    onPointerMove={handlePreviewPointerMove}
+                    onPointerUp={handlePreviewPointerEnd}
+                    onPointerCancel={handlePreviewPointerEnd}
+                    className={`relative w-full aspect-[2/1] overflow-hidden rounded-2xl border border-gray-200 bg-gray-100 select-none touch-none ${
+                      isDraggingPreview ? 'cursor-grabbing' : 'cursor-grab'
+                    }`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={bannerForm.image_link}
+                      alt="배너 미리보기"
+                      draggable={false}
+                      className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                      style={{
+                        objectPosition: `${bannerForm.image_focal_x}% ${bannerForm.image_focal_y}%`,
+                        transform: bannerForm.image_zoom !== 1 ? `scale(${bannerForm.image_zoom})` : undefined,
+                        transformOrigin: `${bannerForm.image_focal_x}% ${bannerForm.image_focal_y}%`,
+                      }}
+                    />
+                    <div className="absolute bottom-2 right-2 rounded-full bg-black/45 px-2 py-1 text-[11px] font-medium leading-none text-white backdrop-blur-sm pointer-events-none">
+                      드래그해서 위치 조정
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-gray-500 w-8 shrink-0">확대</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={4}
+                      step={0.05}
+                      value={bannerForm.image_zoom}
+                      onChange={(event) =>
+                        setBannerForm((prev) => ({
+                          ...prev,
+                          image_zoom: clamp(Number(event.target.value) || 1, 1, 4),
+                        }))
+                      }
+                      className="flex-1 accent-blue-600"
+                    />
+                    <span className="text-xs text-gray-700 tabular-nums w-12 text-right shrink-0">
+                      {bannerForm.image_zoom.toFixed(2)}x
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    실제 홈 화면과 동일한 가로형(2:1) 비율입니다.
+                    <br />
+                    이미지를 드래그해 위치를 잡고, 슬라이더로 확대해 딱 맞게 맞추세요.
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-gray-400">
+                  이미지를 업로드하면 위치와 크기를 조정할 수 있습니다.
+                </p>
+              )}
+            </div>
+
             <label className="inline-flex items-center gap-2 text-sm text-gray-700">
               <input
                 type="checkbox"
@@ -473,13 +599,20 @@ export default function HeroBannersSection() {
                   <tr key={banner.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap">
                       {banner.image_link ? (
-                        <img
-                          src={banner.image_link}
-                          alt={banner.title}
-                          className="w-16 h-16 object-cover rounded-md border border-gray-200"
-                        />
+                        <div className="w-24 h-12 overflow-hidden rounded-md border border-gray-200">
+                          <img
+                            src={banner.image_link}
+                            alt={banner.title}
+                            className="w-full h-full object-cover"
+                            style={{
+                              objectPosition: `${banner.image_focal_x ?? 50}% ${banner.image_focal_y ?? 50}%`,
+                              transform: (banner.image_zoom ?? 1) !== 1 ? `scale(${banner.image_zoom})` : undefined,
+                              transformOrigin: `${banner.image_focal_x ?? 50}% ${banner.image_focal_y ?? 50}%`,
+                            }}
+                          />
+                        </div>
                       ) : (
-                        <div className="w-16 h-16 rounded-md border border-gray-200 flex items-center justify-center text-xs text-gray-400">
+                        <div className="w-24 h-12 rounded-md border border-gray-200 flex items-center justify-center text-xs text-gray-400">
                           이미지 없음
                         </div>
                       )}

@@ -52,6 +52,9 @@ export const emptyHeroBannerForm: HeroBannerFormState = {
   redirect_link: '',
   sort_order: 0,
   is_active: true,
+  image_focal_x: 50,
+  image_focal_y: 50,
+  image_zoom: 1,
 };
 
 export const emptyAnnouncementForm: AnnouncementFormState = {
