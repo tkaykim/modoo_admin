@@ -116,6 +116,9 @@ export async function POST(request: Request) {
     const maxUses = payload?.max_uses !== null && payload?.max_uses !== undefined
       ? parseNumber(payload.max_uses)
       : null;
+    const maxUsesPerUser = payload?.max_uses_per_user !== null && payload?.max_uses_per_user !== undefined
+      ? parseNumber(payload.max_uses_per_user)
+      : null;
     const isActive = payload?.is_active ?? true;
     const expiresAt = payload?.expires_at ?? null;
     const validDaysAfterRegistration = payload?.valid_days_after_registration !== null && payload?.valid_days_after_registration !== undefined
@@ -147,6 +150,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '최대 사용 횟수가 유효하지 않습니다.' }, { status: 400 });
     }
 
+    if (maxUsesPerUser !== null && (!Number.isFinite(maxUsesPerUser) || maxUsesPerUser <= 0)) {
+      return NextResponse.json({ error: '1인당 사용 횟수가 유효하지 않습니다.' }, { status: 400 });
+    }
+
     if (validDaysAfterRegistration !== null && (!Number.isFinite(validDaysAfterRegistration) || validDaysAfterRegistration <= 0)) {
       return NextResponse.json({ error: '등록 후 유효 일수가 유효하지 않습니다.' }, { status: 400 });
     }
@@ -175,6 +182,7 @@ export async function POST(request: Request) {
         min_order_amount: minOrderAmount,
         max_discount_amount: maxDiscountAmount,
         max_uses: maxUses,
+        max_uses_per_user: maxUsesPerUser,
         current_uses: 0,
         is_active: isActive,
         expires_at: expiresAt,
@@ -272,6 +280,18 @@ export async function PATCH(request: Request) {
           return NextResponse.json({ error: '최대 사용 횟수가 유효하지 않습니다.' }, { status: 400 });
         }
         updateData.max_uses = maxUses;
+      }
+    }
+
+    if (payload?.max_uses_per_user !== undefined) {
+      if (payload.max_uses_per_user === null) {
+        updateData.max_uses_per_user = null;
+      } else {
+        const maxUsesPerUser = parseNumber(payload.max_uses_per_user);
+        if (!Number.isFinite(maxUsesPerUser) || maxUsesPerUser <= 0) {
+          return NextResponse.json({ error: '1인당 사용 횟수가 유효하지 않습니다.' }, { status: 400 });
+        }
+        updateData.max_uses_per_user = maxUsesPerUser;
       }
     }
 

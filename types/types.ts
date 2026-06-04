@@ -1020,7 +1020,10 @@ export interface Coupon {
   discount_value: number;
   min_order_amount: number;
   max_discount_amount: number | null;
+  /** 전체 사용 한도(전 사용자 합산). null = 무제한 */
   max_uses: number | null;
+  /** 1인당 사용 횟수 제한. null = 무제한, 정수 = 해당 횟수 */
+  max_uses_per_user: number | null;
   current_uses: number;
   is_active: boolean;
   expires_at: string | null;
@@ -1038,6 +1041,8 @@ export interface CouponUsage {
   used_at: string | null;
   order_id: string | null;
   discount_applied: number | null;
+  /** 해당 유저가 이 쿠폰을 실제 사용(결제)한 횟수 */
+  uses_count: number;
   created_at: string;
   // Joined relations
   coupon?: Coupon;

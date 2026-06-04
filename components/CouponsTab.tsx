@@ -46,6 +46,7 @@ export default function CouponsTab() {
     min_order_amount: '0',
     max_discount_amount: '',
     max_uses: '',
+    max_uses_per_user: '1',
     is_active: true,
     expires_at: '',
     valid_days_after_registration: '',
@@ -100,6 +101,7 @@ export default function CouponsTab() {
       min_order_amount: '0',
       max_discount_amount: '',
       max_uses: '',
+      max_uses_per_user: '1',
       is_active: true,
       expires_at: '',
       valid_days_after_registration: '',
@@ -122,6 +124,7 @@ export default function CouponsTab() {
           min_order_amount: Number(formData.min_order_amount) || 0,
           max_discount_amount: formData.max_discount_amount ? Number(formData.max_discount_amount) : null,
           max_uses: formData.max_uses ? Number(formData.max_uses) : null,
+          max_uses_per_user: formData.max_uses_per_user ? Number(formData.max_uses_per_user) : null,
           is_active: formData.is_active,
           expires_at: formData.expires_at || null,
           valid_days_after_registration: formData.valid_days_after_registration
@@ -167,6 +170,7 @@ export default function CouponsTab() {
           min_order_amount: Number(formData.min_order_amount) || 0,
           max_discount_amount: formData.max_discount_amount ? Number(formData.max_discount_amount) : null,
           max_uses: formData.max_uses ? Number(formData.max_uses) : null,
+          max_uses_per_user: formData.max_uses_per_user ? Number(formData.max_uses_per_user) : null,
           is_active: formData.is_active,
           expires_at: formData.expires_at || null,
           valid_days_after_registration: formData.valid_days_after_registration
@@ -260,6 +264,7 @@ export default function CouponsTab() {
       min_order_amount: String(coupon.min_order_amount),
       max_discount_amount: coupon.max_discount_amount ? String(coupon.max_discount_amount) : '',
       max_uses: coupon.max_uses ? String(coupon.max_uses) : '',
+      max_uses_per_user: coupon.max_uses_per_user ? String(coupon.max_uses_per_user) : '',
       is_active: coupon.is_active,
       expires_at: coupon.expires_at ? coupon.expires_at.slice(0, 16) : '',
       valid_days_after_registration: coupon.valid_days_after_registration
@@ -416,6 +421,9 @@ export default function CouponsTab() {
                         {coupon.max_uses ? ` / ${coupon.max_uses}` : ''}
                       </span>
                     </div>
+                    <div className="text-[11px] text-gray-400 mt-0.5">
+                      1인 {coupon.max_uses_per_user ?? '무제한'}회
+                    </div>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">{getStatusBadge(coupon)}</td>
                   <td className="px-4 py-3 whitespace-nowrap">
@@ -479,6 +487,7 @@ export default function CouponsTab() {
                 <span className="flex items-center gap-0.5">
                   <Users className="w-3 h-3 text-gray-400" />
                   {coupon.current_uses}{coupon.max_uses ? ` / ${coupon.max_uses}` : ''}
+                  <span className="text-gray-400">· 1인 {coupon.max_uses_per_user ?? '무제한'}회</span>
                 </span>
                 <span className="flex items-center gap-0.5">
                   <Calendar className="w-3 h-3 text-gray-400" />
@@ -629,18 +638,40 @@ export default function CouponsTab() {
                 </div>
               </div>
 
-              {/* Max Uses */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">최대 사용 횟수</label>
-                <input
-                  type="number"
-                  value={formData.max_uses}
-                  onChange={(e) => setFormData({ ...formData, max_uses: e.target.value })}
-                  placeholder="무제한"
-                  min="1"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+              {/* Usage limits — 전체 한도 vs 1인당 한도 (별개 개념) */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    전체 사용 한도
+                    <span className="text-gray-400 text-xs ml-1">(전 사용자 합산)</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.max_uses}
+                    onChange={(e) => setFormData({ ...formData, max_uses: e.target.value })}
+                    placeholder="무제한"
+                    min="1"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    1인당 사용 횟수
+                    <span className="text-gray-400 text-xs ml-1">(빈칸=무제한)</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.max_uses_per_user}
+                    onChange={(e) => setFormData({ ...formData, max_uses_per_user: e.target.value })}
+                    placeholder="무제한"
+                    min="1"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
               </div>
+              <p className="-mt-2 text-xs text-gray-400">
+                전체 한도는 쿠폰이 총 몇 번 쓰일 수 있는지, 1인당 횟수는 한 사람이 몇 번 쓸 수 있는지를 각각 정합니다.
+              </p>
 
               {/* Expiry Options */}
               <div className="space-y-2">
