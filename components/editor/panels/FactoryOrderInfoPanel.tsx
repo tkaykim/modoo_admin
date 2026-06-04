@@ -11,7 +11,7 @@ import { extractVariants } from '@/lib/orderUtils';
 import { formatKstDateShort } from '@/lib/kst';
 import { orderCategoryLabel } from '@/lib/order-category';
 import { isAdminLike } from '@/lib/auth-helpers';
-import FactoryPriceConfirmModal from '@/components/factory/FactoryPriceConfirmModal';
+import FactoryPriceConfirmModal, { type FactoryPriceResult } from '@/components/factory/FactoryPriceConfirmModal';
 
 interface FactoryOrderInfoPanelProps {
   orderId: string;
@@ -73,7 +73,7 @@ export default function FactoryOrderInfoPanel({
 
   const handleFactoryStatusChange = useCallback(async (
     newStatus: string,
-    opts?: { factoryAmount?: number; confirm?: boolean }
+    opts?: { factoryAmount?: number; factoryUnitPrice?: number | null; factoryPriceMode?: string; confirm?: boolean }
   ): Promise<boolean> => {
     if (!order || !currentItem) return false;
     setUpdatingStatus(true);
@@ -81,6 +81,8 @@ export default function FactoryOrderInfoPanel({
       const body: Record<string, unknown> = { orderId: order.id, itemId: currentItem.id, factoryStatus: newStatus };
       if (opts?.confirm) body.confirmFactoryPrice = true;
       if (opts?.factoryAmount !== undefined) body.factoryAmount = opts.factoryAmount;
+      if (opts?.factoryUnitPrice !== undefined) body.factoryUnitPrice = opts.factoryUnitPrice;
+      if (opts?.factoryPriceMode !== undefined) body.factoryPriceMode = opts.factoryPriceMode;
       const response = await fetch('/api/admin/orders', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -123,8 +125,13 @@ export default function FactoryOrderInfoPanel({
     handleFactoryStatusChange(newStatus);
   }, [handleFactoryStatusChange]);
 
-  const handleConfirmPrice = useCallback(async (amount: number) => {
-    const ok = await handleFactoryStatusChange('in_progress', { factoryAmount: amount, confirm: true });
+  const handleConfirmPrice = useCallback(async (result: FactoryPriceResult) => {
+    const ok = await handleFactoryStatusChange('in_progress', {
+      factoryAmount: result.amount,
+      factoryUnitPrice: result.unitPrice,
+      factoryPriceMode: result.mode,
+      confirm: true,
+    });
     if (ok) setShowPriceModal(false);
   }, [handleFactoryStatusChange]);
 
@@ -165,6 +172,12 @@ export default function FactoryOrderInfoPanel({
           itemTitle={currentItem.product_title}
           quantity={currentItem.quantity}
           initialAmount={currentItem.factory_amount ?? 0}
+          defaultUnitPrice={
+            (currentItem as any).factory_unit_price ??
+            (currentItem.factory_amount && currentItem.quantity
+              ? Math.round(Number(currentItem.factory_amount) / Number(currentItem.quantity))
+              : null)
+          }
           submitting={updatingStatus}
           onConfirm={handleConfirmPrice}
           onClose={() => setShowPriceModal(false)}

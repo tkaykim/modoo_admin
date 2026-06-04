@@ -152,6 +152,8 @@ export async function PATCH(request: Request) {
     if (isFactoryUser) {
       const factoryStatusInput = payload?.factoryStatus;
       const factoryAmountInput = payload?.factoryAmount;
+      const factoryUnitPriceInput = payload?.factoryUnitPrice;
+      const factoryPriceModeInput = payload?.factoryPriceMode;
       const orderItemId = payload?.orderItemId;
 
       if (!factoryStatusInput && factoryAmountInput === undefined) {
@@ -195,6 +197,12 @@ export async function PATCH(request: Request) {
       }
       if (factoryAmountInput !== undefined) {
         itemUpdateData.factory_amount = factoryAmountInput;
+      }
+      if (factoryUnitPriceInput !== undefined) {
+        itemUpdateData.factory_unit_price = factoryUnitPriceInput;
+      }
+      if (factoryPriceModeInput !== undefined) {
+        itemUpdateData.factory_price_mode = factoryPriceModeInput;
       }
       // 단가 확정 시각·주체 기록 (0원 의도 확정 vs 미입력 구분)
       if (confirmFactoryPrice) {

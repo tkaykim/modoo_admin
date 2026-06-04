@@ -5,7 +5,7 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { Package, Calendar, Clock, CreditCard, ArrowLeft, Download, LayoutList, MessageSquare, Paperclip } from 'lucide-react';
 import { createClient } from '@/lib/supabase-client';
 import OrderAttachmentSection from '@/components/orders/OrderAttachmentSection';
-import FactoryPriceConfirmModal from '@/components/factory/FactoryPriceConfirmModal';
+import FactoryWorkView, { type FactoryWorkItem } from '@/components/factory/FactoryWorkView';
 import { extractVariantsFromOptions } from '@/lib/orderUtils';
 import type { Product, OrderItem, ProductColor, CanvasState, CustomFont } from '@/types/types';
 import { formatKstDateOnly } from '@/lib/kst';
@@ -68,6 +68,7 @@ interface PublicOrderItem {
   assigned_manufacturer_id?: string | null;
   factory_status?: string | null;
   factory_amount?: number | null;
+  factory_unit_price?: number | null;
   factory_price_confirmed_at?: string | null;
   products?: {
     product_code: string | null;
@@ -430,7 +431,7 @@ export default function SharedOrderPage() {
   const patchItemStatus = async (
     item: PublicOrderItem,
     newStatus: string,
-    opts?: { factoryAmount?: number; confirm?: boolean }
+    opts?: { factoryAmount?: number; factoryUnitPrice?: number | null; factoryPriceMode?: string; confirm?: boolean }
   ) => {
     if (!shareToken) return false;
     setUpdatingItemId(item.id);
@@ -439,6 +440,8 @@ export default function SharedOrderPage() {
       if (factoryId) body.factory = factoryId;
       if (opts?.confirm) body.confirmFactoryPrice = true;
       if (opts?.factoryAmount !== undefined) body.factoryAmount = opts.factoryAmount;
+      if (opts?.factoryUnitPrice !== undefined) body.factoryUnitPrice = opts.factoryUnitPrice;
+      if (opts?.factoryPriceMode !== undefined) body.factoryPriceMode = opts.factoryPriceMode;
       const response = await fetch(`/api/public/orders/${shareToken}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -471,22 +474,6 @@ export default function SharedOrderPage() {
     } finally {
       setUpdatingItemId(null);
     }
-  };
-
-  // "작업중" 전환은 항상 단가 확정 모달을 거친다 (금액 0이든 아니든). 그 외 상태는 즉시 변경.
-  const handleItemStatusSelect = (item: PublicOrderItem, newStatus: string) => {
-    if (newStatus === (item.factory_status || 'assigned')) return;
-    if (newStatus === 'in_progress') {
-      setPendingItem(item);
-      return;
-    }
-    patchItemStatus(item, newStatus);
-  };
-
-  const handleConfirmPrice = async (amount: number) => {
-    if (!pendingItem) return;
-    const ok = await patchItemStatus(pendingItem, 'in_progress', { factoryAmount: amount, confirm: true });
-    if (ok) setPendingItem(null);
   };
 
   const formatDate = (dateString: string) => formatKstDateOnly(dateString);
@@ -549,15 +536,6 @@ export default function SharedOrderPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <FactoryPriceConfirmModal
-        open={!!pendingItem}
-        itemTitle={pendingItem?.product_title || ''}
-        quantity={pendingItem?.quantity ?? null}
-        initialAmount={pendingItem?.factory_amount ?? 0}
-        submitting={!!pendingItem && updatingItemId === pendingItem.id}
-        onConfirm={handleConfirmPrice}
-        onClose={() => setPendingItem(null)}
-      />
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-4">
@@ -635,88 +613,41 @@ export default function SharedOrderPage() {
               </div>
             </div>
 
-            {/* Order Items List */}
+            {/* 작업 목록 — 로그인/링크 공통 컴포넌트 (동일 경험) */}
             <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <h2 className="text-base font-semibold text-gray-900 mb-4">주문 상품 ({items.length})</h2>
-              <div className="space-y-3">
-                {items.map((item) => (
-                    <div
-                      key={item.id}
-                      onClick={() => setSelectedItemId(item.id)}
-                      className="flex gap-4 p-3 border border-gray-200 rounded-lg cursor-pointer transition-all hover:border-gray-300 hover:bg-gray-50"
-                    >
-                      <div className="w-20 h-20 bg-gray-100 rounded flex-shrink-0 overflow-hidden">
-                        {item.thumbnail_url ? (
-                          <img
-                            src={item.thumbnail_url}
-                            alt={item.product_title}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Package className="w-8 h-8 text-gray-400" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-gray-900 truncate">{item.product_title}</h3>
-                        {item.products?.product_code && (
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            상품코드: {item.products.product_code}
-                          </p>
-                        )}
-                        {(() => {
-                          const variants = extractVariantsFromOptions(item.item_options, item.quantity);
-                          return (
-                            <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                              {variants.filter(v => (v.quantity ?? 0) > 0).map((v, vi) => (
-                                <span key={vi} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
-                                  {v.color_hex && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: v.color_hex }} />}
-                                  {v.color_name && <span>{v.color_name}</span>}
-                                  {v.size_name && <span>{v.size_name}</span>}
-                                  <span className="font-medium">x{v.quantity}</span>
-                                </span>
-                              ))}
-                              {variants.length > 1 && (
-                                <span className="inline-flex items-center px-1.5 py-0.5 bg-blue-50 rounded text-xs font-semibold text-blue-700">
-                                  합계: {item.quantity}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })()}
-                        <div
-                          className="mt-2 flex flex-wrap items-center gap-2"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <span className="text-xs text-gray-500">작업 상태</span>
-                          <select
-                            value={item.factory_status || 'assigned'}
-                            onChange={(e) => handleItemStatusSelect(item, e.target.value)}
-                            disabled={updatingItemId === item.id || item.factory_status === 'shipped'}
-                            className="rounded-md border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 disabled:bg-gray-100"
-                          >
-                            {factoryStatusOptions.map((opt) => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </select>
-                          {item.factory_amount != null && item.factory_amount > 0 ? (
-                            <span className="text-xs font-medium text-gray-700">
-                              {item.factory_amount.toLocaleString()}원
-                              {item.factory_price_confirmed_at && <span className="ml-0.5 text-emerald-600">✓</span>}
-                            </span>
-                          ) : item.factory_price_confirmed_at ? (
-                            <span className="text-xs font-medium text-gray-500">
-                              0원 확정<span className="ml-0.5 text-emerald-600">✓</span>
-                            </span>
-                          ) : null}
-                          {updatingItemId === item.id && <span className="text-xs text-gray-400">변경 중...</span>}
-                        </div>
-                        <p className="text-xs text-blue-600 mt-2">클릭하여 디자인 보기</p>
-                      </div>
-                    </div>
-                  ))}
-              </div>
+              <FactoryWorkView
+                title="주문 상품"
+                updatingItemId={updatingItemId}
+                items={items.map((item): FactoryWorkItem => ({
+                  id: item.id,
+                  product_title: item.product_title,
+                  design_title: null,
+                  quantity: item.quantity,
+                  thumbnail_url: item.thumbnail_url,
+                  product_code: item.products?.product_code ?? null,
+                  factory_status: item.factory_status,
+                  factory_amount: item.factory_amount,
+                  factory_unit_price: item.factory_unit_price ?? null,
+                  factory_price_confirmed_at: item.factory_price_confirmed_at,
+                  variantsText: extractVariantsFromOptions(item.item_options, item.quantity)
+                    .filter((v) => (v.quantity ?? 0) > 0)
+                    .map((v) => `${v.color_name || ''}${v.size_name ? ' ' + v.size_name : ''} x${v.quantity}`.trim())
+                    .join(', '),
+                }))}
+                onApply={async (workItem, payload) => {
+                  const orig = items.find((i) => i.id === workItem.id);
+                  if (!orig) return false;
+                  const opts: { factoryAmount?: number; factoryUnitPrice?: number | null; factoryPriceMode?: string; confirm?: boolean } = {};
+                  if (payload.price) {
+                    opts.factoryAmount = payload.price.amount;
+                    opts.factoryUnitPrice = payload.price.unitPrice;
+                    opts.factoryPriceMode = payload.price.mode;
+                    opts.confirm = true;
+                  }
+                  return await patchItemStatus(orig, payload.status, opts);
+                }}
+                onOpenDesign={(workItem) => setSelectedItemId(workItem.id)}
+              />
             </div>
           </div>
 

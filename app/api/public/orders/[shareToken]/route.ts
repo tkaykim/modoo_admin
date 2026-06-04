@@ -78,6 +78,7 @@ export async function GET(
         assigned_manufacturer_id,
         factory_status,
         factory_amount,
+        factory_unit_price,
         factory_price_confirmed_at,
         products(product_code, title, configuration, size_options, base_price, manufacturers(id, name)),
         created_at
@@ -137,6 +138,8 @@ export async function PATCH(
     const factoryStatus = payload?.factoryStatus;
     const itemId = payload?.itemId;
     const factoryAmount = payload?.factoryAmount;
+    const factoryUnitPrice = payload?.factoryUnitPrice;
+    const factoryPriceMode = payload?.factoryPriceMode;
     const factoryId = payload?.factory; // 선택: 공장 스코프
     const confirmFactoryPrice = payload?.confirmFactoryPrice === true;
 
@@ -193,6 +196,12 @@ export async function PATCH(
       };
       if (factoryAmount !== undefined && factoryAmount !== null) {
         itemUpdate.factory_amount = factoryAmount;
+      }
+      if (factoryUnitPrice !== undefined) {
+        itemUpdate.factory_unit_price = factoryUnitPrice;
+      }
+      if (factoryPriceMode !== undefined) {
+        itemUpdate.factory_price_mode = factoryPriceMode;
       }
       if (confirmFactoryPrice) {
         // 비로그인 링크 확정 — 주체(by)는 없음, 시각만 기록

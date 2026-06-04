@@ -2464,8 +2464,14 @@ export default function OrderDetail({
           itemTitle={priceModalItem.product_title}
           quantity={priceModalItem.quantity}
           initialAmount={priceModalItem.factory_amount ?? 0}
+          defaultUnitPrice={
+            (priceModalItem as any).factory_unit_price ??
+            (priceModalItem.factory_amount && priceModalItem.quantity
+              ? Math.round(Number(priceModalItem.factory_amount) / Number(priceModalItem.quantity))
+              : null)
+          }
           submitting={savingPriceModal}
-          onConfirm={async (amount) => {
+          onConfirm={async (result) => {
             setSavingPriceModal(true);
             try {
               const response = await fetch('/api/admin/orders', {
@@ -2475,7 +2481,9 @@ export default function OrderDetail({
                   orderId: order.id,
                   orderItemId: priceModalItem.id,
                   factoryStatus: 'in_progress',
-                  factoryAmount: amount,
+                  factoryAmount: result.amount,
+                  factoryUnitPrice: result.unitPrice,
+                  factoryPriceMode: result.mode,
                   confirmFactoryPrice: true,
                 }),
               });
