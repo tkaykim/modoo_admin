@@ -26,6 +26,25 @@ async function requireSuperAdmin() {
   return { ok: true as const, userId: user.id };
 }
 
+/** 정산 주기·지급일로 다음 지급 예정일(YYYY-MM-DD) 계산. per_order/manual은 null. */
+function computeNextPaymentDate(cycle: string | null, day: number | null): string | null {
+  const now = new Date();
+  if (cycle === 'monthly') {
+    const d = day && day >= 1 && day <= 31 ? day : 10;
+    let t = new Date(now.getFullYear(), now.getMonth(), d);
+    if (t.getTime() <= now.getTime()) t = new Date(now.getFullYear(), now.getMonth() + 1, d);
+    return t.toISOString().slice(0, 10);
+  }
+  if (cycle === 'weekly') {
+    const wd = day != null && day >= 0 && day <= 6 ? day : 5;
+    const t = new Date(now);
+    const diff = ((wd - now.getDay() + 7) % 7) || 7;
+    t.setDate(now.getDate() + diff);
+    return t.toISOString().slice(0, 10);
+  }
+  return null; // per_order, manual
+}
+
 export async function GET(request: Request) {
   try {
     const auth = await requireSuperAdmin();
@@ -47,30 +66,44 @@ export async function GET(request: Request) {
       .order('deadline', { ascending: true, nullsFirst: false });
 
     if (factoryId) q = q.eq('assigned_manufacturer_id', factoryId);
-    if (status === 'pending') q = q.or('factory_payment_status.is.null,factory_payment_status.eq.pending');
-    else if (status === 'completed') q = q.eq('factory_payment_status', 'completed');
+    // status 필터는 목록에만 적용(집계는 항상 전체 기준) — 아래 JS에서 처리.
 
     const { data: items, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // 공장명 별도 조회(조인 의존 회피)
+    // 공장 정보·정산 설정 별도 조회(조인 의존 회피)
     const factoryIds = [...new Set((items || []).map((i) => i.assigned_manufacturer_id).filter(Boolean))] as string[];
-    const nameById = new Map<string, string>();
+    const mfgById = new Map<string, { name: string; payment_cycle: string | null; payment_day: number | null; payment_memo: string | null }>();
     if (factoryIds.length > 0) {
-      const { data: mfgs } = await admin.from('manufacturers').select('id, name').in('id', factoryIds);
-      for (const m of mfgs || []) nameById.set(m.id, m.name);
+      const { data: mfgs } = await admin
+        .from('manufacturers')
+        .select('id, name, payment_cycle, payment_day, payment_memo')
+        .in('id', factoryIds);
+      for (const m of mfgs || []) {
+        mfgById.set(m.id, { name: m.name, payment_cycle: m.payment_cycle, payment_day: m.payment_day, payment_memo: m.payment_memo });
+      }
     }
 
-    // 공장별 집계
-    const byFactory = new Map<
-      string,
-      { factory_id: string; factory_name: string; pending_amount: number; pending_count: number; paid_amount: number; paid_count: number; total_count: number }
-    >();
+    // 공장별 집계 (+ 정산 주기·다음 지급예정일)
+    type Sum = {
+      factory_id: string; factory_name: string;
+      payment_cycle: string; payment_day: number | null; payment_memo: string | null; next_payment_date: string | null;
+      pending_amount: number; pending_count: number; paid_amount: number; paid_count: number; total_count: number;
+    };
+    const byFactory = new Map<string, Sum>();
     const enriched = (items || []).map((it) => {
       const fid = it.assigned_manufacturer_id as string;
-      const fname = nameById.get(fid) || '(미지정 공장)';
+      const mfg = mfgById.get(fid);
+      const fname = mfg?.name || '(미지정 공장)';
       if (!byFactory.has(fid)) {
-        byFactory.set(fid, { factory_id: fid, factory_name: fname, pending_amount: 0, pending_count: 0, paid_amount: 0, paid_count: 0, total_count: 0 });
+        const cycle = mfg?.payment_cycle || 'monthly';
+        const dayVal = mfg?.payment_day ?? null;
+        byFactory.set(fid, {
+          factory_id: fid, factory_name: fname,
+          payment_cycle: cycle, payment_day: dayVal, payment_memo: mfg?.payment_memo ?? null,
+          next_payment_date: computeNextPaymentDate(cycle, dayVal),
+          pending_amount: 0, pending_count: 0, paid_amount: 0, paid_count: 0, total_count: 0,
+        });
       }
       const g = byFactory.get(fid)!;
       g.total_count++;
@@ -85,8 +118,26 @@ export async function GET(request: Request) {
       return { ...it, factory_name: fname };
     });
 
-    const summary = Array.from(byFactory.values()).sort((a, b) => b.pending_amount - a.pending_amount);
-    return NextResponse.json({ data: { items: enriched, summary } });
+    // 다음 지급 예정일 임박 순(없는 건 뒤로), 그 다음 미지급액 큰 순
+    const summary = Array.from(byFactory.values()).sort((a, b) => {
+      if (a.next_payment_date && b.next_payment_date) {
+        if (a.next_payment_date !== b.next_payment_date) return a.next_payment_date < b.next_payment_date ? -1 : 1;
+        return b.pending_amount - a.pending_amount;
+      }
+      if (a.next_payment_date) return -1;
+      if (b.next_payment_date) return 1;
+      return b.pending_amount - a.pending_amount;
+    });
+
+    // 목록만 상태 필터(집계 summary는 전체 기준 유지)
+    const visibleItems =
+      status === 'pending'
+        ? enriched.filter((it) => it.factory_payment_status !== 'completed')
+        : status === 'completed'
+        ? enriched.filter((it) => it.factory_payment_status === 'completed')
+        : enriched;
+
+    return NextResponse.json({ data: { items: visibleItems, summary } });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : '조회에 실패했습니다.' }, { status: 500 });
   }
