@@ -344,14 +344,22 @@ export default function OrdersTab() {
       result = result.filter((o) => selectedPaymentStatuses.has(o.payment_status));
     }
 
-    // Text search (name, email, order ID)
+    // Text search (name, email, order ID, design title)
     const q = searchQuery.trim().toLowerCase();
     if (q) {
-      result = result.filter((o) =>
-        o.id.toLowerCase().includes(q) ||
-        o.customer_name?.toLowerCase().includes(q) ||
-        o.customer_email?.toLowerCase().includes(q)
-      );
+      result = result.filter((o) => {
+        const designTitles = (o.order_items as { design_title?: string | null }[] | undefined)
+          ?.map(i => i.design_title)
+          .filter(Boolean)
+          .join(', ')
+          .toLowerCase() || '';
+        return (
+          o.id.toLowerCase().includes(q) ||
+          o.customer_name?.toLowerCase().includes(q) ||
+          o.customer_email?.toLowerCase().includes(q) ||
+          designTitles.includes(q)
+        );
+      });
     }
 
     // Sorting
@@ -538,7 +546,7 @@ export default function OrdersTab() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="이름, 이메일, 주문 ID 검색..."
+            placeholder="이름, 이메일, 주문 ID, 디자인명 검색..."
             className="w-full pl-8 pr-8 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
           />
           {searchQuery && (
