@@ -6,6 +6,7 @@ import { OrderItem, Product, ProductSide, ObjectDimensions, CanvasState, CustomF
 import { ChevronLeft, Palette, Ruler, Grid3x3, Download, Package, ZoomIn, ZoomOut, RotateCcw, Pencil, Save } from 'lucide-react';
 import SingleSideCanvas from './canvas/SingleSideCanvas';
 import { Canvas as FabricCanvas, Point as FabricPoint } from 'fabric';
+import { resolveObjectSizeMm } from '@/lib/canvasUtils';
 
 interface OrderItemCanvasProps {
   orderItem: OrderItem;
@@ -301,6 +302,19 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
   const canvasRefs = useRef<Record<string, FabricCanvas>>({});
 
   const imageUrlsBySide = useMemo(() => coerceImageUrlsBySide(orderItem.image_urls), [orderItem.image_urls]);
+  // 고객이 배경제거 기능을 쓴 경우 보존된 원본 업로드 이미지(kind === 'original').
+  // 배경제거본(processed)과 별개로, 관리자가 원본을 직접 확인·다운로드할 수 있게 노출한다.
+  const originalImages = useMemo(() => {
+    const out: Array<{ sideId: string; url: string; fileName?: string; path?: string }> = [];
+    Object.entries(imageUrlsBySide).forEach(([sideId, images]) => {
+      images.forEach((img) => {
+        if (img.kind === 'original' && img.url) {
+          out.push({ sideId, url: img.url, fileName: img.fileName, path: img.path });
+        }
+      });
+    });
+    return out;
+  }, [imageUrlsBySide]);
   const customFonts = useMemo(() => coerceCustomFonts(orderItem.custom_fonts), [orderItem.custom_fonts]);
 
   const textSvgExports = useMemo(() => coerceTextSvgExports(orderItem.text_svg_exports), [orderItem.text_svg_exports]);
@@ -546,7 +560,7 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
     const canvasStateRaw = orderItem.canvas_state?.[sideId];
     const canvasState = parseCanvasState(canvasStateRaw);
     const stateObjects = Array.isArray(canvasState?.objects) ? canvasState.objects : [];
-    const stateDimensionsById = new Map<string, { widthMm?: number; heightMm?: number; printMethod?: string }>();
+    const stateDimensionsById = new Map<string, { widthMm?: number; heightMm?: number; printMethod?: string; sizeBasis?: string }>();
 
     stateObjects.forEach((stateObj) => {
       if (!stateObj || typeof stateObj !== 'object') return;
@@ -555,7 +569,8 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
         widthMm?: number;
         heightMm?: number;
         printMethod?: string;
-        data?: { objectId?: string; widthMm?: number; heightMm?: number; printMethod?: string };
+        sizeBasis?: string;
+        data?: { objectId?: string; widthMm?: number; heightMm?: number; printMethod?: string; sizeBasis?: string };
       };
       const objectId = typedObj.data?.objectId || typedObj.objectId;
       const widthMm = typeof typedObj.widthMm === 'number'
@@ -566,8 +581,9 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
         : typedObj.data?.heightMm;
       // Check both top-level and data.printMethod (fabric objects may store it in either location)
       const printMethod = typedObj.data?.printMethod || typedObj.printMethod;
+      const sizeBasis = typedObj.data?.sizeBasis ?? typedObj.sizeBasis;
       if (objectId) {
-        stateDimensionsById.set(objectId, { widthMm, heightMm, printMethod });
+        stateDimensionsById.set(objectId, { widthMm, heightMm, printMethod, sizeBasis });
       }
     });
 
@@ -683,21 +699,31 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
       const objWithMm = obj as unknown as {
         widthMm?: number;
         heightMm?: number;
+        data?: { widthMm?: number; heightMm?: number; sizeBasis?: string };
       };
 
-      const objectWidthMm = typeof objWithMm.widthMm === 'number'
+      // Unify on the customer's alpha-box standard: trust stored (alpha-measured)
+      // W/H only when the alpha marker is present (new orders); legacy orders
+      // without the marker fall back to a geometric recompute.
+      const storedWidthMm = typeof objWithMm.data?.widthMm === 'number'
+        ? objWithMm.data.widthMm
+        : typeof objWithMm.widthMm === 'number'
         ? objWithMm.widthMm
         : stateInfo?.widthMm;
-      const objectHeightMm = typeof objWithMm.heightMm === 'number'
+      const storedHeightMm = typeof objWithMm.data?.heightMm === 'number'
+        ? objWithMm.data.heightMm
+        : typeof objWithMm.heightMm === 'number'
         ? objWithMm.heightMm
         : stateInfo?.heightMm;
+      const sizeBasis = objWithMm.data?.sizeBasis ?? stateInfo?.sizeBasis;
 
-      const resolvedWidthMm = typeof objectWidthMm === 'number'
-        ? objectWidthMm
-        : objWidthOriginal * pixelToMmRatio;
-      const resolvedHeightMm = typeof objectHeightMm === 'number'
-        ? objectHeightMm
-        : objHeightOriginal * pixelToMmRatio;
+      const { widthMm: resolvedWidthMm, heightMm: resolvedHeightMm } = resolveObjectSizeMm({
+        sizeBasis,
+        storedWidthMm,
+        storedHeightMm,
+        liveWidthMm: objWidthOriginal * pixelToMmRatio,
+        liveHeightMm: objHeightOriginal * pixelToMmRatio,
+      });
 
       let objectType = obj.type || 'Object';
       objectType = objectType.charAt(0).toUpperCase() + objectType.slice(1);
@@ -1730,6 +1756,59 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
               <p className="text-sm text-gray-500">크기 정보가 없습니다.</p>
             )}
           </div>
+
+          {/* 고객 원본 이미지 (배경제거 전 원본) */}
+          {originalImages.length > 0 && (
+            <div className="bg-white border border-gray-200/60 rounded-md p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <h3 className="text-base font-semibold text-gray-900">고객 원본 이미지</h3>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                고객이 배경제거 기능을 사용한 경우 보존된 업로드 원본입니다.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {originalImages.map((img, index) => {
+                  const ext = getFileExtensionFromName(img.fileName)
+                    || getFileExtensionFromName(img.path?.split('/').pop())
+                    || getFileExtensionFromUrl(img.url)
+                    || 'png';
+                  const sideLabel = sideNameById.get(img.sideId) || img.sideId;
+                  return (
+                    <div key={`${img.url}-${index}`} className="border border-gray-200 rounded-md overflow-hidden bg-gray-50">
+                      <a href={img.url} target="_blank" rel="noopener noreferrer" className="block">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={img.url}
+                          alt={img.fileName || `${sideLabel} 원본`}
+                          className="w-full aspect-square object-contain bg-white"
+                        />
+                      </a>
+                      <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-gray-900 truncate" title={img.fileName || ''}>
+                            {img.fileName || '원본 이미지'}
+                          </p>
+                          <p className="text-[11px] text-gray-500 truncate">{sideLabel}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void downloadUrl(img.url, buildFilename(`order-${orderItem.id}-${img.sideId}-original-${index + 1}`, ext))}
+                          className="flex items-center gap-1 px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 rounded transition-colors shrink-0"
+                          title="원본 다운로드"
+                        >
+                          <Download className="w-3 h-3" />
+                          다운로드
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Custom Fonts */}
           {customFonts.length > 0 && (

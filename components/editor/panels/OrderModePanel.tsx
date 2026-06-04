@@ -38,6 +38,7 @@ import {
 } from '@/lib/downloadUtils';
 import { normalizePrintMethod, getPrintMethodDisplayName } from '@/lib/printPricingConfig';
 import { isAdminLike } from '@/lib/auth-helpers';
+import { resolveObjectSizeMm, formatSizeCm } from '@/lib/canvasUtils';
 
 const printMethodColorClass = (method?: string | null): string => {
   const colorMap: Record<string, string> = {
@@ -178,17 +179,28 @@ export default function OrderModePanel({
         const objWidth = (obj.width || 0) * (obj.scaleX || 1);
         const objHeight = (obj.height || 0) * (obj.scaleY || 1);
 
-        const widthMm = typeof obj.data?.widthMm === 'number'
+        // Unify on the customer's alpha-box standard: trust the stored
+        // (alpha-measured) widthMm/heightMm only when the alpha marker is
+        // present (new orders); otherwise fall back to a geometric recompute
+        // from the serialized canvas_state (legacy orders).
+        const sizeBasis = obj.data?.sizeBasis ?? obj.sizeBasis;
+        const storedWidthMm = typeof obj.data?.widthMm === 'number'
           ? obj.data.widthMm
           : typeof obj.widthMm === 'number'
           ? obj.widthMm
-          : objWidth * pixelToMmRatio;
-
-        const heightMm = typeof obj.data?.heightMm === 'number'
+          : undefined;
+        const storedHeightMm = typeof obj.data?.heightMm === 'number'
           ? obj.data.heightMm
           : typeof obj.heightMm === 'number'
           ? obj.heightMm
-          : objHeight * pixelToMmRatio;
+          : undefined;
+        const { widthMm, heightMm } = resolveObjectSizeMm({
+          sizeBasis,
+          storedWidthMm,
+          storedHeightMm,
+          liveWidthMm: objWidth * pixelToMmRatio,
+          liveHeightMm: objHeight * pixelToMmRatio,
+        });
 
         let objectType = obj.type || 'Object';
         objectType = objectType.charAt(0).toUpperCase() + objectType.slice(1);
@@ -665,9 +677,7 @@ export default function OrderModePanel({
                               <div className="flex gap-1">
                                 <span className="text-gray-400 shrink-0 w-7">크기</span>
                                 <span className="text-gray-700">
-                                  {dim.widthMm >= dim.heightMm
-                                    ? `가로기준 ${(dim.widthMm / 10).toFixed(1)}cm`
-                                    : `세로기준 ${(dim.heightMm / 10).toFixed(1)}cm`}
+                                  {formatSizeCm(dim.widthMm, dim.heightMm)}
                                 </span>
                               </div>
                               {dim.colors && dim.colors.length > 0 && (

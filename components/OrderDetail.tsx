@@ -14,6 +14,7 @@ import WorkPhotoModal from '@/components/orders/WorkPhotoModal';
 import OrderItemArtworksModal from '@/components/orders/OrderItemArtworksModal';
 import OrderItemPrintRowsInline from '@/components/orders/OrderItemPrintRowsInline';
 import { extractVariants } from '@/lib/orderUtils';
+import { coerceImageUrlsBySide } from '@/lib/downloadUtils';
 import { formatKstDateLong, formatKstDateTimeMedium, getKstYYYYMMDD } from '@/lib/kst';
 import { orderCategoryBadgeClass, orderCategoryLabel } from '@/lib/order-category';
 import AssigneePicker from '@/components/common/AssigneePicker';
@@ -443,6 +444,26 @@ export default function OrderDetail({
     (sum, item) => sum + (item.price_per_item ?? 0) * (item.quantity ?? 0),
     0
   );
+
+  // 배경제거 기능을 쓴 주문 아이템의 고객 원본 이미지(kind === 'original').
+  // 디자인 에셋(order_items.image_urls)에만 저장되므로, 고객이 결제 시 올린
+  // attachment_urls 첨부와 별개로 여기 "첨부파일" 섹션에서도 함께 보이도록 모은다.
+  const originalDesignImages = useMemo(() => {
+    const out: Array<{ url: string; fileName?: string; productTitle?: string }> = [];
+    const seen = new Set<string>();
+    orderItems.forEach((item) => {
+      const bySide = coerceImageUrlsBySide(item.image_urls);
+      Object.values(bySide).forEach((images) => {
+        images.forEach((img) => {
+          if (img.kind === 'original' && img.url && !seen.has(img.url)) {
+            seen.add(img.url);
+            out.push({ url: img.url, fileName: img.fileName, productTitle: item.product_title });
+          }
+        });
+      });
+    });
+    return out;
+  }, [orderItems]);
 
   const factoryMap = useMemo(() => {
     const map = new Map<string, Factory>();
@@ -1196,6 +1217,38 @@ export default function OrderDetail({
                 onUrlsUpdated={setLocalAttachmentUrls}
                 isAdmin={!isFactoryUser}
               />
+
+              {/* 배경제거 시 보존된 고객 원본 이미지 (디자인 에셋에서 수집) */}
+              {originalDesignImages.length > 0 && (
+                <div className="border-t border-gray-100 pt-3">
+                  <p className="text-xs font-semibold text-gray-700 mb-2">
+                    고객 원본 이미지 (배경제거 전)
+                  </p>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                    {originalDesignImages.map((img, i) => (
+                      <a
+                        key={`${img.url}-${i}`}
+                        href={img.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        download={img.fileName || undefined}
+                        className="group block border border-gray-200 rounded-md overflow-hidden bg-gray-50 hover:border-blue-300 transition-colors"
+                        title={img.fileName || '원본 이미지'}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={img.url}
+                          alt={img.fileName || `원본 ${i + 1}`}
+                          className="w-full aspect-square object-contain bg-white"
+                        />
+                        <p className="px-1.5 py-1 text-[11px] text-gray-600 truncate group-hover:text-blue-700">
+                          {img.fileName || '원본 이미지'}
+                        </p>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

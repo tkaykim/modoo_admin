@@ -4,7 +4,15 @@ import { CanvasState, CustomFont } from '@/types/types';
 // Types
 // ============================================================================
 
-export type ImageUrlEntry = { url: string; path?: string; uploadedAt?: string };
+export type ImageUrlEntry = {
+  url: string;
+  path?: string;
+  uploadedAt?: string;
+  /** 'original' = 고객이 업로드한 원본, 'processed' = 배경제거/트림된 표시 이미지 */
+  kind?: 'original' | 'processed';
+  /** 고객 원본 파일명 (kind === 'original'일 때 보존됨) */
+  fileName?: string;
+};
 export type ImageUrlsBySide = Record<string, ImageUrlEntry[]>;
 export type TextSvgObjectUrlsBySide = Record<string, Record<string, string>>;
 
@@ -76,10 +84,13 @@ export const coerceImageUrlsBySide = (value: unknown): ImageUrlsBySide => {
       if (!isPlainRecord(raw)) return;
       const url = typeof raw.url === 'string' ? raw.url : '';
       if (!url) return;
+      const kind = raw.kind === 'original' || raw.kind === 'processed' ? raw.kind : undefined;
       images.push({
         url,
         path: typeof raw.path === 'string' ? raw.path : undefined,
         uploadedAt: typeof raw.uploadedAt === 'string' ? raw.uploadedAt : undefined,
+        kind,
+        fileName: typeof raw.fileName === 'string' ? raw.fileName : undefined,
       });
     });
     if (images.length > 0) {

@@ -7,6 +7,7 @@ import { ProductSide, PrintMethod } from '@/types/types';
 import { Image as ImageIcon, Type, Square, HelpCircle, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { getPrintMethodShortName } from '@/lib/printPricingConfig';
 import { calculateAllSidesPricing, ObjectPricing, PricingSummary } from '@/app/utils/canvasPricing';
+import { resolveObjectSizeMm } from '@/lib/canvasUtils';
 
 interface ObjectPreviewPanelProps {
   sides: ProductSide[];
@@ -87,8 +88,19 @@ const ObjectPreviewPanel: React.FC<ObjectPreviewPanelProps> = ({ sides, quantity
         if (!objectId) return;
 
         const boundingRect = obj.getBoundingRect();
-        const widthMm = boundingRect.width * pixelToMmRatio;
-        const heightMm = boundingRect.height * pixelToMmRatio;
+        // Unify on the customer's alpha-box standard: trust stored
+        // (alpha-measured) W/H when the alpha marker is present (new objects);
+        // otherwise fall back to a geometric recompute (legacy).
+        const objData = obj as unknown as {
+          data?: { widthMm?: number; heightMm?: number; sizeBasis?: string };
+        };
+        const { widthMm, heightMm } = resolveObjectSizeMm({
+          sizeBasis: objData.data?.sizeBasis,
+          storedWidthMm: objData.data?.widthMm,
+          storedHeightMm: objData.data?.heightMm,
+          liveWidthMm: boundingRect.width * pixelToMmRatio,
+          liveHeightMm: boundingRect.height * pixelToMmRatio,
+        });
         const printMethod = getObjectPrintMethod(obj);
 
         // Find pricing info for this object

@@ -8,7 +8,7 @@ import SingleSideCanvas from './canvas/SingleSideCanvas';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import { Canvas as FabricCanvas } from 'fabric';
 import { formatKstDateLong } from '@/lib/kst';
-import { calculatePixelToMmRatio } from '@/lib/canvasUtils';
+import { calculatePixelToMmRatio, resolveObjectSizeMm } from '@/lib/canvasUtils';
 
 type ImageUrlEntry = { url: string; path?: string; uploadedAt?: string };
 type ImageUrlsBySide = Record<string, ImageUrlEntry[]>;
@@ -413,7 +413,7 @@ export default function DesignDetail({ design, onBack }: DesignDetailProps) {
     const canvasStateRaw = design.canvas_state?.[sideId];
     const canvasState = parseCanvasState(canvasStateRaw);
     const stateObjects = Array.isArray(canvasState?.objects) ? canvasState.objects : [];
-    const stateDimensionsById = new Map<string, { widthMm?: number; heightMm?: number; printMethod?: string }>();
+    const stateDimensionsById = new Map<string, { widthMm?: number; heightMm?: number; printMethod?: string; sizeBasis?: string }>();
 
     stateObjects.forEach((stateObj) => {
       if (!stateObj || typeof stateObj !== 'object') return;
@@ -422,7 +422,8 @@ export default function DesignDetail({ design, onBack }: DesignDetailProps) {
         widthMm?: number;
         heightMm?: number;
         printMethod?: string;
-        data?: { objectId?: string; widthMm?: number; heightMm?: number; printMethod?: string };
+        sizeBasis?: string;
+        data?: { objectId?: string; widthMm?: number; heightMm?: number; printMethod?: string; sizeBasis?: string };
       };
       const objectId = typedObj.data?.objectId || typedObj.objectId;
       const widthMm = typeof typedObj.widthMm === 'number'
@@ -433,8 +434,9 @@ export default function DesignDetail({ design, onBack }: DesignDetailProps) {
         : typedObj.data?.heightMm;
       // Check both top-level and data.printMethod (fabric objects may store it in either location)
       const printMethod = typedObj.data?.printMethod || typedObj.printMethod;
+      const sizeBasis = typedObj.data?.sizeBasis ?? typedObj.sizeBasis;
       if (objectId) {
-        stateDimensionsById.set(objectId, { widthMm, heightMm, printMethod });
+        stateDimensionsById.set(objectId, { widthMm, heightMm, printMethod, sizeBasis });
       }
     });
 
@@ -549,28 +551,35 @@ export default function DesignDetail({ design, onBack }: DesignDetailProps) {
         console.error('Error generating object preview:', error);
       }
 
-      // Live recompute from the rendered canvas using the canonical formula.
-      // Stored widthMm is only a fallback (e.g., when ratio is unavailable),
-      // since legacy designs may have outdated values written by the prior
-      // (incorrect) formula.
+      // Unify on the customer's alpha-box standard. Trust the stored
+      // (alpha-measured) W/H only when the alpha marker is present (new
+      // designs); legacy designs without the marker fall back to a live
+      // geometric recompute from the rendered canvas.
       const boundingRect = obj.getBoundingRect();
       const objWithMm = obj as unknown as {
         widthMm?: number;
         heightMm?: number;
+        data?: { widthMm?: number; heightMm?: number; sizeBasis?: string };
       };
-      const storedWidthMm = typeof objWithMm.widthMm === 'number'
+      const storedWidthMm = typeof objWithMm.data?.widthMm === 'number'
+        ? objWithMm.data.widthMm
+        : typeof objWithMm.widthMm === 'number'
         ? objWithMm.widthMm
         : stateInfo?.widthMm;
-      const storedHeightMm = typeof objWithMm.heightMm === 'number'
+      const storedHeightMm = typeof objWithMm.data?.heightMm === 'number'
+        ? objWithMm.data.heightMm
+        : typeof objWithMm.heightMm === 'number'
         ? objWithMm.heightMm
         : stateInfo?.heightMm;
+      const sizeBasis = objWithMm.data?.sizeBasis ?? stateInfo?.sizeBasis;
 
-      const resolvedWidthMm = pixelToMmRatio > 0
-        ? boundingRect.width * pixelToMmRatio
-        : (typeof storedWidthMm === 'number' ? storedWidthMm : 0);
-      const resolvedHeightMm = pixelToMmRatio > 0
-        ? boundingRect.height * pixelToMmRatio
-        : (typeof storedHeightMm === 'number' ? storedHeightMm : 0);
+      const { widthMm: resolvedWidthMm, heightMm: resolvedHeightMm } = resolveObjectSizeMm({
+        sizeBasis,
+        storedWidthMm,
+        storedHeightMm,
+        liveWidthMm: pixelToMmRatio > 0 ? boundingRect.width * pixelToMmRatio : undefined,
+        liveHeightMm: pixelToMmRatio > 0 ? boundingRect.height * pixelToMmRatio : undefined,
+      });
 
       let objectType = obj.type || 'Object';
       objectType = objectType.charAt(0).toUpperCase() + objectType.slice(1);

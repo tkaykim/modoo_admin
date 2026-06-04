@@ -125,3 +125,66 @@ export function mmToPixels(
 export function formatMm(mm: number, precision: number = 1): string {
   return `${mm.toFixed(precision)}mm`;
 }
+
+/**
+ * Marker the customer editor (modoo_app) writes onto each user object's `data`
+ * when its size was measured against the alpha-tight bounding box (the
+ * canonical "투명 영역 제외" 측정 기준 shared across apps).
+ *
+ * Admin views trust the stored `widthMm`/`heightMm` ONLY when this marker is
+ * present. Legacy objects (created before unification) have no marker and fall
+ * back to a live geometric recompute, per the agreed "신규만 정합, 레거시는
+ * 라이브 fallback" policy.
+ *
+ * Keep this string identical to the literal written in
+ * `modoo_app/lib/canvasUtils.updateObjectDimensionsData`.
+ */
+export const ALPHA_SIZE_BASIS = 'alpha';
+
+export interface ResolveSizeMmInput {
+  /** Size-basis marker read from the object/data (e.g. `obj.data.sizeBasis`). */
+  sizeBasis?: string | null;
+  /** Stored (alpha-based) widthMm from canvas_state or the live object. */
+  storedWidthMm?: number | null;
+  /** Stored (alpha-based) heightMm from canvas_state or the live object. */
+  storedHeightMm?: number | null;
+  /** Live geometric fallback width in mm (already converted from px). */
+  liveWidthMm?: number | null;
+  /** Live geometric fallback height in mm (already converted from px). */
+  liveHeightMm?: number | null;
+}
+
+const isPositiveFinite = (v: number | null | undefined): v is number =>
+  typeof v === 'number' && Number.isFinite(v) && v > 0;
+
+/**
+ * Resolve an object's display size in mm on the customer's alpha-box standard.
+ *
+ * Priority:
+ * 1. `sizeBasis === 'alpha'` and stored W/H present → trust stored (new orders).
+ * 2. else → live geometric recompute (legacy fallback).
+ * 3. if live is unavailable (e.g. ratio missing) → fall back to any stored value.
+ */
+export function resolveObjectSizeMm(
+  input: ResolveSizeMmInput
+): { widthMm: number; heightMm: number } {
+  const { sizeBasis, storedWidthMm, storedHeightMm, liveWidthMm, liveHeightMm } = input;
+  const hasStored = isPositiveFinite(storedWidthMm) && isPositiveFinite(storedHeightMm);
+  const hasLive = isPositiveFinite(liveWidthMm) && isPositiveFinite(liveHeightMm);
+
+  if (sizeBasis === ALPHA_SIZE_BASIS && hasStored) {
+    return { widthMm: storedWidthMm as number, heightMm: storedHeightMm as number };
+  }
+  if (hasLive) {
+    return { widthMm: liveWidthMm as number, heightMm: liveHeightMm as number };
+  }
+  if (hasStored) {
+    return { widthMm: storedWidthMm as number, heightMm: storedHeightMm as number };
+  }
+  return { widthMm: 0, heightMm: 0 };
+}
+
+/** Format a width×height (mm) pair as "W × H cm" for display. */
+export function formatSizeCm(widthMm: number, heightMm: number, precision: number = 1): string {
+  return `${(widthMm / 10).toFixed(precision)} × ${(heightMm / 10).toFixed(precision)}cm`;
+}

@@ -43,3 +43,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 scripts/drive-backfill.mjs
+.env*.local
