@@ -22,17 +22,23 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
   });
   const [sides, setSides] = useState<ProductSide[]>(product.configuration || []);
 
-  // product 변경 또는 외부 initialSideId 변경 시 sides/현재 면 재동기화.
-  // (deps에 product.id를 사용해 동일 제품의 stable identity는 유지, 다른 제품 진입 시만 reset.)
+  // Reset the working copy ONLY when the product itself changes (entering a
+  // different product). NEVER reset on a mere side switch — doing so silently
+  // discarded unsaved printArea edits to other sides (the cause of "I drew the
+  // box for back/left/right but it reset"). The calibration tool drives the
+  // active side via initialSideId, so switching sides must NOT touch `sides`.
   useEffect(() => {
-    const cfg = product.configuration || [];
-    setSides(cfg);
-    if (initialSideId) {
-      const i = cfg.findIndex((s) => s.id === initialSideId);
-      setCurrentSideIndex(i >= 0 ? i : 0);
-    }
+    setSides(product.configuration || []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [product.id, initialSideId]);
+  }, [product.id]);
+
+  // Move the active side on external side change, preserving in-progress edits.
+  useEffect(() => {
+    if (!initialSideId) return;
+    const i = (product.configuration || []).findIndex((s) => s.id === initialSideId);
+    if (i >= 0) setCurrentSideIndex(i);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSideId]);
   const [saving, setSaving] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
 
