@@ -115,6 +115,7 @@ const navGroups: NavGroup[] = [
     label: '재무 (Finance)',
     items: [
       { type: 'link', href: '/finance', label: '재무 대시보드', icon: Wallet, roles: ['super_admin'] },
+      { type: 'link', href: '/finance/factory-payments', label: '공장 지급 관리', icon: DollarSign, roles: ['super_admin'] },
       { type: 'link', href: '/finance/costs', label: '제품 원가표', icon: Package, roles: ['super_admin'] },
       { type: 'link', href: '/finance/print-costs', label: '인쇄비 시세표', icon: Printer, roles: ['super_admin'] },
       { type: 'link', href: '/finance/shipping', label: '내부 배송비', icon: Truck, roles: ['super_admin'] },
