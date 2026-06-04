@@ -11,6 +11,7 @@ import { extractVariants } from '@/lib/orderUtils';
 import { formatKstDateShort } from '@/lib/kst';
 import { orderCategoryLabel } from '@/lib/order-category';
 import { isAdminLike } from '@/lib/auth-helpers';
+import FactoryPriceConfirmModal from '@/components/factory/FactoryPriceConfirmModal';
 
 interface FactoryOrderInfoPanelProps {
   orderId: string;
@@ -28,6 +29,7 @@ export default function FactoryOrderInfoPanel({
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [showPriceModal, setShowPriceModal] = useState(false);
   const [localAttachmentUrls, setLocalAttachmentUrls] = useState<string[]>([]);
 
   const fetchData = useCallback(async () => {
@@ -69,14 +71,20 @@ export default function FactoryOrderInfoPanel({
 
   const currentItem = orderItems.find((i) => i.id === currentOrderItemId);
 
-  const handleFactoryStatusChange = useCallback(async (newStatus: string) => {
-    if (!order || !currentItem) return;
+  const handleFactoryStatusChange = useCallback(async (
+    newStatus: string,
+    opts?: { factoryAmount?: number; confirm?: boolean }
+  ): Promise<boolean> => {
+    if (!order || !currentItem) return false;
     setUpdatingStatus(true);
     try {
+      const body: Record<string, unknown> = { orderId: order.id, itemId: currentItem.id, factoryStatus: newStatus };
+      if (opts?.confirm) body.confirmFactoryPrice = true;
+      if (opts?.factoryAmount !== undefined) body.factoryAmount = opts.factoryAmount;
       const response = await fetch('/api/admin/orders', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId: order.id, itemId: currentItem.id, factoryStatus: newStatus }),
+        body: JSON.stringify(body),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -86,19 +94,39 @@ export default function FactoryOrderInfoPanel({
       setOrderItems((prev) =>
         prev.map((item) =>
           item.id === currentItem.id
-            ? { ...item, factory_status: data.factory_status }
+            ? {
+                ...item,
+                factory_status: newStatus as OrderItem['factory_status'],
+                factory_amount: opts?.factoryAmount !== undefined ? opts.factoryAmount : item.factory_amount,
+              }
             : item
         )
       );
-      if (data.order_status) {
+      if (data?.order_status) {
         setOrder((prev) => prev ? { ...prev, order_status: data.order_status } : prev);
       }
+      return true;
     } catch (error) {
       alert(error instanceof Error ? error.message : '상태 변경에 실패했습니다.');
+      return false;
     } finally {
       setUpdatingStatus(false);
     }
   }, [order, currentItem]);
+
+  // "작업중" 전환은 항상 단가 확정 모달을 거친다 (금액 0이든 아니든). 그 외 상태는 즉시 변경.
+  const handleStatusSelect = useCallback((newStatus: string) => {
+    if (newStatus === 'in_progress') {
+      setShowPriceModal(true);
+      return;
+    }
+    handleFactoryStatusChange(newStatus);
+  }, [handleFactoryStatusChange]);
+
+  const handleConfirmPrice = useCallback(async (amount: number) => {
+    const ok = await handleFactoryStatusChange('in_progress', { factoryAmount: amount, confirm: true });
+    if (ok) setShowPriceModal(false);
+  }, [handleFactoryStatusChange]);
 
   const handleItemClick = useCallback((item: OrderItem) => {
     const returnUrl = encodeURIComponent('/orders');
@@ -131,6 +159,17 @@ export default function FactoryOrderInfoPanel({
 
   return (
     <div className="overflow-y-auto">
+      {currentItem && (
+        <FactoryPriceConfirmModal
+          open={showPriceModal}
+          itemTitle={currentItem.product_title}
+          quantity={currentItem.quantity}
+          initialAmount={currentItem.factory_amount ?? 0}
+          submitting={updatingStatus}
+          onConfirm={handleConfirmPrice}
+          onClose={() => setShowPriceModal(false)}
+        />
+      )}
       {/* Order Info */}
       {order && (
         <div className="p-3 border-b">
@@ -152,7 +191,7 @@ export default function FactoryOrderInfoPanel({
                   <span className="text-[11px] text-gray-400 shrink-0 w-16">배정 상태</span>
                   <select
                     value={currentItem.factory_status || 'assigned'}
-                    onChange={(e) => handleFactoryStatusChange(e.target.value)}
+                    onChange={(e) => handleStatusSelect(e.target.value)}
                     disabled={updatingStatus || currentItem.factory_status === 'shipped'}
                     className={`px-1.5 py-0.5 rounded text-[11px] font-medium border-0 cursor-pointer focus:ring-2 focus:ring-blue-500/40 disabled:opacity-60 ${getStatusColor(currentItem.factory_status ?? null)}`}
                   >

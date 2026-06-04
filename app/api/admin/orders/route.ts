@@ -165,6 +165,16 @@ export async function PATCH(request: Request) {
         }
       }
 
+      // 단가 확정 게이트: "작업중" 전환(= 작업 시작)은 반드시 단가 확인을 거쳐야 한다.
+      // 프론트가 항상 확정 모달을 띄우고 confirmFactoryPrice=true를 함께 보낸다.
+      const confirmFactoryPrice = payload?.confirmFactoryPrice === true;
+      if (factoryStatusInput === 'in_progress' && !confirmFactoryPrice) {
+        return NextResponse.json(
+          { error: '작업 시작 전 정산 단가를 확인해 주세요.', code: 'FACTORY_PRICE_REQUIRED' },
+          { status: 400 }
+        );
+      }
+
       // Verify this factory has items assigned in this order
       const { data: factoryItems, error: itemCheckError } = await adminClient
         .from('order_items')
@@ -185,6 +195,11 @@ export async function PATCH(request: Request) {
       }
       if (factoryAmountInput !== undefined) {
         itemUpdateData.factory_amount = factoryAmountInput;
+      }
+      // 단가 확정 시각·주체 기록 (0원 의도 확정 vs 미입력 구분)
+      if (confirmFactoryPrice) {
+        itemUpdateData.factory_price_confirmed_at = new Date().toISOString();
+        itemUpdateData.factory_price_confirmed_by = user.id;
       }
 
       // Update specific item or all items assigned to this factory in this order

@@ -263,6 +263,7 @@ export async function PATCH(request: NextRequest) {
         factoryAmount: firstAlloc.factory_amount ?? null,
         customerNote: orderData?.customer_note ?? null,
         shareToken: finalShareToken,
+        factoryId: manufacturerId,
         appUrl: emailAppUrl,
         orderItems: emailItems,
       }).catch((err) => console.error('Factory assignment email failed:', err));

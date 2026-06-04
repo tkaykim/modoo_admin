@@ -42,6 +42,8 @@ export interface FactoryAssignmentEmailParams {
   factoryAmount: number | null;
   customerNote: string | null;
   shareToken: string;
+  /** 공장 스코프: 링크에 ?factory=<manufacturer_id>를 붙여 그 공장 배정 건만 보이게 한다. */
+  factoryId?: string | null;
   orderItems: OrderItemForEmail[];
   appUrl: string;
 }
@@ -105,6 +107,7 @@ export async function sendFactoryAssignmentEmail(params: FactoryAssignmentEmailP
     factoryAmount,
     customerNote,
     shareToken,
+    factoryId,
     orderItems,
     appUrl,
   } = params;
@@ -115,7 +118,9 @@ export async function sendFactoryAssignmentEmail(params: FactoryAssignmentEmailP
     : null;
   const totalQuantity = orderItems.reduce((sum, item) => sum + item.quantity, 0);
 
-  const sharedPageUrl = `${appUrl}/shared/order/${shareToken}`;
+  const sharedPageUrl = factoryId
+    ? `${appUrl}/shared/order/${shareToken}?factory=${factoryId}`
+    : `${appUrl}/shared/order/${shareToken}`;
 
   const subject = `[모두의 유니폼] 작업지시서 전달 드립니다 (${displayOrderId})`;
 
@@ -149,7 +154,7 @@ export async function sendFactoryAssignmentEmail(params: FactoryAssignmentEmailP
 
   const orderItemsHtml = orderItems.map((item) => {
     const name = item.designTitle || item.productTitle;
-    const itemLink = `${sharedPageUrl}?item=${item.id}`;
+    const itemLink = `${sharedPageUrl}${sharedPageUrl.includes('?') ? '&' : '?'}item=${item.id}`;
     const isUsableUrl = item.thumbnailUrl && !item.thumbnailUrl.startsWith('data:');
     const thumbnailHtml = isUsableUrl
       ? `<img src="${item.thumbnailUrl}" alt="${name}" style="width: 72px; height: 72px; object-fit: contain; border-radius: 6px; border: 1px solid #e5e7eb; background: #f9fafb;" />`

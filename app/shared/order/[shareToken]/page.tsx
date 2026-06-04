@@ -5,6 +5,7 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { Package, Calendar, Clock, CreditCard, ArrowLeft, Download, LayoutList, MessageSquare, Paperclip } from 'lucide-react';
 import { createClient } from '@/lib/supabase-client';
 import OrderAttachmentSection from '@/components/orders/OrderAttachmentSection';
+import FactoryPriceConfirmModal from '@/components/factory/FactoryPriceConfirmModal';
 import { extractVariantsFromOptions } from '@/lib/orderUtils';
 import type { Product, OrderItem, ProductColor, CanvasState, CustomFont } from '@/types/types';
 import { formatKstDateOnly } from '@/lib/kst';
@@ -64,6 +65,10 @@ interface PublicOrderItem {
   image_urls?: OrderItem['image_urls'];
   text_svg_exports?: OrderItem['text_svg_exports'];
   custom_fonts?: CustomFont[] | string | null;
+  assigned_manufacturer_id?: string | null;
+  factory_status?: string | null;
+  factory_amount?: number | null;
+  factory_price_confirmed_at?: string | null;
   products?: {
     product_code: string | null;
     title: string;
@@ -367,6 +372,7 @@ export default function SharedOrderPage() {
   const router = useRouter();
   const shareToken = params?.shareToken as string;
   const initialItemId = searchParams?.get('item') || null;
+  const factoryId = searchParams?.get('factory') || null;
 
   const [order, setOrder] = useState<PublicOrder | null>(null);
   const [items, setItems] = useState<PublicOrderItem[]>([]);
@@ -374,7 +380,8 @@ export default function SharedOrderPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
+  const [pendingItem, setPendingItem] = useState<PublicOrderItem | null>(null);
   const [deepLinkApplied, setDeepLinkApplied] = useState(false);
 
   useEffect(() => {
@@ -396,7 +403,8 @@ export default function SharedOrderPage() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/public/orders/${shareToken}`);
+      const qs = factoryId ? `?factory=${encodeURIComponent(factoryId)}` : '';
+      const response = await fetch(`/api/public/orders/${shareToken}${qs}`);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -419,29 +427,66 @@ export default function SharedOrderPage() {
     }
   };
 
-  const handleFactoryStatusChange = async (newStatus: string) => {
-    if (!shareToken || updatingStatus) return;
-    setUpdatingStatus(true);
+  const patchItemStatus = async (
+    item: PublicOrderItem,
+    newStatus: string,
+    opts?: { factoryAmount?: number; confirm?: boolean }
+  ) => {
+    if (!shareToken) return false;
+    setUpdatingItemId(item.id);
     try {
+      const body: Record<string, unknown> = { itemId: item.id, factoryStatus: newStatus };
+      if (factoryId) body.factory = factoryId;
+      if (opts?.confirm) body.confirmFactoryPrice = true;
+      if (opts?.factoryAmount !== undefined) body.factoryAmount = opts.factoryAmount;
       const response = await fetch(`/api/public/orders/${shareToken}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ factoryStatus: newStatus }),
+        body: JSON.stringify(body),
       });
+      const json = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        alert(errorData?.error || '상태 변경에 실패했습니다.');
-        return;
+        alert(json?.error || '상태 변경에 실패했습니다.');
+        return false;
       }
-      const { data } = await response.json();
-      setOrder((prev) =>
-        prev ? { ...prev, factory_status: data.factory_status, order_status: data.order_status } : prev
+      setItems((prev) =>
+        prev.map((it) =>
+          it.id === item.id
+            ? {
+                ...it,
+                factory_status: newStatus,
+                factory_amount: opts?.factoryAmount !== undefined ? opts.factoryAmount : it.factory_amount,
+                factory_price_confirmed_at: opts?.confirm ? new Date().toISOString() : it.factory_price_confirmed_at,
+              }
+            : it
+        )
       );
+      if (json?.data?.order_status) {
+        setOrder((prev) => (prev ? { ...prev, order_status: json.data.order_status } : prev));
+      }
+      return true;
     } catch {
       alert('상태 변경에 실패했습니다.');
+      return false;
     } finally {
-      setUpdatingStatus(false);
+      setUpdatingItemId(null);
     }
+  };
+
+  // "작업중" 전환은 항상 단가 확정 모달을 거친다 (금액 0이든 아니든). 그 외 상태는 즉시 변경.
+  const handleItemStatusSelect = (item: PublicOrderItem, newStatus: string) => {
+    if (newStatus === (item.factory_status || 'assigned')) return;
+    if (newStatus === 'in_progress') {
+      setPendingItem(item);
+      return;
+    }
+    patchItemStatus(item, newStatus);
+  };
+
+  const handleConfirmPrice = async (amount: number) => {
+    if (!pendingItem) return;
+    const ok = await patchItemStatus(pendingItem, 'in_progress', { factoryAmount: amount, confirm: true });
+    if (ok) setPendingItem(null);
   };
 
   const formatDate = (dateString: string) => formatKstDateOnly(dateString);
@@ -504,6 +549,15 @@ export default function SharedOrderPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <FactoryPriceConfirmModal
+        open={!!pendingItem}
+        itemTitle={pendingItem?.product_title || ''}
+        quantity={pendingItem?.quantity ?? null}
+        initialAmount={pendingItem?.factory_amount ?? 0}
+        submitting={!!pendingItem && updatingItemId === pendingItem.id}
+        onConfirm={handleConfirmPrice}
+        onClose={() => setPendingItem(null)}
+      />
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-4">
@@ -631,9 +685,34 @@ export default function SharedOrderPage() {
                             </div>
                           );
                         })()}
-                        <p className="text-xs text-blue-600 mt-2">
-                          클릭하여 디자인 보기
-                        </p>
+                        <div
+                          className="mt-2 flex flex-wrap items-center gap-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span className="text-xs text-gray-500">작업 상태</span>
+                          <select
+                            value={item.factory_status || 'assigned'}
+                            onChange={(e) => handleItemStatusSelect(item, e.target.value)}
+                            disabled={updatingItemId === item.id || item.factory_status === 'shipped'}
+                            className="rounded-md border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 disabled:bg-gray-100"
+                          >
+                            {factoryStatusOptions.map((opt) => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                          {item.factory_amount != null && item.factory_amount > 0 ? (
+                            <span className="text-xs font-medium text-gray-700">
+                              {item.factory_amount.toLocaleString()}원
+                              {item.factory_price_confirmed_at && <span className="ml-0.5 text-emerald-600">✓</span>}
+                            </span>
+                          ) : item.factory_price_confirmed_at ? (
+                            <span className="text-xs font-medium text-gray-500">
+                              0원 확정<span className="ml-0.5 text-emerald-600">✓</span>
+                            </span>
+                          ) : null}
+                          {updatingItemId === item.id && <span className="text-xs text-gray-400">변경 중...</span>}
+                        </div>
+                        <p className="text-xs text-blue-600 mt-2">클릭하여 디자인 보기</p>
                       </div>
                     </div>
                   ))}
@@ -666,24 +745,13 @@ export default function SharedOrderPage() {
               </div>
             </div>
 
-            {/* Factory Status */}
+            {/* Factory Status — 품목별로 각 상품 카드에서 변경 */}
             <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <h2 className="text-base font-semibold text-gray-900 mb-3">공장 배정 상태</h2>
-              <div className="space-y-3">
-                <select
-                  value={order.factory_status || 'assigned'}
-                  onChange={(e) => handleFactoryStatusChange(e.target.value)}
-                  disabled={updatingStatus || order.factory_status === 'shipped'}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
-                >
-                  {factoryStatusOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-                {updatingStatus && (
-                  <p className="text-xs text-gray-500">상태 변경 중...</p>
-                )}
-              </div>
+              <h2 className="text-base font-semibold text-gray-900 mb-2">작업 상태</h2>
+              <p className="text-sm text-gray-600">
+                각 상품 카드에서 작업 상태를 변경할 수 있습니다.<br />
+                &quot;작업중&quot;으로 바꿀 때 정산 단가를 한 번 확인합니다.
+              </p>
             </div>
 
             {/* Factory Payment Info */}

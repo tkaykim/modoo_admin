@@ -20,6 +20,10 @@ export async function GET(
       return NextResponse.json({ error: '유효하지 않은 공유 링크입니다.' }, { status: 400 });
     }
 
+    // 공장 스코프: 메일 링크에 ?factory=<manufacturer_id>가 붙어 오면 그 공장 배정 건만 노출(혼선 방지).
+    // 보안 격리가 목적이 아니라 작업자 혼선 방지가 목적이므로, 없으면 전체를 보여준다(레거시 호환).
+    const factoryId = new URL(request.url).searchParams.get('factory');
+
     const adminClient = createAdminClient();
 
     // Fetch order by share token
@@ -71,6 +75,10 @@ export async function GET(
         image_urls,
         text_svg_exports,
         custom_fonts,
+        assigned_manufacturer_id,
+        factory_status,
+        factory_amount,
+        factory_price_confirmed_at,
         products(product_code, title, configuration, size_options, base_price, manufacturers(id, name)),
         created_at
       `)
@@ -81,8 +89,13 @@ export async function GET(
       return NextResponse.json({ error: itemsError.message }, { status: 500 });
     }
 
+    // 공장 스코프 적용: factory 파라미터가 있으면 그 공장 배정 건만 남긴다.
+    const scopedItems = factoryId
+      ? (items || []).filter((it) => it.assigned_manufacturer_id === factoryId)
+      : (items || []);
+
     // Fetch product colors for each unique product
-    const productIds = [...new Set((items || []).map((item) => item.product_id))];
+    const productIds = [...new Set(scopedItems.map((item) => item.product_id))];
     const productColorsMap: Record<string, unknown[]> = {};
     for (const productId of productIds) {
       const { data: colors } = await adminClient
@@ -97,8 +110,9 @@ export async function GET(
     return NextResponse.json({
       data: {
         order,
-        items: items || [],
+        items: scopedItems,
         productColors: productColorsMap,
+        scopedFactoryId: factoryId,
       },
     });
   } catch (error) {
@@ -121,10 +135,22 @@ export async function PATCH(
 
     const payload = await request.json().catch(() => null);
     const factoryStatus = payload?.factoryStatus;
+    const itemId = payload?.itemId;
+    const factoryAmount = payload?.factoryAmount;
+    const factoryId = payload?.factory; // 선택: 공장 스코프
+    const confirmFactoryPrice = payload?.confirmFactoryPrice === true;
 
     const validStatuses = ['assigned', 'in_progress', 'completed', 'shipped'];
     if (!factoryStatus || !validStatuses.includes(factoryStatus)) {
       return NextResponse.json({ error: '유효하지 않은 공장 배정 상태입니다.' }, { status: 400 });
+    }
+
+    // 단가 확정 게이트: "작업중" 전환은 단가 확인을 거쳐야 한다 (로그인 화면과 동일 규칙).
+    if (factoryStatus === 'in_progress' && !confirmFactoryPrice) {
+      return NextResponse.json(
+        { error: '작업 시작 전 정산 단가를 확인해 주세요.', code: 'FACTORY_PRICE_REQUIRED' },
+        { status: 400 }
+      );
     }
 
     const adminClient = createAdminClient();
@@ -132,7 +158,7 @@ export async function PATCH(
     // Verify the share token exists
     const { data: order, error: orderError } = await adminClient
       .from('orders')
-      .select('id, order_status, factory_status')
+      .select('id, order_status')
       .eq('share_token', shareToken)
       .single();
 
@@ -140,11 +166,60 @@ export async function PATCH(
       return NextResponse.json({ error: '주문을 찾을 수 없습니다.' }, { status: 404 });
     }
 
-    // Auto-set order_status based on factory_status
-    // shipped → order_status = shipping
-    // assigned, in_progress, completed → order_status stays in_production
-    const orderStatus = factoryStatus === 'shipped' ? 'shipping' : 'in_production';
+    // 주문 단위 상태 롤업 헬퍼: 모든 품목 상태로 주문 대표 상태를 파생한다.
+    const rollupOrder = async (): Promise<string> => {
+      const { data: allItems } = await adminClient
+        .from('order_items')
+        .select('factory_status')
+        .eq('order_id', order.id);
+      const statuses = (allItems || []).map((i) => i.factory_status || 'pending');
+      let rollup = 'assigned';
+      if (statuses.length > 0 && statuses.every((s) => s === 'shipped')) rollup = 'shipped';
+      else if (statuses.length > 0 && statuses.every((s) => s === 'completed' || s === 'shipped')) rollup = 'completed';
+      else if (statuses.some((s) => ['in_progress', 'completed', 'shipped'].includes(s))) rollup = 'in_progress';
+      const orderStatus = rollup === 'shipped' ? 'shipping' : 'in_production';
+      await adminClient
+        .from('orders')
+        .update({ factory_status: rollup, order_status: orderStatus, updated_at: new Date().toISOString() })
+        .eq('id', order.id);
+      return orderStatus;
+    };
 
+    // 품목 단위 업데이트 (신규 동작)
+    if (itemId) {
+      const itemUpdate: Record<string, unknown> = {
+        factory_status: factoryStatus,
+        updated_at: new Date().toISOString(),
+      };
+      if (factoryAmount !== undefined && factoryAmount !== null) {
+        itemUpdate.factory_amount = factoryAmount;
+      }
+      if (confirmFactoryPrice) {
+        // 비로그인 링크 확정 — 주체(by)는 없음, 시각만 기록
+        itemUpdate.factory_price_confirmed_at = new Date().toISOString();
+      }
+
+      let q = adminClient
+        .from('order_items')
+        .update(itemUpdate)
+        .eq('id', itemId)
+        .eq('order_id', order.id);
+      if (factoryId) q = q.eq('assigned_manufacturer_id', factoryId);
+
+      const { data: updatedItems, error: updErr } = await q.select('id, factory_status, factory_amount');
+      if (updErr) {
+        return NextResponse.json({ error: updErr.message }, { status: 500 });
+      }
+      if (!updatedItems || updatedItems.length === 0) {
+        return NextResponse.json({ error: '해당 작업 항목을 찾을 수 없습니다.' }, { status: 404 });
+      }
+
+      const orderStatus = await rollupOrder();
+      return NextResponse.json({ data: { item: updatedItems[0], order_status: orderStatus } });
+    }
+
+    // 레거시 호환: itemId 없이 온 구버전 요청 — 주문 단위 처리
+    const orderStatus = factoryStatus === 'shipped' ? 'shipping' : 'in_production';
     const { data, error } = await adminClient
       .from('orders')
       .update({
