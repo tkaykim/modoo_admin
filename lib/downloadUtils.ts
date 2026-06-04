@@ -16,6 +16,32 @@ export type ImageUrlEntry = {
 export type ImageUrlsBySide = Record<string, ImageUrlEntry[]>;
 export type TextSvgObjectUrlsBySide = Record<string, Record<string, string>>;
 
+// 브라우저 <img>로 미리보기가 가능한 확장자. 그 외(.ai, .psd, .pdf 등)는
+// 썸네일 대신 다운로드 칩으로 렌더해야 한다(원본이 .ai인 경우 깨진 이미지 방지).
+export const PREVIEWABLE_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg', 'avif'];
+
+const extensionOf = (value?: string | null): string => {
+  if (!value) return '';
+  const clean = value.split('?')[0].split('#')[0];
+  const lastSegment = clean.split('/').pop() || clean;
+  const dot = lastSegment.lastIndexOf('.');
+  return dot >= 0 ? lastSegment.slice(dot + 1).toLowerCase() : '';
+};
+
+/** url/fileName의 확장자가 브라우저 미리보기 가능한 이미지인지 판정. 확장자 불명이면 미리보기 시도(data URL 등). */
+export const isPreviewableImageEntry = (entry: { url?: string; fileName?: string }): boolean => {
+  if (entry.url && entry.url.startsWith('data:image/')) return true;
+  const ext = extensionOf(entry.fileName) || extensionOf(entry.url);
+  if (!ext) return true;
+  return PREVIEWABLE_IMAGE_EXTENSIONS.includes(ext);
+};
+
+/** 표시용 확장자 라벨(대문자, 예: 'AI', 'PSD', 'PDF'). 불명이면 'FILE'. */
+export const fileExtensionLabel = (entry: { url?: string; fileName?: string }): string => {
+  const ext = extensionOf(entry.fileName) || extensionOf(entry.url);
+  return ext ? ext.toUpperCase() : 'FILE';
+};
+
 // ============================================================================
 // Parsing & Coercion Utilities
 // ============================================================================

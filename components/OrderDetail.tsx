@@ -14,7 +14,7 @@ import WorkPhotoModal from '@/components/orders/WorkPhotoModal';
 import OrderItemArtworksModal from '@/components/orders/OrderItemArtworksModal';
 import OrderItemPrintRowsInline from '@/components/orders/OrderItemPrintRowsInline';
 import { extractVariants } from '@/lib/orderUtils';
-import { coerceImageUrlsBySide } from '@/lib/downloadUtils';
+import { coerceImageUrlsBySide, isPreviewableImageEntry, fileExtensionLabel } from '@/lib/downloadUtils';
 import { formatKstDateLong, formatKstDateTimeMedium, getKstYYYYMMDD } from '@/lib/kst';
 import { orderCategoryBadgeClass, orderCategoryLabel } from '@/lib/order-category';
 import AssigneePicker from '@/components/common/AssigneePicker';
@@ -1225,27 +1225,41 @@ export default function OrderDetail({
                     고객 원본 이미지 (배경제거 전)
                   </p>
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                    {originalDesignImages.map((img, i) => (
-                      <a
-                        key={`${img.url}-${i}`}
-                        href={img.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        download={img.fileName || undefined}
-                        className="group block border border-gray-200 rounded-md overflow-hidden bg-gray-50 hover:border-blue-300 transition-colors"
-                        title={img.fileName || '원본 이미지'}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={img.url}
-                          alt={img.fileName || `원본 ${i + 1}`}
-                          className="w-full aspect-square object-contain bg-white"
-                        />
-                        <p className="px-1.5 py-1 text-[11px] text-gray-600 truncate group-hover:text-blue-700">
-                          {img.fileName || '원본 이미지'}
-                        </p>
-                      </a>
-                    ))}
+                    {originalDesignImages.map((img, i) => {
+                      const previewable = isPreviewableImageEntry(img);
+                      const extLabel = fileExtensionLabel(img);
+                      return (
+                        <a
+                          key={`${img.url}-${i}`}
+                          href={img.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          download={img.fileName || undefined}
+                          className="group block border border-gray-200 rounded-md overflow-hidden bg-gray-50 hover:border-blue-300 transition-colors"
+                          title={img.fileName || '원본 이미지'}
+                        >
+                          {previewable ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              src={img.url}
+                              alt={img.fileName || `원본 ${i + 1}`}
+                              className="w-full aspect-square object-contain bg-white"
+                            />
+                          ) : (
+                            // .ai/.psd 등 브라우저가 못 그리는 원본 → 파일 칩(확장자 배지 + 다운로드 아이콘)
+                            <div className="w-full aspect-square flex flex-col items-center justify-center bg-white gap-1">
+                              <span className="text-[11px] font-bold tracking-wide text-white bg-gray-700 rounded px-1.5 py-0.5">
+                                {extLabel}
+                              </span>
+                              <Download className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+                            </div>
+                          )}
+                          <p className="px-1.5 py-1 text-[11px] text-gray-600 truncate group-hover:text-blue-700">
+                            {img.fileName || '원본 이미지'}
+                          </p>
+                        </a>
+                      );
+                    })}
                   </div>
                 </div>
               )}

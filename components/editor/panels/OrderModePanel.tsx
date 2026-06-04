@@ -35,6 +35,8 @@ import {
   sleep,
   ImageUrlsBySide,
   TextSvgObjectUrlsBySide,
+  isPreviewableImageEntry,
+  fileExtensionLabel,
 } from '@/lib/downloadUtils';
 import { normalizePrintMethod, getPrintMethodDisplayName } from '@/lib/printPricingConfig';
 import { isAdminLike } from '@/lib/auth-helpers';
@@ -102,6 +104,20 @@ export default function OrderModePanel({
   }, [orderId, publicOrderData]);
 
   const imageUrlsBySide = useMemo(() => coerceImageUrlsBySide(orderItem.image_urls), [orderItem.image_urls]);
+  // 배경제거 기능을 쓴 경우 보존된 고객 업로드 원본(kind === 'original').
+  const originalImages = useMemo(() => {
+    const out: Array<{ url: string; fileName?: string; path?: string }> = [];
+    const seen = new Set<string>();
+    Object.values(imageUrlsBySide).forEach((images) => {
+      images.forEach((img) => {
+        if (img.kind === 'original' && img.url && !seen.has(img.url)) {
+          seen.add(img.url);
+          out.push({ url: img.url, fileName: img.fileName, path: img.path });
+        }
+      });
+    });
+    return out;
+  }, [imageUrlsBySide]);
   const customFonts = useMemo(() => coerceCustomFonts(orderItem.custom_fonts), [orderItem.custom_fonts]);
 
   const textSvgExports = useMemo(() => coerceTextSvgExports(orderItem.text_svg_exports), [orderItem.text_svg_exports]);
@@ -504,6 +520,52 @@ export default function OrderModePanel({
             readonly={!!publicOrderData}
             isAdmin={isAdminLike(user?.role)}
           />
+        )}
+
+        {/* 배경제거 시 보존된 고객 원본 이미지 */}
+        {originalImages.length > 0 && (
+          <div className="mt-2 pt-2 border-t">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <ImageIcon className="w-3.5 h-3.5 text-gray-500" />
+              <h3 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">고객 원본 이미지 (배경제거 전)</h3>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {originalImages.map((img, i) => {
+                const previewable = isPreviewableImageEntry(img);
+                const extLabel = fileExtensionLabel(img);
+                const ext = getFileExtensionFromName(img.fileName)
+                  || getFileExtensionFromName(img.path?.split('/').pop())
+                  || getFileExtensionFromUrl(img.url)
+                  || 'png';
+                return (
+                  <div key={`${img.url}-${i}`} className="border border-gray-200 rounded overflow-hidden bg-gray-50">
+                    <a href={img.url} target="_blank" rel="noopener noreferrer" className="block" title={img.fileName || '원본'}>
+                      {previewable ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={img.url} alt={img.fileName || `원본 ${i + 1}`} className="w-full aspect-square object-contain bg-white" />
+                      ) : (
+                        <div className="w-full aspect-square flex flex-col items-center justify-center bg-white gap-1">
+                          <span className="text-[10px] font-bold tracking-wide text-white bg-gray-700 rounded px-1.5 py-0.5">{extLabel}</span>
+                          <span className="text-[9px] text-gray-500">열기</span>
+                        </div>
+                      )}
+                    </a>
+                    {!publicOrderData && (
+                      <button
+                        type="button"
+                        onClick={() => void downloadUrl(img.url, buildFilename(`order-original-${i + 1}`, ext))}
+                        className="w-full flex items-center justify-center gap-1 px-1 py-0.5 text-[10px] text-blue-700 hover:bg-blue-50 transition-colors border-t border-gray-100"
+                        title="원본 다운로드"
+                      >
+                        <Download className="w-3 h-3" />
+                        다운로드
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
 
