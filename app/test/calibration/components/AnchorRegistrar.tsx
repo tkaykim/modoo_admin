@@ -97,7 +97,7 @@ export function AnchorRegistrar({
         </label>
         {!mmPerPx && (
           <span className="text-xs text-orange-700">
-            ⚠ ① 캘리브 탭에서 환산비를 먼저 만드세요.
+            ⚠ ② 인쇄영역 실측을 먼저 저장하세요 (없으면 ① 캘리브 선분).
           </span>
         )}
       </div>

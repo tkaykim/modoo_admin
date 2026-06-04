@@ -353,7 +353,7 @@ export function SimulatorCanvas({
       )}
       {mockup.mockupDataUrl && !mmPerPx && (
         <div className="p-3 text-sm text-orange-700 bg-orange-50 border-t">
-          ⚠ 환산비가 없습니다. ① 캘리브 탭에서 기준 선분을 먼저 저장하세요.
+          ⚠ 환산비가 없습니다. ② 인쇄영역 실측을 먼저 저장하세요 (없으면 ① 캘리브 선분).
         </div>
       )}
     </div>
