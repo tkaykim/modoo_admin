@@ -19,8 +19,8 @@ import {
 type Tab = 'calibration' | 'print-area' | 'anchors' | 'simulator' | 'report';
 
 const TABS: { id: Tab; label: string; status: 'ready' | 'placeholder' }[] = [
-  { id: 'calibration', label: '① 캘리브(선분)', status: 'ready' },
-  { id: 'print-area', label: '② 인쇄영역 실측', status: 'ready' },
+  { id: 'calibration', label: '① 캘리브(선분) · 참고', status: 'ready' },
+  { id: 'print-area', label: '② 인쇄영역 실측 · 환산 기준', status: 'ready' },
   { id: 'anchors', label: '③ 앵커 등록', status: 'ready' },
   { id: 'simulator', label: '④ 사용자 시뮬레이션', status: 'ready' },
   { id: 'report', label: '⑤ 비교 리포트', status: 'ready' },

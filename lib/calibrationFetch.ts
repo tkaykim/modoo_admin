@@ -41,7 +41,9 @@ export interface SideCalibrationPayload {
 export interface SideCalibration {
   productId: string;
   sideId: string;
-  /** Native (original mockup px) mm-per-px derived from the active calibration line. 0 if no usable line. */
+  /** Native (original mockup px) mm-per-px. 환산 1순위 = 인쇄영역 실측
+   *  (printAreaRealMm.widthMm / printArea.width px), 폴백 = 캘리브 선분
+   *  (선분 measuredMm / 선분 픽셀길이). 둘 다 없으면 0. */
   nativeMmPerPx: number;
   /** Label of the line used (for tooltips / audit). */
   activeLineLabel?: string;
