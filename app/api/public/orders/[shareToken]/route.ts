@@ -64,6 +64,7 @@ export async function GET(
         product_title,
         quantity,
         canvas_state,
+        configuration_snapshot,
         color_selections,
         item_options,
         thumbnail_url,

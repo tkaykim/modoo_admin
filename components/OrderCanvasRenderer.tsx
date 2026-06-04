@@ -74,6 +74,8 @@ interface OrderItem {
   quantity: number;
   price_per_item: number;
   canvas_state: Record<string, string> | Record<string, unknown>;
+  /** Frozen per-order configuration snapshot; preferred over live product.configuration. */
+  configuration_snapshot?: ProductSide[] | null;
   item_options?: {
     size_id?: string;
     size_name?: string;
@@ -1017,7 +1019,9 @@ const OrderCanvasRenderer: React.FC<OrderCanvasRendererProps> = ({
               )}
 
               <div className="flex flex-wrap justify-center gap-4">
-                {product.configuration.map((side) => {
+                {((item.configuration_snapshot && item.configuration_snapshot.length > 0
+                  ? item.configuration_snapshot
+                  : product.configuration)).map((side) => {
                   const sideCanvasState = canvasState[side.id];
 
                   // Only render sides that have canvas state

@@ -415,6 +415,11 @@ export interface OrderItem {
   price_per_item: number;
 
   canvas_state: Record<string, CanvasState>;
+  /** Frozen snapshot of products.configuration at order time. Renderers prefer
+   *  this over the live product.configuration so later mockup/printArea edits do
+   *  not retro-change this order's rendering. Auto-filled by DB trigger on insert
+   *  + one-time backfill (2026-06-04). Null/absent → fall back to live config. */
+  configuration_snapshot?: ProductSide[] | null;
   color_selections: Record<string, any>;
   item_options: {
     size_id?: string;

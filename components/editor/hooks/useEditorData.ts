@@ -165,6 +165,12 @@ export function useEditorData({
           const item = await fetchOrderItem(orderItemId);
           if (cancelled) return;
           setOrderItem(item);
+          // Freeze rendering on the order's configuration snapshot when present,
+          // so later product mockup/printArea edits don't retro-change this order.
+          const frozenSides = (item as { configuration_snapshot?: unknown }).configuration_snapshot;
+          if (Array.isArray(frozenSides) && frozenSides.length > 0) {
+            setProduct((prev) => (prev ? { ...prev, configuration: frozenSides as typeof prev.configuration } : prev));
+          }
           setCanvasStates(item.canvas_state || {});
           setCustomFonts(coerceCustomFonts(item.custom_fonts));
 

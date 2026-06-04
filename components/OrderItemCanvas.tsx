@@ -7,6 +7,7 @@ import { ChevronLeft, Palette, Ruler, Grid3x3, Download, Package, ZoomIn, ZoomOu
 import SingleSideCanvas from './canvas/SingleSideCanvas';
 import { Canvas as FabricCanvas, Point as FabricPoint } from 'fabric';
 import { resolveObjectSizeMm } from '@/lib/canvasUtils';
+import { isPreviewableImageEntry, fileExtensionLabel } from '@/lib/downloadUtils';
 
 interface OrderItemCanvasProps {
   orderItem: OrderItem;
@@ -472,10 +473,16 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
 
       if (error) throw error;
 
-      setProduct(data);
+      // Freeze rendering on the order's configuration snapshot when present, so
+      // later product mockup/printArea edits don't retro-change this order.
+      const frozenSides = (orderItem as { configuration_snapshot?: unknown }).configuration_snapshot;
+      const frozenConfiguration = (Array.isArray(frozenSides) && frozenSides.length > 0)
+        ? (frozenSides as ProductSide[])
+        : data.configuration;
+      setProduct({ ...data, configuration: frozenConfiguration });
 
       // Fetch product colors for single-layer products (no colorOptions in config)
-      const hasLayerColorOptions = data.configuration.some((side: ProductSide) =>
+      const hasLayerColorOptions = frozenConfiguration.some((side: ProductSide) =>
         side.layers?.some((layer) => Array.isArray(layer.colorOptions) && layer.colorOptions.length > 0)
       );
       if (!hasLayerColorOptions) {
@@ -1776,15 +1783,27 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
                     || getFileExtensionFromUrl(img.url)
                     || 'png';
                   const sideLabel = sideNameById.get(img.sideId) || img.sideId;
+                  const previewable = isPreviewableImageEntry(img);
+                  const extLabel = fileExtensionLabel(img);
                   return (
                     <div key={`${img.url}-${index}`} className="border border-gray-200 rounded-md overflow-hidden bg-gray-50">
                       <a href={img.url} target="_blank" rel="noopener noreferrer" className="block">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={img.url}
-                          alt={img.fileName || `${sideLabel} 원본`}
-                          className="w-full aspect-square object-contain bg-white"
-                        />
+                        {previewable ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={img.url}
+                            alt={img.fileName || `${sideLabel} 원본`}
+                            className="w-full aspect-square object-contain bg-white"
+                          />
+                        ) : (
+                          // .ai/.psd 등 미리보기 불가 원본 → 파일 칩(확장자 배지)
+                          <div className="w-full aspect-square flex flex-col items-center justify-center bg-white gap-2">
+                            <span className="text-sm font-bold tracking-wide text-white bg-gray-700 rounded px-2 py-1">
+                              {extLabel}
+                            </span>
+                            <span className="text-[11px] text-gray-500">미리보기 불가 · 클릭하여 열기</span>
+                          </div>
+                        )}
                       </a>
                       <div className="flex items-center justify-between gap-2 px-2 py-1.5">
                         <div className="min-w-0">

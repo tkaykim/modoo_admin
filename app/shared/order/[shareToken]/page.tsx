@@ -123,7 +123,13 @@ function SharedItemView({
       id: item.product_id,
       title: item.products.title || item.product_title,
       base_price: item.products.base_price ?? 0,
-      configuration: item.products.configuration || [],
+      // Prefer the order's frozen configuration snapshot over live product config
+      // so later mockup/printArea edits don't retro-change this shared order.
+      configuration:
+        (Array.isArray((item as { configuration_snapshot?: unknown }).configuration_snapshot) &&
+        ((item as { configuration_snapshot?: unknown[] }).configuration_snapshot!).length > 0
+          ? (item as { configuration_snapshot?: Product['configuration'] }).configuration_snapshot
+          : item.products.configuration) || [],
       size_options: item.products.size_options || null,
       product_code: item.products.product_code,
       manufacturers: item.products.manufacturers,
