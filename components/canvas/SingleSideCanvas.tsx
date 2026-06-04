@@ -183,6 +183,15 @@ const SingleSideCanvas: React.FC<SingleSideCanvasProps> = ({
 
     canvasRef.current = canvas;
 
+    // High-quality downscaling so small artwork renders crisply instead of
+    // looking broken/aliased. Fabric only toggles imageSmoothingEnabled per
+    // object; imageSmoothingQuality is never reset, so setting it once on the
+    // render context persists across renders.
+    try {
+      const lowerCtx = canvas.getContext();
+      if (lowerCtx) lowerCtx.imageSmoothingQuality = 'high';
+    } catch { /* non-critical display tweak */ }
+
     fabric.InteractiveFabricObject.ownDefaults = {
     ...fabric.InteractiveFabricObject.ownDefaults,
     cornerStyle: 'circle',

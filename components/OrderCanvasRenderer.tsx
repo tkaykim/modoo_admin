@@ -201,6 +201,13 @@ const SingleCanvasRenderer: React.FC<SingleCanvasRendererProps> = ({
 
     canvasRef.current = canvas;
 
+    // High-quality downscaling so small artwork renders crisply instead of
+    // looking broken/aliased (imageSmoothingQuality persists across renders).
+    try {
+      const lowerCtx = canvas.getContext();
+      if (lowerCtx) lowerCtx.imageSmoothingQuality = 'high';
+    } catch { /* non-critical display tweak */ }
+
     // -- For calculations
     const printW = side.printArea.width;
     const printH = side.printArea.height;
