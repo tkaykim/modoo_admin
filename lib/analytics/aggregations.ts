@@ -108,6 +108,7 @@ export type AnalyticsPayload = {
   };
   daily_series: Array<{
     date: string;
+    label: string;
     visitors: number;
     paid_revenue: number;
     refunded_amount: number;
@@ -115,6 +116,7 @@ export type AnalyticsPayload = {
     confirmed_revenue: number;
     order_count: number;
   }>;
+  bucket: Bucket;
 };
 
 type ListedOrder = {
@@ -154,7 +156,7 @@ async function fetchVisitorEvents(admin: SupabaseClient, range: DateRange) {
     const { data, error } = await admin
       .from('analytics_events')
       .select('session_id, occurred_at')
-      .eq('event_type', 'pageview')
+      .eq('event_type', 'page_view')
       .gte('occurred_at', range.fromIso)
       .lt('occurred_at', range.toIso)
       .range(from, from + PAGE - 1);
@@ -197,20 +199,50 @@ function classifyOrderSource(id: string): 'homepage' | 'external' | 'other' {
   return 'other';
 }
 
-function kstDayKey(iso: string): string {
-  const d = new Date(iso);
-  const utcMs = d.getTime();
-  const kst = new Date(utcMs + 9 * 60 * 60000);
+export type Bucket = 'hour' | 'day' | 'month';
+
+// iso(UTC) → KST 기준 버킷 키. hour: 'YYYY-MM-DD HH', day: 'YYYY-MM-DD', month: 'YYYY-MM'
+function kstBucketKey(iso: string, bucket: Bucket): string {
+  const kst = new Date(new Date(iso).getTime() + 9 * 60 * 60000);
   const y = kst.getUTCFullYear();
   const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(kst.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  const d = String(kst.getUTCDate()).padStart(2, '0');
+  const h = String(kst.getUTCHours()).padStart(2, '0');
+  if (bucket === 'month') return `${y}-${m}`;
+  if (bucket === 'hour') return `${y}-${m}-${d} ${h}`;
+  return `${y}-${m}-${d}`;
 }
 
-function buildDailyKeys(range: DateRange): string[] {
+// 버킷 키 → 차트 x축/툴팁 라벨
+function bucketLabel(key: string, bucket: Bucket): string {
+  if (bucket === 'hour') return `${Number(key.slice(11, 13))}시`;
+  if (bucket === 'month') return `${Number(key.slice(5, 7))}월`;
+  return `${Number(key.slice(5, 7))}/${Number(key.slice(8, 10))}`;
+}
+
+function buildBucketKeys(range: DateRange, bucket: Bucket): string[] {
   const start = new Date(new Date(range.fromIso).getTime() + 9 * 60 * 60000);
   const end = new Date(new Date(range.toIso).getTime() + 9 * 60 * 60000);
   const keys: string[] = [];
+  if (bucket === 'hour') {
+    // fromIso/toIso 는 정시 경계(프론트가 T00:00:00 +09:00 전송). UTC 시간 단위로 순회하며 KST 시각 라벨링.
+    const cur = new Date(range.fromIso);
+    const stop = new Date(range.toIso);
+    while (cur < stop) {
+      keys.push(kstBucketKey(cur.toISOString(), 'hour'));
+      cur.setUTCHours(cur.getUTCHours() + 1);
+    }
+    return keys;
+  }
+  if (bucket === 'month') {
+    const cur = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+    const stop = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
+    while (cur < stop) {
+      keys.push(`${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`);
+      cur.setUTCMonth(cur.getUTCMonth() + 1);
+    }
+    return keys;
+  }
   const cur = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
   const stop = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
   while (cur < stop) {
@@ -227,6 +259,7 @@ export async function buildAnalyticsPayload(
   admin: SupabaseClient,
   preset: RangePreset,
   range: DateRange,
+  bucket: Bucket = 'day',
 ): Promise<AnalyticsPayload> {
   const [orders, visitorEvents, dashboardInquiries, chatbotInquiries] = await Promise.all([
     fetchOrdersInRange(admin, range),
@@ -256,17 +289,17 @@ export async function buildAnalyticsPayload(
 
   const uniqueSessions = new Set(visitorEvents.map((e) => e.session_id).filter((s): s is string => !!s)).size;
 
-  const keys = buildDailyKeys(range);
+  const keys = buildBucketKeys(range, bucket);
   const daily = new Map<string, { visitors: Set<string>; paid_revenue: number; refunded_amount: number; cancelled_amount: number; order_count: number }>();
   keys.forEach((k) => daily.set(k, { visitors: new Set(), paid_revenue: 0, refunded_amount: 0, cancelled_amount: 0, order_count: 0 }));
 
   for (const e of visitorEvents) {
-    const k = kstDayKey(e.occurred_at);
+    const k = kstBucketKey(e.occurred_at, bucket);
     const slot = daily.get(k);
     if (slot && e.session_id) slot.visitors.add(e.session_id);
   }
   for (const o of orders) {
-    const k = kstDayKey(o.created_at);
+    const k = kstBucketKey(o.created_at, bucket);
     const slot = daily.get(k);
     if (!slot) continue;
     slot.order_count += 1;
@@ -279,6 +312,7 @@ export async function buildAnalyticsPayload(
     const s = daily.get(k)!;
     return {
       date: k,
+      label: bucketLabel(k, bucket),
       visitors: s.visitors.size,
       paid_revenue: s.paid_revenue,
       refunded_amount: s.refunded_amount,
@@ -312,5 +346,6 @@ export async function buildAnalyticsPayload(
       kakao: 0,
     },
     daily_series,
+    bucket,
   };
 }

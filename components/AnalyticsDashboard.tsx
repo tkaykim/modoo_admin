@@ -31,6 +31,7 @@ type AnalyticsPayload = {
   inquiries_by_source: { dashboard: number; chatbot: number; kakao: number };
   daily_series: Array<{
     date: string;
+    label: string;
     visitors: number;
     paid_revenue: number;
     refunded_amount: number;
@@ -38,17 +39,104 @@ type AnalyticsPayload = {
     confirmed_revenue: number;
     order_count: number;
   }>;
+  bucket: 'hour' | 'day' | 'month';
 };
 
-const PRESETS: { value: RangePreset; label: string }[] = [
-  { value: 'this_week', label: '이번주' },
-  { value: 'this_month', label: '이번달' },
-  { value: 'q1', label: '1분기' },
-  { value: 'q2', label: '2분기' },
-  { value: 'q3', label: '3분기' },
-  { value: 'q4', label: '4분기' },
-  { value: 'custom', label: '기간설정' },
+type Granularity = 'day' | 'week' | 'month' | 'year' | 'custom';
+
+const GRANULARITIES: { value: Granularity; label: string }[] = [
+  { value: 'day', label: '일간' },
+  { value: 'week', label: '주간' },
+  { value: 'month', label: '월간' },
+  { value: 'year', label: '연간' },
+  { value: 'custom', label: '기간선택' },
 ];
+
+const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+
+// UTC 필드가 KST 민간시각을 나타내는 Date
+function kstCivilNow(): Date {
+  return new Date(Date.now() + 9 * 60 * 60000);
+}
+function ymd(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+function isoKst(ymdStr: string): string {
+  return `${ymdStr}T00:00:00+09:00`;
+}
+function mdLabel(d: Date): string {
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+}
+
+type Period = {
+  fromYmd: string;
+  toYmd: string; // exclusive
+  bucket: 'hour' | 'day' | 'month';
+  label: string;
+  atCurrent: boolean;
+};
+
+// granularity + offset(0=현재, 음수=과거) → 조회 기간(KST) 계산
+function periodFor(g: Granularity, offset: number, customFrom: string, customTo: string): Period {
+  const now = kstCivilNow();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+  if (g === 'day') {
+    const from = new Date(today);
+    from.setUTCDate(from.getUTCDate() + offset);
+    const to = new Date(from);
+    to.setUTCDate(to.getUTCDate() + 1);
+    const label =
+      offset === 0 ? '오늘' : offset === -1 ? '어제' : offset === -2 ? '그제'
+        : `${mdLabel(from)}(${DOW[from.getUTCDay()]})`;
+    return { fromYmd: ymd(from), toYmd: ymd(to), bucket: 'hour', label, atCurrent: offset >= 0 };
+  }
+
+  if (g === 'week') {
+    const dow = today.getUTCDay();
+    const diff = dow === 0 ? -6 : 1 - dow; // 월요일 시작
+    const monday = new Date(today);
+    monday.setUTCDate(monday.getUTCDate() + diff + offset * 7);
+    const to = new Date(monday);
+    to.setUTCDate(to.getUTCDate() + 7);
+    const sunday = new Date(monday);
+    sunday.setUTCDate(sunday.getUTCDate() + 6);
+    const label =
+      offset === 0 ? '이번주' : offset === -1 ? '지난주' : offset === -2 ? '2주 전'
+        : `${mdLabel(monday)}~${mdLabel(sunday)}`;
+    return { fromYmd: ymd(monday), toYmd: ymd(to), bucket: 'day', label, atCurrent: offset >= 0 };
+  }
+
+  if (g === 'month') {
+    const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1));
+    const to = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
+    const label =
+      offset === 0 ? '이번달' : offset === -1 ? '지난달'
+        : from.getUTCFullYear() === now.getUTCFullYear()
+          ? `${from.getUTCMonth() + 1}월`
+          : `${from.getUTCFullYear()}.${from.getUTCMonth() + 1}`;
+    return { fromYmd: ymd(from), toYmd: ymd(to), bucket: 'day', label, atCurrent: offset >= 0 };
+  }
+
+  if (g === 'year') {
+    const y = now.getUTCFullYear() + offset;
+    const from = new Date(Date.UTC(y, 0, 1));
+    const to = new Date(Date.UTC(y + 1, 0, 1));
+    const label = offset === 0 ? '올해' : offset === -1 ? '작년' : `${y}년`;
+    return { fromYmd: ymd(from), toYmd: ymd(to), bucket: 'month', label, atCurrent: offset >= 0 };
+  }
+
+  // custom: customTo 를 포함하도록 +1일 exclusive
+  const toEx = new Date(`${customTo}T00:00:00Z`);
+  toEx.setUTCDate(toEx.getUTCDate() + 1);
+  return {
+    fromYmd: customFrom,
+    toYmd: ymd(toEx),
+    bucket: 'day',
+    label: `${customFrom} ~ ${customTo}`,
+    atCurrent: true,
+  };
+}
 
 const TABS: { value: AnalyticsTab; label: string }[] = [
   { value: 'sales', label: '매출 분석' },
@@ -64,12 +152,10 @@ function todayKstYmd(): string {
   return d.toISOString().slice(0, 10);
 }
 
-function buildQuery(preset: RangePreset, from: string, to: string): string {
-  const sp = new URLSearchParams({ preset });
-  if (preset === 'custom') {
-    sp.set('from', `${from}T00:00:00+09:00`);
-    sp.set('to', `${to}T00:00:00+09:00`);
-  }
+function buildQuery(p: Period): string {
+  const sp = new URLSearchParams({ preset: 'custom', bucket: p.bucket });
+  sp.set('from', isoKst(p.fromYmd));
+  sp.set('to', isoKst(p.toYmd));
   return sp.toString();
 }
 
@@ -103,37 +189,79 @@ export default function AnalyticsDashboard() {
 }
 
 function SalesTab() {
-  const [preset, setPreset] = useState<RangePreset>('this_month');
+  const [granularity, setGranularity] = useState<Granularity>('month');
+  const [offset, setOffset] = useState(0);
   const today = todayKstYmd();
   const [customFrom, setCustomFrom] = useState(today);
   const [customTo, setCustomTo] = useState(today);
 
-  const query = buildQuery(preset, customFrom, customTo);
+  const period = useMemo(
+    () => periodFor(granularity, offset, customFrom, customTo),
+    [granularity, offset, customFrom, customTo],
+  );
+  const query = buildQuery(period);
   const { data, error, isLoading } = useSWR<AnalyticsPayload>(`/api/admin/analytics?${query}`, fetcher);
+
+  const changeGranularity = (g: Granularity) => {
+    setGranularity(g);
+    setOffset(0);
+  };
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-md p-1">
-          {PRESETS.map((p) => (
+          {GRANULARITIES.map((g) => (
             <button
-              key={p.value}
-              onClick={() => setPreset(p.value)}
+              key={g.value}
+              onClick={() => changeGranularity(g.value)}
               className={`px-3 py-1 text-xs font-medium rounded ${
-                preset === p.value ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                granularity === g.value ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
               }`}
             >
-              {p.label}
+              {g.label}
             </button>
           ))}
         </div>
-        {preset === 'custom' && (
+
+        {granularity !== 'custom' && (
+          <div className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-md p-1">
+            <button
+              onClick={() => setOffset((o) => o - 1)}
+              className="px-2 py-1 text-gray-600 hover:bg-gray-100 rounded leading-none"
+              aria-label="이전 기간"
+            >
+              ◀
+            </button>
+            <span className="px-2 text-xs font-semibold text-gray-800 text-center min-w-[80px]">{period.label}</span>
+            <button
+              onClick={() => setOffset((o) => Math.min(0, o + 1))}
+              disabled={period.atCurrent}
+              className={`px-2 py-1 rounded leading-none ${
+                period.atCurrent ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+              aria-label="다음 기간"
+            >
+              ▶
+            </button>
+          </div>
+        )}
+
+        {granularity !== 'custom' && offset !== 0 && (
+          <button onClick={() => setOffset(0)} className="px-2 py-1 text-xs text-blue-600 hover:underline">
+            현재로
+          </button>
+        )}
+
+        {granularity === 'custom' && (
           <div className="flex items-center gap-1 text-xs">
             <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="border border-gray-300 rounded px-2 py-1" />
             <span>~</span>
             <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="border border-gray-300 rounded px-2 py-1" />
           </div>
         )}
+
+        <span className="text-[11px] text-gray-400 ml-auto">{period.label} · DB 실주문 기준</span>
       </div>
 
       {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded">{error.message}</div>}
@@ -260,7 +388,7 @@ function TrendChart({ series }: { series: AnalyticsPayload['daily_series'] }) {
         maxVal,
       },
       ticks,
-      dates: series.map((d) => d.date.slice(5)),
+      dates: series.map((d) => d.label),
     };
   }, [series]);
 
@@ -346,7 +474,7 @@ function TrendChart({ series }: { series: AnalyticsPayload['daily_series'] }) {
           className={`absolute pointer-events-none ${tooltipAlignClass} top-1 z-10 bg-gray-900/95 text-white text-[11px] rounded-md shadow-lg px-2.5 py-1.5 whitespace-nowrap`}
           style={{ left: `${tooltipLeftPct}%` }}
         >
-          <div className="font-semibold mb-1">{hoverPoint.date}</div>
+          <div className="font-semibold mb-1">{hoverPoint.label}</div>
           <div className="space-y-0.5">
             <div className="flex items-center gap-1.5">
               <span className="inline-block w-2 h-2 rounded-full bg-blue-500" />

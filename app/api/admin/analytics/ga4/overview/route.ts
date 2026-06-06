@@ -1,6 +1,56 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/admin/require-admin';
 import { campaigns, revenue, funnel, traffic } from '@/lib/ga4/reports';
+import { createAdminClient } from '@/lib/supabase-admin';
+
+// DB 실매출 (KST 기준 최근 N일). order_profit_summary 정의와 동일: payment 완료 & 취소/환불 제외.
+async function fetchDbRevenue(days: number): Promise<{
+  total: number;
+  transactions: number;
+  byDate: { date: string; totalRevenue: number; transactions: number }[];
+}> {
+  const kstNow = new Date(Date.now() + 9 * 60 * 60000);
+  const startKst = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate() - days));
+  const sinceIso = new Date(startKst.getTime() - 9 * 60 * 60000).toISOString();
+
+  const admin = createAdminClient();
+  const rows: { total_amount: number | null; payment_status: string | null; order_status: string | null; created_at: string }[] = [];
+  const PAGE = 1000;
+  let from = 0;
+  while (true) {
+    const { data, error } = await admin
+      .from('orders')
+      .select('total_amount, payment_status, order_status, created_at')
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < PAGE) break;
+    from += PAGE;
+  }
+
+  const byDateMap = new Map<string, { totalRevenue: number; transactions: number }>();
+  let total = 0;
+  let transactions = 0;
+  for (const o of rows) {
+    const confirmed = o.payment_status === 'completed' && o.order_status !== 'cancelled';
+    if (!confirmed) continue;
+    const kst = new Date(new Date(o.created_at).getTime() + 9 * 60 * 60000);
+    const key = `${kst.getUTCFullYear()}${String(kst.getUTCMonth() + 1).padStart(2, '0')}${String(kst.getUTCDate()).padStart(2, '0')}`;
+    const cur = byDateMap.get(key) ?? { totalRevenue: 0, transactions: 0 };
+    cur.totalRevenue += Number(o.total_amount ?? 0);
+    cur.transactions += 1;
+    byDateMap.set(key, cur);
+    total += Number(o.total_amount ?? 0);
+    transactions += 1;
+  }
+  const byDate = [...byDateMap.entries()]
+    .map(([date, v]) => ({ date, ...v }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return { total, transactions, byDate };
+}
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -17,11 +67,12 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const days = Math.max(1, Math.min(365, Number(searchParams.get('days') ?? 30)));
 
-    const [campaignsRows, revenueRows, funnelRows, trafficRows] = await Promise.all([
+    const [campaignsRows, revenueRows, funnelRows, trafficRows, dbRevenue] = await Promise.all([
       campaigns(days),
       revenue(days),
       funnel(days),
       traffic(days),
+      fetchDbRevenue(days),
     ]);
 
     const cs = campaignsRows as unknown as CampaignRow[];
@@ -63,6 +114,7 @@ export async function GET(req: NextRequest) {
         range: { days },
         campaigns: campaignsRows,
         revenueByDate,
+        dbRevenueByDate: dbRevenue.byDate,
         funnel: funnelRows,
         trafficDaily,
         summary: {
@@ -70,6 +122,8 @@ export async function GET(req: NextRequest) {
           totalUsers,
           totalRevenue,
           totalTransactions,
+          dbRevenue: dbRevenue.total,
+          dbTransactions: dbRevenue.transactions,
           paidSessions,
           organicSessions,
         },

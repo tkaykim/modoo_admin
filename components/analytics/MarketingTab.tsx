@@ -30,6 +30,7 @@ type OverviewData = {
   range: { days: number };
   campaigns: CampaignRow[];
   revenueByDate: RevenueByDate[];
+  dbRevenueByDate: RevenueByDate[];
   funnel: FunnelRow[];
   trafficDaily: TrafficDaily[];
   summary: {
@@ -37,6 +38,8 @@ type OverviewData = {
     totalUsers: number;
     totalRevenue: number;
     totalTransactions: number;
+    dbRevenue: number;
+    dbTransactions: number;
     paidSessions: number;
     organicSessions: number;
   };
@@ -102,10 +105,11 @@ export default function MarketingTab() {
     return m;
   }, [meta]);
 
-  // ROAS 계산 (전체 GA4 매출 ÷ Meta 총 지출)
+  // ROAS 계산 (DB 실매출 ÷ Meta 총 지출). 실매출 = 결제완료·취소/환불 제외 전체 주문(광고 단독 귀속 아님).
   const totalSpend = meta?.summary.spend ?? 0;
-  const totalRevenue = payload?.summary.totalRevenue ?? 0;
-  const roasPct = totalSpend > 0 ? (totalRevenue / totalSpend) * 100 : 0;
+  const dbRevenue = payload?.summary.dbRevenue ?? 0;
+  const ga4Revenue = payload?.summary.totalRevenue ?? 0;
+  const roasPct = totalSpend > 0 ? (dbRevenue / totalSpend) * 100 : 0;
 
   return (
     <div className="space-y-4">
@@ -138,10 +142,13 @@ export default function MarketingTab() {
           {/* 마케팅 ROI 핵심 지표 */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <KpiCard icon={Target} label="Meta 광고비" value={meta ? krw(meta.summary.spend) : (metaLoading ? '...' : '-')} hint={meta ? `클릭 ${num(meta.summary.clicks)} · 노출 ${num(meta.summary.impressions)}` : (metaError ? 'Meta API 오류' : '연동 중')} accent="border-l-rose-500" />
-            <KpiCard icon={BadgeDollarSign} label="GA4 매출" value={krw(payload.summary.totalRevenue)} hint={`거래 ${num(payload.summary.totalTransactions)}건`} accent="border-l-green-500" />
-            <KpiCard icon={TrendingUp} label="ROAS" value={meta ? `${roasPct.toFixed(1)}%` : '-'} hint={meta && totalSpend > 0 ? (roasPct >= 100 ? '✓ 광고비 회수' : `손실 ${krw(totalSpend - totalRevenue)}`) : '광고비 데이터 필요'} accent={meta && roasPct >= 100 ? 'border-l-emerald-600' : 'border-l-amber-500'} />
+            <KpiCard icon={BadgeDollarSign} label="실매출 (DB)" value={krw(dbRevenue)} hint={`주문 ${num(payload.summary.dbTransactions)}건 · 취소/환불 제외`} accent="border-l-green-500" />
+            <KpiCard icon={TrendingUp} label="ROAS (실매출÷광고비)" value={meta ? `${roasPct.toFixed(1)}%` : '-'} hint={meta && totalSpend > 0 ? (roasPct >= 100 ? '✓ 광고비 회수' : `손실 ${krw(totalSpend - dbRevenue)}`) : '광고비 데이터 필요'} accent={meta && roasPct >= 100 ? 'border-l-emerald-600' : 'border-l-amber-500'} />
             <KpiCard icon={MousePointerClick} label="평균 CPC" value={meta && meta.summary.clicks > 0 ? krw(meta.summary.spend / meta.summary.clicks) : '-'} hint={meta ? `도달 ${num(meta.summary.reach)}명` : '-'} accent="border-l-blue-500" />
           </div>
+          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
+            ⚠ GA4 추정매출 <b>{krw(ga4Revenue)}</b> (GA4 구매이벤트 기준)은 중복·테스트 발화로 부풀려질 수 있어 참고용입니다. 매출 정본은 <b>실매출(DB)</b>이며, ROAS는 전체 실매출÷광고비라 광고 단독 기여가 아닙니다.
+          </p>
 
           {/* GA4 트래픽 */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -151,9 +158,9 @@ export default function MarketingTab() {
           </div>
 
           <section className="bg-white border border-gray-200 rounded-md p-4">
-            <h2 className="text-sm font-semibold text-gray-800 mb-2">일자별 트래픽 · 매출</h2>
-            <p className="text-xs text-gray-500 mb-3">세션(파랑, 좌축) · 매출(초록, 우축)</p>
-            <DualAxisChart traffic={payload.trafficDaily} revenue={payload.revenueByDate} />
+            <h2 className="text-sm font-semibold text-gray-800 mb-2">일자별 트래픽 · 실매출</h2>
+            <p className="text-xs text-gray-500 mb-3">세션(파랑, 좌축) · 실매출 DB(초록, 우축)</p>
+            <DualAxisChart traffic={payload.trafficDaily} revenue={payload.dbRevenueByDate} />
           </section>
 
           <section className="bg-white border border-gray-200 rounded-md p-4">
