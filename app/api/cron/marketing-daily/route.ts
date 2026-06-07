@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendGmailEmail } from '@/lib/gmail';
 import { automationPing } from '@/lib/automation-ping';
+import { createAdminClient } from '@/lib/supabase-admin';
 import { fetchMetaAdInsights, summarize, diagnoseLeaks, type InsightSummary } from '@/lib/marketing-report/fetchMeta';
 import {
   fetchGA4Overall,
@@ -175,6 +176,20 @@ export async function GET(req: NextRequest) {
       clarity,
       narrative,
     };
+
+    // 마케팅 지표 보존 — 메일뿐 아니라 테이블에 저장(분석가·오케스트레이터가 읽어 재무와 통합 분석)
+    try {
+      const msb = createAdminClient();
+      await msb.from('marketing_daily_metrics').upsert({
+        date: yesterday,
+        revenue: supaSummary.revenue, orders: supaSummary.orders, gross_profit: supaSummary.grossProfit, margin_pct: supaSummary.marginPct,
+        ad_spend: totalSpend, impressions: totalImpr, clicks: totalClicks, ctr, cpc, meta_roas: metaRoas, real_roas: realRoas,
+        sessions: ga4Overall.sessions, total_users: ga4Overall.totalUsers, engagement_rate: ga4Overall.engagementRate,
+        narrative, updated_at: new Date().toISOString(),
+      }, { onConflict: 'date' });
+    } catch (e) {
+      console.error('[marketing-daily] metrics persist failed:', e);
+    }
 
     const html = buildDailyHtml(data);
     const subject = `[모두의유니폼] 일일 리포트 ${yesterday} · 매출 ${supaSummary.revenue.toLocaleString('ko-KR')}원 · ${supaSummary.orders}건`;
