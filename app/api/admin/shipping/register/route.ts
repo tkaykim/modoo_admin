@@ -5,9 +5,9 @@ import { createAdminClient } from '@/lib/supabase-admin';
 import { registerOrder, type RegisterOrderInput } from '@/lib/logen';
 import { getKstYYYYMMDD } from '@/lib/kst';
 
-const SENDER_NAME = '모두의굿즈';
-const SENDER_ADDR = '경기도 성남시 수정구 창업로57번길7 5층';
-const SENDER_TEL = '02-3415-8969';
+const SENDER_NAME = '모두의 유니폼';
+const SENDER_ADDR = '서울특별시 마포구 성지3길 55 3층';
+const SENDER_TEL = '010-8140-0621';
 
 export async function POST(request: Request) {
   try {

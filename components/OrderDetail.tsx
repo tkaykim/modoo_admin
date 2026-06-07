@@ -685,9 +685,9 @@ export default function OrderDetail({
   };
 
   const senderInfo = {
-    name: '모두의굿즈',
-    addr: '경기도 성남시 수정구 창업로57번길7 5층',
-    tel: '02-3415-8969',
+    name: '모두의 유니폼',
+    addr: '서울특별시 마포구 성지3길 55 3층',
+    tel: '010-8140-0621',
   };
 
   const totalQty = (orderItems || []).reduce((sum, item) => sum + (item.quantity || 1), 0);

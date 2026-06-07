@@ -1,7 +1,10 @@
 const LOGEN_API_BASE_URL = process.env.LOGEN_API_BASE_URL || 'https://topenapi.ilogen.com';
+// 로젠 API 자격증명 — 토큰 발급 시 로젠이 함께 제공. Vercel 환경변수 필수.
 const LOGEN_SECRET_KEY = process.env.LOGEN_SECRET_KEY || '';
-const LOGEN_USER_ID = process.env.LOGEN_USER_ID || '10358007';
-const LOGEN_CUST_CD = process.env.LOGEN_CUST_CD || '20179999';
+// userId(API 로그인 ID): 로젠 발급값. env LOGEN_USER_ID 로 설정.
+const LOGEN_USER_ID = process.env.LOGEN_USER_ID || '';
+// custCd(거래처/고객 코드): 피스코프 22254633.
+const LOGEN_CUST_CD = process.env.LOGEN_CUST_CD || '22254633';
 
 interface LogenResponse {
   sttsCd: 'SUCCESS' | 'PARTIAL SUCCESS' | 'FAIL';
