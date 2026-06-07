@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendGmailEmail } from '@/lib/gmail';
 import { automationPing } from '@/lib/automation-ping';
+import { createAdminClient } from '@/lib/supabase-admin';
 import { fetchMetaAdInsights, summarize, diagnoseLeaks, type InsightSummary } from '@/lib/marketing-report/fetchMeta';
 import {
   fetchGA4Overall,
@@ -85,8 +86,12 @@ export async function GET(req: NextRequest) {
 
     const ads: InsightSummary[] = adInsights.map((i) => summarize(i, 'ad_name'));
     const totalSpend = ads.reduce((s, a) => s + a.spend, 0);
+    const totalImpr = ads.reduce((s, a) => s + a.impressions, 0);
+    const totalClicks = ads.reduce((s, a) => s + a.clicks, 0);
     const totalPurchase = ads.reduce((s, a) => s + a.purchase, 0);
     const totalPurchaseValue = ads.reduce((s, a) => s + a.purchaseValue, 0);
+    const ctr = totalImpr > 0 ? (totalClicks / totalImpr) * 100 : 0;
+    const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
     const metaRoas = totalSpend > 0 ? totalPurchaseValue / totalSpend : 0;
     const realRoas = totalSpend > 0 ? supaSummary.revenue / totalSpend : 0;
 
@@ -124,6 +129,20 @@ export async function GET(req: NextRequest) {
       clarity,
       narrative,
     };
+
+    // 마케팅 주간 지표 보존 — 메일뿐 아니라 테이블에 저장(분석가·오케스트레이터가 읽어 재무와 통합 분석). daily와 동일 패턴.
+    try {
+      const msb = createAdminClient();
+      await msb.from('marketing_weekly_metrics').upsert({
+        week_start: from, week_end: to,
+        revenue: supaSummary.revenue, orders: supaSummary.orders, gross_profit: supaSummary.grossProfit, margin_pct: supaSummary.marginPct,
+        ad_spend: totalSpend, impressions: totalImpr, clicks: totalClicks, ctr, cpc, meta_roas: metaRoas, real_roas: realRoas,
+        sessions: ga4Overall.sessions, total_users: ga4Overall.totalUsers, engagement_rate: ga4Overall.engagementRate,
+        narrative, updated_at: new Date().toISOString(),
+      }, { onConflict: 'week_start' });
+    } catch (e) {
+      console.error('[marketing-weekly] metrics persist failed:', e);
+    }
 
     const html = buildWeeklyHtml(data);
     const subject = `[모두의유니폼] 주간 리포트 ${from}~${to} · 매출 ${supaSummary.revenue.toLocaleString('ko-KR')}원 · ${supaSummary.orders}건`;
