@@ -43,6 +43,7 @@
     "react-dom": "19.2.3",
     "readable-stream": "^4.7.0",
     "swr": "^2.4.0",
+    "undici": "^8.4.0",
     "zustand": "^5.0.9"
   },
   "devDependencies": {

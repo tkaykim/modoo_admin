@@ -1,10 +1,17 @@
+import { fetch as undiciFetch, ProxyAgent } from 'undici';
+
 const LOGEN_API_BASE_URL = process.env.LOGEN_API_BASE_URL || 'https://topenapi.ilogen.com';
 // 로젠 API 자격증명 — 토큰 발급 시 로젠이 함께 제공. Vercel 환경변수 필수.
 const LOGEN_SECRET_KEY = process.env.LOGEN_SECRET_KEY || '';
 // userId(API 로그인 ID): 로젠 발급값. env LOGEN_USER_ID 로 설정.
 const LOGEN_USER_ID = process.env.LOGEN_USER_ID || '';
-// custCd(거래처/고객 코드): 피스코프 22254633.
-const LOGEN_CUST_CD = process.env.LOGEN_CUST_CD || '22254633';
+// custCd(거래처/고객 코드): 거래처코드 peacecorp. env LOGEN_CUST_CD 로 설정.
+const LOGEN_CUST_CD = process.env.LOGEN_CUST_CD || 'peacecorp';
+
+// 로젠 API는 IP 화이트리스트 필수 → modoo(Vercel, 가변IP)는 고정IP 프록시를 경유한다.
+// LOGEN_PROXY_URL 예) http://user:pass@<고정IP>:8888  (미설정 시 직접 호출)
+const LOGEN_PROXY_URL = process.env.LOGEN_PROXY_URL || '';
+const logenProxyAgent = LOGEN_PROXY_URL ? new ProxyAgent(LOGEN_PROXY_URL) : undefined;
 
 interface LogenResponse {
   sttsCd: 'SUCCESS' | 'PARTIAL SUCCESS' | 'FAIL';
@@ -14,20 +21,21 @@ interface LogenResponse {
 
 async function logenFetch(endpoint: string, body: Record<string, any>): Promise<LogenResponse> {
   const url = `${LOGEN_API_BASE_URL}/lrm02b-edi/edi/${endpoint}`;
-  const res = await fetch(url, {
+  const res = await undiciFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       secretKey: LOGEN_SECRET_KEY,
     },
     body: JSON.stringify(body),
+    ...(logenProxyAgent ? { dispatcher: logenProxyAgent } : {}),
   });
 
   if (!res.ok) {
     throw new Error(`로젠 API 호출 실패: ${res.status} ${res.statusText}`);
   }
 
-  return res.json();
+  return (await res.json()) as LogenResponse;
 }
 
 function logenGetUrl(endpoint: string, params: Record<string, string>): string {
