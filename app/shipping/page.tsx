@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Truck, Package, CheckCircle, RefreshCw, Printer, ImageIcon } from 'lucide-react';
+import { Truck, Package, CheckCircle, RefreshCw, Printer, ImageIcon, X, Loader2, AlertTriangle } from 'lucide-react';
 import useSWR from 'swr';
 import { fetcher } from '@/lib/fetcher';
 import { formatKstDateOnly, getKstYYYYMMDD } from '@/lib/kst';
@@ -61,14 +61,35 @@ function getProductLine(order: Order): string {
   return `${titles[0]} 외 ${titles.length - 1}건`;
 }
 
+// 접수 시 실제로 로젠에 전달되는 발송자 정보 (register API SENDER_* 와 동일하게 유지)
+const SENDER = { name: '모두의 유니폼', addr: '서울특별시 마포구 성지3길 55 3층', tel: '010-8140-0621' };
+
+function getItemsSummary(order: Order): { totalQty: number; goodsNm: string } {
+  const items = (order.order_items || []) as Array<{ product_title?: string | null; quantity?: number | null }>;
+  const totalQty = items.reduce((s, i) => s + (i.quantity || 1), 0);
+  const goodsNm = items.map((i) => i.product_title).filter(Boolean).join(', ').slice(0, 80) || '상품';
+  return { totalQty, goodsNm };
+}
+
+function isIncomplete(order: Order): boolean {
+  return !order.address_line_1 || !order.customer_phone;
+}
+
+function fullAddress(order: Order): string {
+  return `${order.postal_code ? `[${order.postal_code}] ` : ''}${order.address_line_1 || '주소 미입력'}${order.address_line_2 ? ` ${order.address_line_2}` : ''}`;
+}
+
 export default function ShippingPage() {
   const [tab, setTab] = useState<Tab>('pending');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
-  const [registeringId, setRegisteringId] = useState<string | null>(null);
   const [trackingResults, setTrackingResults] = useState<Record<string, { statNm?: string }>>({});
   // 디자인 썸네일 호버 시 4면 미리보기 — 커서 위치에 fixed 패널(테이블 overflow 클리핑 회피)
   const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
+  // 접수 확인 모달 — 발송자(공통) + 수신자 상세를 보여주고 접수 실행
+  const [confirmOrders, setConfirmOrders] = useState<Order[] | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const { data: allOrders, mutate } = useSWR<Order[]>('/api/admin/orders?status=all&withMedia=1', fetcher, {
     revalidateOnFocus: false,
@@ -113,43 +134,44 @@ export default function ShippingPage() {
     }
   };
 
-  // 로젠 접수 (단건/다건 공통) — orderIds 배열로 호출
-  const registerOrders = useCallback(async (orderIds: string[]) => {
-    const res = await fetch('/api/admin/shipping/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderIds }),
-    });
-    const json = await res.json();
-    if (res.ok) {
-      alert(`${json.data?.registered || 0}건 접수 완료`);
-      mutate();
-      return true;
-    }
-    alert(json.error || '접수 실패');
-    return false;
-  }, [mutate]);
+  // 접수 확인 모달 열기 (단건/일괄 공통)
+  const openConfirm = useCallback((orders: Order[]) => {
+    if (orders.length === 0) return;
+    setSubmitError(null);
+    setConfirmOrders(orders);
+  }, []);
 
-  const handleBulkRegister = useCallback(async () => {
-    if (selectedIds.size === 0) return;
-    if (!confirm(`${selectedIds.size}건을 로젠택배에 접수하시겠습니까?`)) return;
-    setLoading(true);
-    try {
-      if (await registerOrders(Array.from(selectedIds))) setSelectedIds(new Set());
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedIds, registerOrders]);
+  const handleBulkRegister = useCallback(() => {
+    const orders = filteredOrders.filter((o) => selectedIds.has(o.id));
+    openConfirm(orders);
+  }, [filteredOrders, selectedIds, openConfirm]);
 
-  const handleSingleRegister = useCallback(async (order: Order) => {
-    if (!confirm(`'${getDesignTitle(order)}' (${order.customer_name}) 1건을 로젠택배에 접수하시겠습니까?`)) return;
-    setRegisteringId(order.id);
+  // 모달 "접수 실행" — 실제로 로젠에 접수 요청
+  const confirmRegister = useCallback(async () => {
+    if (!confirmOrders || confirmOrders.length === 0) return;
+    setSubmitting(true);
+    setSubmitError(null);
     try {
-      await registerOrders([order.id]);
+      const res = await fetch('/api/admin/shipping/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderIds: confirmOrders.map((o) => o.id) }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setConfirmOrders(null);
+        setSelectedIds(new Set());
+        mutate();
+        alert(`${json.data?.registered || 0}건 접수 완료${json.data?.skipped?.length ? ` (${json.data.skipped.length}건 건너뜀)` : ''}`);
+      } else {
+        setSubmitError(json.error || '접수에 실패했습니다.');
+      }
+    } catch {
+      setSubmitError('서버 연결에 실패했습니다. 로젠 API 설정을 확인해주세요.');
     } finally {
-      setRegisteringId(null);
+      setSubmitting(false);
     }
-  }, [registerOrders]);
+  }, [confirmOrders, mutate]);
 
   const handlePrintPopup = useCallback(async () => {
     const takeDt = getKstYYYYMMDD();
@@ -265,10 +287,10 @@ export default function ShippingPage() {
         {tab === 'pending' && (
           <button
             onClick={handleBulkRegister}
-            disabled={selectedIds.size === 0 || loading}
+            disabled={selectedIds.size === 0}
             className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? '처리 중...' : `선택 일괄 접수 (${selectedIds.size}건)`}
+            {`선택 일괄 접수 (${selectedIds.size}건)`}
           </button>
         )}
         {tab === 'registered' && (
@@ -417,11 +439,10 @@ export default function ShippingPage() {
                       {tab === 'pending' && (
                         <td className="px-3 py-3 text-center">
                           <button
-                            onClick={() => handleSingleRegister(order)}
-                            disabled={registeringId === order.id}
-                            className="px-2.5 py-1 text-xs font-medium text-blue-600 border border-blue-200 rounded hover:bg-blue-50 disabled:opacity-50 whitespace-nowrap"
+                            onClick={() => openConfirm([order])}
+                            className="px-2.5 py-1 text-xs font-medium text-blue-600 border border-blue-200 rounded hover:bg-blue-50 whitespace-nowrap"
                           >
-                            {registeringId === order.id ? '접수 중...' : '접수'}
+                            접수
                           </button>
                         </td>
                       )}
@@ -433,6 +454,110 @@ export default function ShippingPage() {
           </table>
         </div>
       </div>
+
+      {/* 접수 확인 모달 — 발송자(공통) + 수신자 상세 */}
+      {confirmOrders && (() => {
+        const isBulk = confirmOrders.length > 1;
+        const incompleteCount = confirmOrders.filter(isIncomplete).length;
+        const allIncomplete = incompleteCount === confirmOrders.length;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !submitting && setConfirmOrders(null)}>
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[88vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+                <h3 className="text-base font-semibold text-gray-900">
+                  택배 접수 확인 {isBulk && <span className="text-blue-600">({confirmOrders.length}건)</span>}
+                </h3>
+                <button onClick={() => setConfirmOrders(null)} disabled={submitting} className="text-gray-400 hover:text-gray-600 disabled:opacity-50">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="px-5 py-4 space-y-4 overflow-y-auto">
+                {/* 보내는 분 — 공통, 한 번만 */}
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-2">보내는 분 (공통)</p>
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-0.5 text-sm">
+                    <p className="font-medium text-gray-900">{SENDER.name}</p>
+                    <p className="text-gray-600">{SENDER.addr}</p>
+                    <p className="text-gray-600">{SENDER.tel}</p>
+                  </div>
+                </div>
+
+                {/* 받는 분 — 단건이면 상세, 일괄이면 리스트 */}
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-2">
+                    받는 분 {isBulk && `· ${confirmOrders.length}명`}
+                  </p>
+                  <div className="space-y-2">
+                    {confirmOrders.map((order) => {
+                      const { totalQty, goodsNm } = getItemsSummary(order);
+                      const bad = isIncomplete(order);
+                      return (
+                        <div key={order.id} className={`rounded-lg p-3 text-sm border ${bad ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-100'}`}>
+                          <div className="flex items-center justify-between">
+                            <p className="font-medium text-gray-900">{order.customer_name || '-'}</p>
+                            <span className="text-xs text-gray-500">{totalQty}개 · {(order.delivery_fee || 0).toLocaleString()}원</span>
+                          </div>
+                          <p className="text-gray-700">{fullAddress(order)}</p>
+                          <p className="text-gray-600">{order.customer_phone || '연락처 없음'}</p>
+                          {!isBulk && (
+                            <p className="text-xs text-gray-500 mt-1 truncate">물품: {goodsNm} · 운임타입 본사신용</p>
+                          )}
+                          {bad && (
+                            <p className="flex items-center gap-1 text-xs text-amber-700 mt-1">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              {!order.address_line_1 ? '주소 누락' : ''}{!order.address_line_1 && !order.customer_phone ? ' · ' : ''}{!order.customer_phone ? '연락처 누락' : ''}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 일괄 요약 */}
+                {isBulk && (
+                  <div className="bg-gray-50 rounded-lg p-3 text-sm flex justify-between">
+                    <span className="text-gray-600">총 접수 건수</span>
+                    <span className="font-medium text-gray-900">
+                      {confirmOrders.length}건
+                      {incompleteCount > 0 && <span className="text-amber-600"> (정보 누락 {incompleteCount}건)</span>}
+                    </span>
+                  </div>
+                )}
+
+                {incompleteCount > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                    <p className="font-medium mb-1">주의: {incompleteCount}건의 배송 정보가 불완전합니다.</p>
+                    <p>주소/연락처가 없는 건은 로젠 접수가 거부될 수 있습니다. 주문 상세에서 보완 후 접수를 권장합니다.</p>
+                  </div>
+                )}
+
+                {submitError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700">{submitError}</div>
+                )}
+              </div>
+
+              <div className="flex gap-2 px-5 py-4 border-t border-gray-200 bg-gray-50/50">
+                <button
+                  onClick={() => setConfirmOrders(null)}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2.5 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={confirmRegister}
+                  disabled={submitting || allIncomplete}
+                  className="flex-1 px-4 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {submitting ? (<><Loader2 className="w-4 h-4 animate-spin" /> 접수 중...</>) : `${confirmOrders.length}건 접수하기`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 디자인 4면 미리보기 팝오버 (커서 추적, fixed) */}
       {hover && hoverImages.length > 0 && (
