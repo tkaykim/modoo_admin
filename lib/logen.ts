@@ -3,8 +3,10 @@ import { fetch as undiciFetch, ProxyAgent } from 'undici';
 const LOGEN_API_BASE_URL = process.env.LOGEN_API_BASE_URL || 'https://topenapi.ilogen.com';
 // 로젠 API 자격증명 — 토큰 발급 시 로젠이 함께 제공. Vercel 환경변수 필수.
 const LOGEN_SECRET_KEY = process.env.LOGEN_SECRET_KEY || '';
-// userId(API 로그인 ID): 로젠 발급값. env LOGEN_USER_ID 로 설정.
-const LOGEN_USER_ID = process.env.LOGEN_USER_ID || '';
+// userId(API 사용자 ID): 로젠 접수(registerOrderData)는 userId에 "거래처번호(22254633)"를 요구한다.
+// ※ contractTotalInfo는 'peacecorp'도 받지만 접수는 "잘못된 ID"로 거부 → 거래처번호로 통일.
+//   (조회·접수·송장조회 모두 22254633으로 검증 완료. 2026-06-08) env LOGEN_USER_ID 로 설정.
+const LOGEN_USER_ID = process.env.LOGEN_USER_ID || '22254633';
 // custCd(거래처 코드): 피스코프(모두의 유니폼) 22254633 (집화지점 서마포). env LOGEN_CUST_CD 로 설정.
 const LOGEN_CUST_CD = process.env.LOGEN_CUST_CD || '22254633';
 
