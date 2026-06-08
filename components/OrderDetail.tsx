@@ -105,7 +105,7 @@ export default function OrderDetail({
   const [trackingLoading, setTrackingLoading] = useState(false);
 
   const handleSendDesign = useCallback(async (itemId: string) => {
-    if (!confirm('고객에게 시안 확인 이메일을 발송하시겠습니까?')) return;
+    if (!confirm('고객에게 시안확인요청을 보내시겠습니까? (고객이 링크에서 실제 출력 화면을 보고 확정/수정요청)')) return;
     setSendingDesignItemId(itemId);
     try {
       const res = await fetch(`/api/admin/orders/${order.id}/items/${itemId}/send-design`, {
@@ -1128,7 +1128,7 @@ export default function OrderDetail({
                                 }}
                                 disabled={sendingDesignItemId === item.id}
                                 className="p-1.5 rounded transition-colors hover:bg-purple-100 text-gray-400 hover:text-purple-600 disabled:opacity-50"
-                                title={item.design_status === 'design_shared' ? '시안 재발송' : '시안 발송'}
+                                title={item.design_status === 'design_shared' ? '시안확인요청 재발송' : '시안확인요청'}
                               >
                                 {sendingDesignItemId === item.id ? (
                                   <Loader2 className="w-4 h-4 animate-spin" />
