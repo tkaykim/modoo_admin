@@ -5,8 +5,8 @@ const LOGEN_API_BASE_URL = process.env.LOGEN_API_BASE_URL || 'https://topenapi.i
 const LOGEN_SECRET_KEY = process.env.LOGEN_SECRET_KEY || '';
 // userId(API 로그인 ID): 로젠 발급값. env LOGEN_USER_ID 로 설정.
 const LOGEN_USER_ID = process.env.LOGEN_USER_ID || '';
-// custCd(거래처/고객 코드): 거래처코드 peacecorp. env LOGEN_CUST_CD 로 설정.
-const LOGEN_CUST_CD = process.env.LOGEN_CUST_CD || 'peacecorp';
+// custCd(거래처 코드): 피스코프(모두의 유니폼) 22254633 (집화지점 서마포). env LOGEN_CUST_CD 로 설정.
+const LOGEN_CUST_CD = process.env.LOGEN_CUST_CD || '22254633';
 
 // 로젠 API는 IP 화이트리스트 필수 → modoo(Vercel, 가변IP)는 고정IP 프록시를 경유한다.
 // LOGEN_PROXY_URL 예) http://user:pass@<고정IP>:8888  (미설정 시 직접 호출)
