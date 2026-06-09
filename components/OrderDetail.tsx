@@ -1072,16 +1072,16 @@ export default function OrderDetail({
                             </span>
                           )}
                           {item.design_status && item.design_status !== 'pending' && (
-                            <span className={`px-1.5 py-0.5 text-[10px] font-semibold rounded ${
+                            <span className={`px-2 py-0.5 text-[11px] font-bold rounded ${
                               item.design_status === 'confirmed' ? 'bg-green-100 text-green-700' :
                               item.design_status === 'design_shared' ? 'bg-purple-100 text-purple-700' :
                               item.design_status === 'revision_requested' ? 'bg-amber-100 text-amber-700' :
                               item.design_status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
                               'bg-gray-100 text-gray-700'
                             }`}>
-                              {item.design_status === 'confirmed' ? '시안확정' :
-                               item.design_status === 'design_shared' ? '시안발송' :
-                               item.design_status === 'revision_requested' ? '수정요청' :
+                              {item.design_status === 'confirmed' ? '✓ 고객 확정' :
+                               item.design_status === 'design_shared' ? '고객 확인대기' :
+                               item.design_status === 'revision_requested' ? '고객 수정요청' :
                                item.design_status === 'in_progress' ? '작업중' : item.design_status}
                             </span>
                           )}
@@ -1122,20 +1122,18 @@ export default function OrderDetail({
                           <div className="flex items-center gap-2">
                             {!isFactoryUser && item.design_status !== 'confirmed' && (
                               <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleSendDesign(item.id);
-                                }}
+                                onClick={(e) => { e.stopPropagation(); handleSendDesign(item.id); }}
                                 disabled={sendingDesignItemId === item.id}
-                                className="p-1.5 rounded transition-colors hover:bg-purple-100 text-gray-400 hover:text-purple-600 disabled:opacity-50"
-                                title={item.design_status === 'design_shared' ? '시안확인요청 재발송' : '시안확인요청'}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-600 text-white hover:bg-purple-700 transition-colors disabled:opacity-50 whitespace-nowrap"
                               >
-                                {sendingDesignItemId === item.id ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <Send className="w-4 h-4" />
-                                )}
+                                {sendingDesignItemId === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                                {item.design_status === 'design_shared' ? '시안 재요청'
+                                  : item.design_status === 'revision_requested' ? '시안 재발송'
+                                  : '시안확인요청'}
                               </button>
+                            )}
+                            {!isFactoryUser && item.design_status === 'confirmed' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 whitespace-nowrap">✓ 고객 확정완료</span>
                             )}
                             <button
                               onClick={(e) => {
@@ -1177,6 +1175,17 @@ export default function OrderDetail({
                             )}
                           </div>
                         </div>
+                        {!isFactoryUser && item.design_status && item.design_status !== 'pending' && (
+                          <p className="text-[11px] text-gray-400 mt-1.5">
+                            {item.design_status === 'confirmed'
+                              ? `고객이 시안을 확정했습니다${item.design_confirmed_at ? ` · ${new Date(item.design_confirmed_at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}`
+                              : item.design_status === 'design_shared'
+                              ? `고객에게 시안 발송됨 · 고객 확인 대기중${item.design_shared_at ? ` (${new Date(item.design_shared_at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} 발송)` : ''}`
+                              : item.design_status === 'revision_requested'
+                              ? `고객이 수정을 요청했습니다${item.design_revision_note ? `: ${item.design_revision_note}` : ''}`
+                              : ''}
+                          </p>
+                        )}
                       </div>
                     </div>
                   ))}
