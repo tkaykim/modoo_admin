@@ -101,6 +101,12 @@ export default function OrderDetail({
   const [showLogenModal, setShowLogenModal] = useState(false);
   const [logenLoading, setLogenLoading] = useState(false);
   const [logenError, setLogenError] = useState<string | null>(null);
+  // 송장번호 수동 입력 (SmartLogen 등 API 외 경로로 접수한 건용)
+  const [showManualTracking, setShowManualTracking] = useState(false);
+  const [manualTrackingNo, setManualTrackingNo] = useState('');
+  const [manualCarrier, setManualCarrier] = useState('logen');
+  const [manualTrackingSaving, setManualTrackingSaving] = useState(false);
+  const [manualTrackingError, setManualTrackingError] = useState<string | null>(null);
   const [trackingHistory, setTrackingHistory] = useState<any[] | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
 
@@ -1859,12 +1865,90 @@ export default function OrderDetail({
 
                     {/* Action Buttons */}
                     {!order.logen_registered_at && (
-                      <button
-                        onClick={() => { setLogenError(null); setShowLogenModal(true); }}
-                        className="w-full px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition-colors"
-                      >
-                        택배 접수
-                      </button>
+                      <>
+                        <button
+                          onClick={() => { setLogenError(null); setShowLogenModal(true); }}
+                          className="w-full px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition-colors"
+                        >
+                          택배 접수
+                        </button>
+                        {/* SmartLogen 등 다른 경로로 이미 접수한 경우 — 송장번호 수동 입력 */}
+                        {!order.tracking_number && (
+                          <button
+                            onClick={() => { setManualTrackingError(null); setManualTrackingNo(''); setManualCarrier(order.tracking_carrier || 'logen'); setShowManualTracking((v) => !v); }}
+                            className="w-full mt-1.5 px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900 border border-gray-200 rounded transition-colors"
+                          >
+                            {showManualTracking ? '취소' : '이미 다른 경로(SmartLogen 등)로 접수한 경우 — 송장번호 수동 입력'}
+                          </button>
+                        )}
+                        {showManualTracking && !order.tracking_number && (
+                          <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded space-y-2">
+                            <p className="text-xs text-amber-800">
+                              API 접수가 아닌 다른 경로(SmartLogen 웹 등)로 이미 송장이 발급된 경우 사용하세요.
+                              저장하면 주문이 <span className="font-medium">배송중</span> 상태로 전환되고, 배송 추적 자동화가 작동합니다.
+                            </p>
+                            <div className="flex gap-2">
+                              <select
+                                value={manualCarrier}
+                                onChange={(e) => setManualCarrier(e.target.value)}
+                                className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white"
+                              >
+                                <option value="logen">로젠택배</option>
+                                <option value="cj">CJ대한통운</option>
+                                <option value="hanjin">한진택배</option>
+                                <option value="lotte">롯데택배</option>
+                                <option value="post">우체국</option>
+                                <option value="other">기타</option>
+                              </select>
+                              <input
+                                type="text"
+                                value={manualTrackingNo}
+                                onChange={(e) => setManualTrackingNo(e.target.value)}
+                                placeholder="송장번호 입력"
+                                className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                            </div>
+                            {manualTrackingError && (
+                              <p className="text-xs text-red-600">{manualTrackingError}</p>
+                            )}
+                            <button
+                              onClick={async () => {
+                                const val = manualTrackingNo.trim();
+                                if (!val) { setManualTrackingError('송장번호를 입력해 주세요.'); return; }
+                                setManualTrackingSaving(true);
+                                setManualTrackingError(null);
+                                try {
+                                  const res = await fetch('/api/admin/orders', {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      orderId: order.id,
+                                      trackingNumber: val,
+                                      trackingCarrier: manualCarrier,
+                                      orderStatus: 'shipping',
+                                    }),
+                                  });
+                                  const json = await res.json();
+                                  if (res.ok) {
+                                    onOrderUpdate({ ...order, tracking_number: val, tracking_carrier: manualCarrier, order_status: 'shipping' } as Order);
+                                    setShowManualTracking(false);
+                                  } else {
+                                    setManualTrackingError(json.error || '저장에 실패했습니다.');
+                                  }
+                                } catch {
+                                  setManualTrackingError('서버 연결에 실패했습니다.');
+                                } finally {
+                                  setManualTrackingSaving(false);
+                                }
+                              }}
+                              disabled={manualTrackingSaving || !manualTrackingNo.trim()}
+                              className="w-full px-3 py-1.5 bg-amber-600 text-white text-sm font-medium rounded hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                            >
+                              {manualTrackingSaving ? '저장 중...' : '저장 (배송중으로 전환)'}
+                            </button>
+                          </div>
+                        )}
+                      </>
                     )}
 
                     {order.logen_registered_at && !order.logen_slip_printed && (
