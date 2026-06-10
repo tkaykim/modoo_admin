@@ -101,6 +101,13 @@ export default function OrderDetail({
   const [showLogenModal, setShowLogenModal] = useState(false);
   const [logenLoading, setLogenLoading] = useState(false);
   const [logenError, setLogenError] = useState<string | null>(null);
+  // 택배 접수 케이스 (4종) + 발/수/운임 편집 상태
+  type ShippingCase = 'us_to_customer' | 'us_to_factory' | 'factory_to_us' | 'factory_to_customer';
+  const [shippingCase, setShippingCase] = useState<ShippingCase>('us_to_customer');
+  const [shippingFactoryId, setShippingFactoryId] = useState<string>('');
+  const [senderForm, setSenderForm] = useState({ name: '', addr: '', tel: '' });
+  const [receiverForm, setReceiverForm] = useState({ name: '', addr: '', tel: '' });
+  const [fareTyForm, setFareTyForm] = useState<'010' | '020' | '030' | '040'>('040');
   // 송장번호 수동 입력 (SmartLogen 등 API 외 경로로 접수한 건용)
   const [showManualTracking, setShowManualTracking] = useState(false);
   const [manualTrackingNo, setManualTrackingNo] = useState('');
@@ -690,23 +697,74 @@ export default function OrderDetail({
     return map[status] || 'bg-gray-100 text-gray-800';
   };
 
-  const senderInfo = {
-    name: '모두의 유니폼',
-    addr: '서울특별시 마포구 성지3길 55 3층',
-    tel: '010-8140-0621',
-  };
+  // 우리 회사 정보 (4-케이스에서 발/수에 모두 쓰임)
+  const COMPANY_INFO = { name: '모두의 유니폼', addr: '서울특별시 마포구 성지3길 55 3층', tel: '010-8140-0621' };
+  // 주문 고객 정보 → 발/수 폼 채움용
+  const customerInfo = useMemo(() => ({
+    name: order.customer_name || '',
+    addr: `${order.postal_code ? `[${order.postal_code}] ` : ''}${order.address_line_1 || ''}${order.address_line_2 ? ` ${order.address_line_2}` : ''}`.trim(),
+    tel: order.customer_phone || '',
+  }), [order.customer_name, order.customer_phone, order.postal_code, order.address_line_1, order.address_line_2]);
+
+  // 그 주문에 배정된 공장 후보
+  const assignedFactoryIds = useMemo(
+    () => Array.from(new Set((orderItems || []).map((i) => i.assigned_manufacturer_id).filter(Boolean))) as string[],
+    [orderItems]
+  );
+  const factoryById = useCallback((id: string) => factories.find((f) => f.id === id) || null, [factories]);
+  const factoryToParty = (f: Factory | null) => ({ name: f?.name || '', addr: f?.address || '', tel: f?.phone_number || '' });
+
+  // 모달 열릴 때 + 케이스/공장 바뀔 때 발/수/운임 자동 채움
+  useEffect(() => {
+    if (!showLogenModal) return;
+    const fac = shippingFactoryId ? factoryById(shippingFactoryId) : null;
+    const facParty = factoryToParty(fac);
+    if (shippingCase === 'us_to_customer') {
+      setSenderForm(COMPANY_INFO); setReceiverForm(customerInfo); setFareTyForm('040');
+    } else if (shippingCase === 'us_to_factory') {
+      setSenderForm(COMPANY_INFO); setReceiverForm(facParty); setFareTyForm('040');
+    } else if (shippingCase === 'factory_to_us') {
+      setSenderForm(facParty); setReceiverForm(COMPANY_INFO); setFareTyForm('020');
+    } else if (shippingCase === 'factory_to_customer') {
+      setSenderForm(facParty); setReceiverForm(customerInfo); setFareTyForm('040');
+    }
+  }, [showLogenModal, shippingCase, shippingFactoryId, customerInfo, factoryById]);
+
+  // 모달 처음 열릴 때 기본값 — 배정 공장 1개면 자동 선택
+  useEffect(() => {
+    if (!showLogenModal) return;
+    setShippingCase('us_to_customer');
+    setShippingFactoryId(assignedFactoryIds[0] || '');
+  }, [showLogenModal, assignedFactoryIds]);
 
   const totalQty = (orderItems || []).reduce((sum, item) => sum + (item.quantity || 1), 0);
   const goodsNm = (orderItems || []).map((item) => item.product_title).join(', ').slice(0, 80) || '상품';
 
+  const fareTyLabel = (t: string) =>
+    t === '010' ? '선불' : t === '020' ? '착불' : t === '030' ? '신용' : '본사신용';
+
+  const needsFactory = shippingCase !== 'us_to_customer';
+  const factoryParty = shippingFactoryId ? factoryToParty(factoryById(shippingFactoryId)) : null;
+  const factoryInfoIncomplete = needsFactory && (!factoryParty?.name || !factoryParty?.addr || !factoryParty?.tel);
+
   const handleLogenRegister = async () => {
+    if (!senderForm.name || !senderForm.addr || !senderForm.tel || !receiverForm.name || !receiverForm.addr || !receiverForm.tel) {
+      setLogenError('발송자/수신자의 이름·주소·연락처를 모두 입력해 주세요.');
+      return;
+    }
     setLogenLoading(true);
     setLogenError(null);
     try {
       const res = await fetch('/api/admin/shipping/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderIds: [order.id] }),
+        body: JSON.stringify({
+          orderIds: [order.id],
+          shippingCase,
+          sender: senderForm,
+          receiver: receiverForm,
+          fareTy: fareTyForm,
+        }),
       });
       const json = await res.json();
       if (res.ok) {
@@ -740,66 +798,138 @@ export default function OrderDetail({
             </div>
 
             <div className="px-5 py-4 space-y-4">
-              {/* Sender */}
+              {/* 배송 유형 (4-케이스) */}
               <div>
-                <p className="text-xs font-medium text-gray-500 mb-2">보내는 분</p>
-                <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm">
-                  <p className="font-medium text-gray-900">{senderInfo.name}</p>
-                  <p className="text-gray-600">{senderInfo.addr}</p>
-                  <p className="text-gray-600">{senderInfo.tel}</p>
+                <p className="text-xs font-medium text-gray-500 mb-2">배송 유형</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { v: 'us_to_customer', label: '우리 → 고객', desc: '일반 출고' },
+                    { v: 'us_to_factory', label: '우리 → 공장', desc: '자재 출고' },
+                    { v: 'factory_to_us', label: '공장 → 우리', desc: '완성품 회수' },
+                    { v: 'factory_to_customer', label: '공장 → 고객', desc: '드롭쉽' },
+                  ] as { v: ShippingCase; label: string; desc: string }[]).map((opt) => (
+                    <button
+                      key={opt.v}
+                      onClick={() => setShippingCase(opt.v)}
+                      className={`text-left px-3 py-2 rounded-lg border text-xs transition-colors ${
+                        shippingCase === opt.v ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="font-medium">{opt.label}</div>
+                      <div className="text-[10px] text-gray-500 mt-0.5">{opt.desc}</div>
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Receiver */}
-              <div>
-                <p className="text-xs font-medium text-gray-500 mb-2">받는 분</p>
-                <div className="bg-blue-50 rounded-lg p-3 space-y-1 text-sm">
-                  <p className="font-medium text-gray-900">{order.customer_name || '-'}</p>
-                  <p className="text-gray-700">
-                    {order.postal_code && `[${order.postal_code}] `}
-                    {order.address_line_1 || '주소 미입력'}
-                    {order.address_line_2 && ` ${order.address_line_2}`}
-                  </p>
-                  <p className="text-gray-600">{order.customer_phone || '연락처 없음'}</p>
-                </div>
-              </div>
-
-              {/* Items */}
-              <div>
-                <p className="text-xs font-medium text-gray-500 mb-2">물품 정보</p>
-                <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">물품명</span>
-                    <span className="font-medium text-gray-900 text-right max-w-[60%] truncate">{goodsNm}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">수량</span>
-                    <span className="font-medium text-gray-900">{totalQty}개</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">운임</span>
-                    <span className="font-medium text-gray-900">{(order.delivery_fee || 0).toLocaleString()}원</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">운임타입</span>
-                    <span className="font-medium text-gray-900">본사신용</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Validation warnings */}
-              {(!order.address_line_1 || !order.customer_phone) && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-                  <p className="font-medium mb-1">주의: 배송 정보가 불완전합니다</p>
-                  {!order.address_line_1 && <p>- 주소가 입력되지 않았습니다.</p>}
-                  {!order.customer_phone && <p>- 연락처가 입력되지 않았습니다.</p>}
+              {/* 공장 선택 (us_to_customer 제외) */}
+              {needsFactory && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-1.5">공장 선택</p>
+                  <select
+                    value={shippingFactoryId}
+                    onChange={(e) => setShippingFactoryId(e.target.value)}
+                    className="w-full px-2.5 py-2 border border-gray-300 rounded text-sm bg-white"
+                  >
+                    <option value="">공장을 선택하세요</option>
+                    {/* 배정된 공장 먼저 */}
+                    {assignedFactoryIds.length > 0 && (
+                      <optgroup label="이 주문 배정 공장">
+                        {assignedFactoryIds.map((id) => {
+                          const f = factoryById(id);
+                          return <option key={id} value={id}>{f?.name || id}</option>;
+                        })}
+                      </optgroup>
+                    )}
+                    <optgroup label="전체 공장">
+                      {factories.filter((f) => f.is_active !== false).map((f) => (
+                        <option key={f.id} value={f.id}>{f.name}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  {factoryInfoIncomplete && (
+                    <p className="text-[11px] text-amber-700 mt-1">
+                      ⚠ 이 공장의 주소/연락처가 비어있어 아래에 직접 입력해 주세요. (공장 관리에서 보강 권장)
+                    </p>
+                  )}
                 </div>
               )}
 
-              {logenError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700">
-                  {logenError}
+              {/* 보내는 분 (편집 가능) */}
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1.5">보내는 분</p>
+                <div className="space-y-1.5">
+                  <input
+                    value={senderForm.name}
+                    onChange={(e) => setSenderForm({ ...senderForm, name: e.target.value })}
+                    placeholder="이름/상호"
+                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm"
+                  />
+                  <input
+                    value={senderForm.addr}
+                    onChange={(e) => setSenderForm({ ...senderForm, addr: e.target.value })}
+                    placeholder="주소"
+                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm"
+                  />
+                  <input
+                    value={senderForm.tel}
+                    onChange={(e) => setSenderForm({ ...senderForm, tel: e.target.value })}
+                    placeholder="연락처"
+                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm font-mono"
+                  />
                 </div>
+              </div>
+
+              {/* 받는 분 (편집 가능) */}
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1.5">받는 분</p>
+                <div className="space-y-1.5">
+                  <input
+                    value={receiverForm.name}
+                    onChange={(e) => setReceiverForm({ ...receiverForm, name: e.target.value })}
+                    placeholder="이름/상호"
+                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm"
+                  />
+                  <input
+                    value={receiverForm.addr}
+                    onChange={(e) => setReceiverForm({ ...receiverForm, addr: e.target.value })}
+                    placeholder="주소"
+                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm"
+                  />
+                  <input
+                    value={receiverForm.tel}
+                    onChange={(e) => setReceiverForm({ ...receiverForm, tel: e.target.value })}
+                    placeholder="연락처"
+                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* 운임타입 + 물품 요약 */}
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1.5">운임타입 / 물품</p>
+                <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-600">운임타입</span>
+                    <select
+                      value={fareTyForm}
+                      onChange={(e) => setFareTyForm(e.target.value as '010' | '020' | '030' | '040')}
+                      className="px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                    >
+                      <option value="040">본사신용 (040)</option>
+                      <option value="010">선불 (010)</option>
+                      <option value="020">착불 (020)</option>
+                      <option value="030">신용 (030)</option>
+                    </select>
+                  </div>
+                  <div className="flex justify-between"><span className="text-gray-600">물품명</span><span className="font-medium text-gray-900 text-right max-w-[60%] truncate">{goodsNm}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-600">수량</span><span className="font-medium text-gray-900">{totalQty}개</span></div>
+                  <div className="flex justify-between"><span className="text-gray-600">운임</span><span className="font-medium text-gray-900">{(order.delivery_fee || 0).toLocaleString()}원 · {fareTyLabel(fareTyForm)}</span></div>
+                </div>
+              </div>
+
+              {logenError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700">{logenError}</div>
               )}
             </div>
 
@@ -812,7 +942,7 @@ export default function OrderDetail({
               </button>
               <button
                 onClick={handleLogenRegister}
-                disabled={logenLoading || !order.address_line_1}
+                disabled={logenLoading || !senderForm.name || !senderForm.addr || !senderForm.tel || !receiverForm.name || !receiverForm.addr || !receiverForm.tel}
                 className="flex-1 px-4 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
                 {logenLoading ? (

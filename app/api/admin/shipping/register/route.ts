@@ -5,9 +5,17 @@ import { createAdminClient } from '@/lib/supabase-admin';
 import { registerOrder, type RegisterOrderInput } from '@/lib/logen';
 import { getKstYYYYMMDD } from '@/lib/kst';
 
-const SENDER_NAME = '모두의 유니폼';
-const SENDER_ADDR = '서울특별시 마포구 성지3길 55 3층';
-const SENDER_TEL = '010-8140-0621';
+// 우리 회사(피스코프/모두의 유니폼) 기본 발송지 — 케이스에 따라 발송자/수신자로 모두 쓰임
+const COMPANY_NAME = '모두의 유니폼';
+const COMPANY_ADDR = '서울특별시 마포구 성지3길 55 3층';
+const COMPANY_TEL = '010-8140-0621';
+
+// 클라이언트가 override해서 보낼 수 있는 발/수 정보. 없으면 기본(우리→고객).
+interface PartyOverride {
+  name?: string;
+  addr?: string;
+  tel?: string;
+}
 
 export async function POST(request: Request) {
   try {
@@ -27,7 +35,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '관리자 권한이 필요합니다.' }, { status: 403 });
     }
 
-    const { orderIds } = await request.json();
+    const body = await request.json();
+    const { orderIds } = body;
+    // 단건 접수 시 클라가 override할 수 있음 (배송 유형 4케이스: us→customer/us→factory/factory→us/factory→customer)
+    // 일괄 접수(여러 orderIds)에서는 sender/receiver override 무시 — 케이스별로 다를 수 있어 단건 처리 권장
+    const senderOverride: PartyOverride | undefined = body?.sender;
+    const receiverOverride: PartyOverride | undefined = body?.receiver;
+    const fareTyOverride: string | undefined = body?.fareTy; // '010'선불 '020'착불 '030'신용 '040'본사신용
+    const shippingCase: string | undefined = body?.shippingCase; // 'us_to_customer'|'us_to_factory'|'factory_to_us'|'factory_to_customer'
+    const allowOverride = Array.isArray(orderIds) && orderIds.length === 1;
+
     if (!Array.isArray(orderIds) || orderIds.length === 0) {
       return NextResponse.json({ error: '주문 ID가 필요합니다.' }, { status: 400 });
     }
@@ -70,16 +87,32 @@ export async function POST(request: Request) {
       const totalQty = (order.order_items || []).reduce((sum: number, item: any) => sum + (item.quantity || 1), 0);
       const goodsNm = (order.order_items || []).map((item: any) => item.product_title).join(', ').slice(0, 100) || '상품';
 
+      // 기본값(우리→고객) 산정
+      const defaultSender = { name: COMPANY_NAME, addr: COMPANY_ADDR, tel: COMPANY_TEL };
+      const defaultReceiver = {
+        name: order.customer_name || '고객',
+        addr: fullAddr || '주소 미입력',
+        tel: (order.customer_phone || '').replace(/[^0-9]/g, ''),
+      };
+      // 단건 + override가 있으면 우선 적용 (4-케이스용)
+      const sender = (allowOverride && senderOverride)
+        ? { name: senderOverride.name || defaultSender.name, addr: senderOverride.addr || defaultSender.addr, tel: (senderOverride.tel || defaultSender.tel).replace(/[^0-9]/g, '') }
+        : defaultSender;
+      const receiver = (allowOverride && receiverOverride)
+        ? { name: receiverOverride.name || defaultReceiver.name, addr: receiverOverride.addr || defaultReceiver.addr, tel: (receiverOverride.tel || defaultReceiver.tel).replace(/[^0-9]/g, '') }
+        : defaultReceiver;
+      const fareTy = (allowOverride && fareTyOverride && /^0[1234]0$/.test(fareTyOverride)) ? fareTyOverride : '040';
+
       registerData.push({
         takeDt,
         fixTakeNo: order.id,
-        sndCustNm: SENDER_NAME,
-        sndCustAddr: SENDER_ADDR,
-        sndTelNo: SENDER_TEL,
-        rcvCustNm: order.customer_name || '고객',
-        rcvCustAddr: fullAddr || '주소 미입력',
-        rcvCellNo: (order.customer_phone || '').replace(/[^0-9]/g, ''),
-        fareTy: '040',
+        sndCustNm: sender.name,
+        sndCustAddr: sender.addr,
+        sndTelNo: sender.tel,
+        rcvCustNm: receiver.name,
+        rcvCustAddr: receiver.addr,
+        rcvCellNo: receiver.tel,
+        fareTy,
         qty: totalQty || 1,
         dlvFare: order.delivery_fee || 0,
         goodsNm,
