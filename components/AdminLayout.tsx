@@ -50,6 +50,7 @@ const navGroups: NavGroup[] = [
       { type: 'link', href: '/products', label: '제품 관리', icon: Package, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/invoices', label: '거래명세서', icon: FileText, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/shipping', label: '택배 관리', icon: Truck, roles: ['admin', 'super_admin'] },
+      { type: 'link', href: '/shipping/standalone', label: '수동 택배 접수', icon: Truck, roles: ['admin', 'super_admin'] },
     ],
   },
   {
