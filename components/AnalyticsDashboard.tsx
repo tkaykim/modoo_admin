@@ -6,9 +6,10 @@ import { TrendingUp, TrendingDown, Users, ShoppingCart, MessageSquare, BadgeDoll
 import { fetcher } from '@/lib/fetcher';
 import MarketingTab from '@/components/analytics/MarketingTab';
 import RealtimeTab from '@/components/analytics/RealtimeTab';
+import AdEfficiencyTab from '@/components/analytics/AdEfficiencyTab';
 
 type RangePreset = 'this_week' | 'this_month' | 'q1' | 'q2' | 'q3' | 'q4' | 'custom';
-type AnalyticsTab = 'sales' | 'marketing' | 'realtime';
+type AnalyticsTab = 'sales' | 'ad_efficiency' | 'marketing' | 'realtime';
 
 type AnalyticsPayload = {
   range: { from: string; to: string; preset: RangePreset };
@@ -140,6 +141,7 @@ function periodFor(g: Granularity, offset: number, customFrom: string, customTo:
 
 const TABS: { value: AnalyticsTab; label: string }[] = [
   { value: 'sales', label: '매출 분석' },
+  { value: 'ad_efficiency', label: '광고 효율' },
   { value: 'marketing', label: '마케팅 (GA4)' },
   { value: 'realtime', label: '실시간' },
 ];
@@ -182,6 +184,7 @@ export default function AnalyticsDashboard() {
       </div>
 
       {tab === 'sales' && <SalesTab />}
+      {tab === 'ad_efficiency' && <AdEfficiencyTab />}
       {tab === 'marketing' && <MarketingTab />}
       {tab === 'realtime' && <RealtimeTab />}
     </div>
