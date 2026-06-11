@@ -119,11 +119,13 @@ export async function POST(request: Request) {
         continue;
       }
 
+      // 우편번호는 주소 문자열에 섞지 않고 별도 필드(rcvZipCd)로 보낸다
+      // ([12345] 프리픽스는 로젠 주소 분류기가 못 읽을 수 있음 — 문서 예시 형식 준수)
       const fullAddr = [
-        order.postal_code ? `[${order.postal_code}]` : '',
         order.address_line_1 || '',
         order.address_line_2 || '',
       ].filter(Boolean).join(' ');
+      const rcvZip = (order.postal_code || '').replace(/[^0-9]/g, '').slice(0, 5);
 
       const totalQty = (order.order_items || []).reduce((sum: number, item: any) => sum + (item.quantity || 1), 0);
       const goodsNm = (order.order_items || []).map((item: any) => item.product_title).join(', ').slice(0, 100) || '상품';
@@ -151,7 +153,10 @@ export async function POST(request: Request) {
         sndCustAddr: sender.addr,
         sndTelNo: sender.tel,
         rcvCustNm: receiver.name,
+        // override(4-케이스 단건)는 zip을 따로 못 받으므로 기본(우리→고객) 경로만 zip 전송
+        ...(!(allowOverride && receiverOverride) && rcvZip ? { rcvZipCd: rcvZip } : {}),
         rcvCustAddr: receiver.addr,
+        rcvTelNo: receiver.tel,
         rcvCellNo: receiver.tel,
         fareTy,
         qty: totalQty || 1,

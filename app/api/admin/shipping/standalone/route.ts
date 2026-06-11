@@ -82,6 +82,7 @@ export async function POST(request: Request) {
       sndTelNo: sender.tel.replace(/[^0-9]/g, ''),
       rcvCustNm: receiver.name,
       rcvCustAddr: receiver.addr,
+      rcvTelNo: receiver.tel.replace(/[^0-9]/g, ''),
       rcvCellNo: receiver.tel.replace(/[^0-9]/g, ''),
       fareTy,
       qty,

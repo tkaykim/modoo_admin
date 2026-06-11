@@ -58,12 +58,14 @@ export interface RegisterOrderInput {
   takeDt: string;           // 접수일자 YYYYMMDD
   fixTakeNo: string;        // 주문번호 (order.id 사용)
   sndCustNm: string;        // 송하인명
+  sndZipCd?: string;        // 송하인우편번호
   sndCustAddr: string;      // 송하인주소
-  sndTelNo?: string;        // 송하인전화번호
+  sndTelNo?: string;        // 송하인전화번호 (문서상 필수 Y)
   sndCellNo?: string;       // 송하인휴대폰
   rcvCustNm: string;        // 수하인명
+  rcvZipCd?: string;        // 수하인우편번호
   rcvCustAddr: string;      // 수하인주소
-  rcvTelNo?: string;        // 수하인전화번호
+  rcvTelNo?: string;        // 수하인전화번호 (문서상 필수 Y — 휴대폰만 있어도 여기에 같이 넣을 것)
   rcvCellNo?: string;       // 수하인휴대폰
   fareTy: string;           // 운임타입코드 (010:선불,020:착불,030:신용,040:본사신용)
   qty: number;              // 수량
