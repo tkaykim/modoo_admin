@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { registerOrder, type RegisterOrderInput } from '@/lib/logen';
+import { registerOrder, inquirySlipNo, type RegisterOrderInput } from '@/lib/logen';
 import { getKstYYYYMMDD } from '@/lib/kst';
 
 // 우리 회사(피스코프/모두의 유니폼) 기본 발송지 — 케이스에 따라 발송자/수신자로 모두 쓰임
@@ -68,6 +68,43 @@ export async function POST(request: Request) {
     const registerData: RegisterOrderInput[] = [];
     const skipped: string[] = [];
 
+    // 멱등 가드: 우리 DB에 도장이 없어도 로젠에 이미 접수돼 있을 수 있다
+    // (응답 타임아웃 후 재시도 시 중복 접수 사고 방지 — 2026-06-11).
+    // 로젠 상태 확인이 안 되면 접수를 진행하지 않는다(fail-closed).
+    const candidates = orders.filter(
+      (o) => o.shipping_method === 'domestic' && !o.logen_registered_at
+    );
+    const alreadyAtLogen = new Set<string>();
+    if (candidates.length > 0) {
+      let inquiry;
+      try {
+        inquiry = await inquirySlipNo(candidates.map((o) => o.id));
+      } catch (e: any) {
+        return NextResponse.json({
+          error: '로젠 접수 상태 확인에 실패해 접수를 중단했습니다. 잠시 후 다시 시도해주세요. (중복 접수 방지)',
+        }, { status: 502 });
+      }
+      if (inquiry.data && Array.isArray(inquiry.data)) {
+        for (const item of inquiry.data) {
+          const activeRows = (Array.isArray(item.data1) ? item.data1 : [])
+            .filter((r: any) => r && r.delYn !== 'Y');
+          if (item.resultCd === 'TRUE' && activeRows.length > 0) {
+            alreadyAtLogen.add(item.fixTakeNo);
+          }
+        }
+      }
+      if (alreadyAtLogen.size > 0) {
+        // 로젠엔 있는데 우리 DB에 도장이 없던 건 → 도장 동기화 후 건너뜀
+        await adminClient
+          .from('orders')
+          .update({
+            logen_registered_at: new Date().toISOString(),
+            tracking_carrier: 'logen',
+          })
+          .in('id', [...alreadyAtLogen]);
+      }
+    }
+
     for (const order of orders) {
       if (order.shipping_method !== 'domestic') {
         skipped.push(`${order.id}: 국내배송이 아님`);
@@ -75,6 +112,10 @@ export async function POST(request: Request) {
       }
       if (order.logen_registered_at) {
         skipped.push(`${order.id}: 이미 접수됨`);
+        continue;
+      }
+      if (alreadyAtLogen.has(order.id)) {
+        skipped.push(`${order.id}: 이미 로젠에 접수되어 있음 (시스템 동기화 완료)`);
         continue;
       }
 
