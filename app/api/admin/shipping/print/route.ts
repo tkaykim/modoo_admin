@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
-import { getSlipPrintPopUrl } from '@/lib/logen';
+import { getSlipPrintScreenUrl } from '@/lib/logen';
 
 export async function GET(request: Request) {
   try {
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: '접수일자(takeDt)가 필요합니다. (YYYYMMDD 형식)' }, { status: 400 });
     }
 
-    const popupUrl = getSlipPrintPopUrl(takeDt);
+    const popupUrl = await getSlipPrintScreenUrl(takeDt);
     return NextResponse.json({ data: { url: popupUrl } });
   } catch (err: any) {
     console.error('Logen print popup error:', err);

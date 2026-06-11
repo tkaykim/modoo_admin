@@ -91,6 +91,26 @@ export function getSlipPrintPopUrl(takeDt: string) {
   });
 }
 
+// ── 송장 출력 화면 실제 URL 해석 ──
+// openapi.ilogen.com은 IP 화이트리스트(프록시 IP만 등록)라 관리자 브라우저에서 직접 열면 타임아웃된다.
+// 서버에서 프록시 경유로 스텁 HTML을 받아, 그 안의 실제 출력 화면(logis.ilogen.com — 공개 호스트) URL을 추출해 돌려준다.
+export async function getSlipPrintScreenUrl(takeDt: string): Promise<string> {
+  const url = getSlipPrintPopUrl(takeDt);
+  const res = await undiciFetch(url, {
+    headers: { secretKey: LOGEN_SECRET_KEY },
+    ...(logenProxyAgent ? { dispatcher: logenProxyAgent } : {}),
+  });
+  if (!res.ok) {
+    throw new Error(`로젠 출력 팝업 조회 실패: ${res.status} ${res.statusText}`);
+  }
+  const html = await res.text();
+  const m = html.match(/window\.open\('([^']+)'/);
+  if (!m) {
+    throw new Error('로젠 출력 화면 URL을 찾지 못했습니다.');
+  }
+  return m[1];
+}
+
 // ── 출력 송장번호 조회 ──
 export async function inquirySlipNo(fixTakeNos: string[]) {
   return logenFetch('inquirySlipNoMulti', {
