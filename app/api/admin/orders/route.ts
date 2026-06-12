@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { sendFactoryAssignmentEmail } from '@/lib/gmail';
 import { sendOrderStatusNotification, type OrderStatus } from '@/lib/notifications/order-status';
+import { LOGEN_CONTRACT_FARE } from '@/lib/logen';
 import { randomBytes } from 'crypto';
 
 export async function GET(request: Request) {
@@ -374,7 +375,7 @@ export async function PATCH(request: Request) {
 
     const { data: existingOrder } = await adminClient
       .from('orders')
-      .select('customer_note, share_token, order_status, payment_status, customer_name, customer_email')
+      .select('customer_note, share_token, order_status, payment_status, customer_name, customer_email, tracking_number, shipping_method')
       .eq('id', orderId)
       .single();
 
@@ -614,6 +615,32 @@ export async function PATCH(request: Request) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // 수동 송장 입력(스마트로젠 등 API 외 경로) 시 택배비 원가 자동 기록
+    // — order_profit_summary.internal_shipping_cost(손익 차감)에 반영
+    if (
+      trackingNumberInput &&
+      !existingOrder?.tracking_number &&
+      existingOrder?.shipping_method === 'domestic'
+    ) {
+      const { data: existingLeg } = await adminClient
+        .from('order_shipping_legs')
+        .select('id')
+        .eq('order_id', orderId)
+        .eq('leg_type', 'to_customer')
+        .limit(1)
+        .maybeSingle();
+      if (!existingLeg) {
+        await adminClient.from('order_shipping_legs').insert({
+          order_id: orderId,
+          leg_type: 'to_customer',
+          amount: LOGEN_CONTRACT_FARE,
+          carrier: (trackingCarrierInput as string) || 'logen',
+          tracking_number: trackingNumberInput,
+          note: '송장 수동 입력 시 자동 기록 (계약운임)',
+        });
+      }
     }
 
     // Factory assignment email is now handled by the factory-allocation API endpoint

@@ -200,6 +200,32 @@ export async function POST(request: Request) {
         .in('id', successIds);
     }
 
+    // 택배비 원가 자동 기록 — 접수된 주문에 배송 leg(계약운임)를 1회 기록해
+    // order_profit_summary.internal_shipping_cost(손익 차감)에 반영되게 한다.
+    const legType = (allowOverride && shippingCase === 'us_to_factory') ? 'to_factory'
+      : (allowOverride && shippingCase === 'factory_to_us') ? 'other'
+      : 'to_customer';
+    const costTargets = [...successIds, ...alreadyAtLogen];
+    if (costTargets.length > 0) {
+      const { data: existingLegs } = await adminClient
+        .from('order_shipping_legs')
+        .select('order_id')
+        .in('order_id', costTargets)
+        .eq('leg_type', legType);
+      const hasLeg = new Set((existingLegs || []).map((l: any) => l.order_id));
+      const newLegs = costTargets.filter((id) => !hasLeg.has(id)).map((id) => ({
+        order_id: id,
+        leg_type: legType,
+        amount: LOGEN_CONTRACT_FARE,
+        carrier: 'logen',
+        note: '로젠 접수 시 자동 기록 (계약운임)',
+        created_by: user.id,
+      }));
+      if (newLegs.length > 0) {
+        await adminClient.from('order_shipping_legs').insert(newLegs);
+      }
+    }
+
     return NextResponse.json({
       data: {
         registered: successIds.length,
