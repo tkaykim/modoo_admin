@@ -81,6 +81,11 @@ const SingleSideCanvas: React.FC<SingleSideCanvasProps> = ({
         // @ts-expect-error - Custom property
         canvas.calibrationNativeMmPerPx = calibrationNativeMmPerPxRef.current;
         canvas.requestRenderAll();
+        // 캘리브 기반 환산비가 늦게 도착해도 mm 표시 패널(OrderModePanel 등)이
+        // 재계산하도록 버전 bump.
+        if (calibrationNativeMmPerPxRef.current > 0) {
+          incrementCanvasVersion();
+        }
       }
     }).catch(() => {
       if (!cancelled) calibrationNativeMmPerPxRef.current = 0;
@@ -772,6 +777,9 @@ const SingleSideCanvas: React.FC<SingleSideCanvasProps> = ({
 
           // Mark image as loaded in store
           markImageLoaded(side.id);
+          // scaledImageWidth/originalImageWidth가 이 시점에 확정되므로
+          // mm 환산을 쓰는 패널들이 재계산하도록 버전 bump.
+          incrementCanvasVersion();
 
           // Single image loaded and rendered - mark as ready
           setIsLoading(false);
