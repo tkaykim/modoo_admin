@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAdminLike } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { registerOrder, inquirySlipNo, trackCargoLast, type RegisterOrderInput } from '@/lib/logen';
+import { registerOrder, inquirySlipNo, trackCargoLast, LOGEN_FARE_TY, LOGEN_CONTRACT_FARE, LOGEN_BOX_TY_CD, type RegisterOrderInput } from '@/lib/logen';
 import { getKstYYYYMMDD } from '@/lib/kst';
 
 function genFixTakeNo(): string {
@@ -52,9 +52,10 @@ export async function POST(request: Request) {
     const body = await request.json();
     const sender = body?.sender as { name?: string; addr?: string; tel?: string; manufacturerId?: string } | undefined;
     const receiver = body?.receiver as { name?: string; addr?: string; tel?: string; manufacturerId?: string } | undefined;
-    const fareTy: string = /^0[1234]0$/.test(body?.fareTy) ? body.fareTy : '040';
+    const fareTy: string = /^0[1234]0$/.test(body?.fareTy) ? body.fareTy : LOGEN_FARE_TY;
     const qty = Math.max(1, Number(body?.qty) || 1);
-    const deliveryFee = Math.max(0, Number(body?.deliveryFee) || 0);
+    // 미입력 시 계약운임. 0원 운임은 발행 대상에서 제외되므로 허용하지 않는다.
+    const deliveryFee = Number(body?.deliveryFee) > 0 ? Number(body.deliveryFee) : LOGEN_CONTRACT_FARE;
     const goodsNm: string = (body?.goodsNm || '').toString().trim().slice(0, 100);
     const category: string | null = body?.category?.toString().trim() || null;
     const memo: string | null = body?.memo?.toString().trim() || null;
@@ -85,6 +86,7 @@ export async function POST(request: Request) {
       rcvTelNo: receiver.tel.replace(/[^0-9]/g, ''),
       rcvCellNo: receiver.tel.replace(/[^0-9]/g, ''),
       fareTy,
+      boxTyCd: LOGEN_BOX_TY_CD,
       qty,
       dlvFare: deliveryFee,
       goodsNm,

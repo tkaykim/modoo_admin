@@ -60,9 +60,9 @@ export default function StandaloneShippingPage() {
   const [receiverSource, setReceiverSource] = useState<Source>('manufacturer');
   const [receiverManufacturerId, setReceiverManufacturerId] = useState('');
   const [receiverForm, setReceiverForm] = useState<Party>({ name: '', addr: '', tel: '' });
-  const [fareTy, setFareTy] = useState<'010' | '020' | '030' | '040'>('040');
+  const [fareTy, setFareTy] = useState<'010' | '020' | '030' | '040'>('010');
   const [qty, setQty] = useState(1);
-  const [deliveryFee, setDeliveryFee] = useState(0);
+  const [deliveryFee, setDeliveryFee] = useState(3000);
   const [goodsNm, setGoodsNm] = useState('');
   const [category, setCategory] = useState('재고확보');
   const [memo, setMemo] = useState('');
@@ -94,7 +94,7 @@ export default function StandaloneShippingPage() {
   const resetForm = () => {
     setSenderSource('company'); setSenderManufacturerId(''); setSenderForm(COMPANY);
     setReceiverSource('manufacturer'); setReceiverManufacturerId(''); setReceiverForm({ name: '', addr: '', tel: '' });
-    setFareTy('040'); setQty(1); setDeliveryFee(0); setGoodsNm(''); setCategory('재고확보'); setMemo('');
+    setFareTy('010'); setQty(1); setDeliveryFee(3000); setGoodsNm(''); setCategory('재고확보'); setMemo('');
     setSubmitError(null);
   };
 

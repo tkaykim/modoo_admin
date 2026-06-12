@@ -10,6 +10,13 @@ const LOGEN_USER_ID = process.env.LOGEN_USER_ID || '22254633';
 // custCd(거래처 코드): 피스코프(모두의 유니폼) 22254633 (집화지점 서마포). env LOGEN_CUST_CD 로 설정.
 const LOGEN_CUST_CD = process.env.LOGEN_CUST_CD || '22254633';
 
+// 계약 조건 (contractTotalInfo·contPickFares 실조회로 확정, 2026-06-12):
+// 피스코프(22254633) 계약 = 선불(010) / 박스타입 ZW001 / 계약운임 3,000원 / 집화 서마포(222) 김지원 기사.
+// ⚠ fareTy·dlvFare를 계약과 다르게 보내면 등록은 TRUE로 받아주지만 송장 발행 대상에서 제외된다(로젠 확인).
+export const LOGEN_FARE_TY = process.env.LOGEN_FARE_TY || '010';
+export const LOGEN_CONTRACT_FARE = Number(process.env.LOGEN_CONTRACT_FARE || 3000);
+export const LOGEN_BOX_TY_CD = process.env.LOGEN_BOX_TY_CD || 'ZW001';
+
 // 로젠 API는 IP 화이트리스트 필수 → modoo(Vercel, 가변IP)는 고정IP 프록시를 경유한다.
 // LOGEN_PROXY_URL 예) http://user:pass@<고정IP>:8888  (미설정 시 직접 호출)
 const LOGEN_PROXY_URL = process.env.LOGEN_PROXY_URL || '';
@@ -67,9 +74,10 @@ export interface RegisterOrderInput {
   rcvCustAddr: string;      // 수하인주소
   rcvTelNo?: string;        // 수하인전화번호 (문서상 필수 Y — 휴대폰만 있어도 여기에 같이 넣을 것)
   rcvCellNo?: string;       // 수하인휴대폰
-  fareTy: string;           // 운임타입코드 (010:선불,020:착불,030:신용,040:본사신용)
+  fareTy: string;           // 운임타입코드 (010:선불,020:착불,030:신용,040:본사신용) — 계약은 010 선불
+  boxTyCd?: string;         // 박스타입코드 — 계약은 ZW001
   qty: number;              // 수량
-  dlvFare: number;          // 택배운임
+  dlvFare: number;          // 택배운임 — 계약운임(3,000원), 고객 배송비 아님
   goodsNm?: string;         // 물품명
   sndMsg?: string;          // 배송메시지
 }

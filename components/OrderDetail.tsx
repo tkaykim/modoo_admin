@@ -107,7 +107,7 @@ export default function OrderDetail({
   const [shippingFactoryId, setShippingFactoryId] = useState<string>('');
   const [senderForm, setSenderForm] = useState({ name: '', addr: '', tel: '' });
   const [receiverForm, setReceiverForm] = useState({ name: '', addr: '', tel: '' });
-  const [fareTyForm, setFareTyForm] = useState<'010' | '020' | '030' | '040'>('040');
+  const [fareTyForm, setFareTyForm] = useState<'010' | '020' | '030' | '040'>('010');
   // 송장번호 수동 입력 (SmartLogen 등 API 외 경로로 접수한 건용)
   const [showManualTracking, setShowManualTracking] = useState(false);
   const [manualTrackingNo, setManualTrackingNo] = useState('');
@@ -720,13 +720,13 @@ export default function OrderDetail({
     const fac = shippingFactoryId ? factoryById(shippingFactoryId) : null;
     const facParty = factoryToParty(fac);
     if (shippingCase === 'us_to_customer') {
-      setSenderForm(COMPANY_INFO); setReceiverForm(customerInfo); setFareTyForm('040');
+      setSenderForm(COMPANY_INFO); setReceiverForm(customerInfo); setFareTyForm('010');
     } else if (shippingCase === 'us_to_factory') {
-      setSenderForm(COMPANY_INFO); setReceiverForm(facParty); setFareTyForm('040');
+      setSenderForm(COMPANY_INFO); setReceiverForm(facParty); setFareTyForm('010');
     } else if (shippingCase === 'factory_to_us') {
       setSenderForm(facParty); setReceiverForm(COMPANY_INFO); setFareTyForm('020');
     } else if (shippingCase === 'factory_to_customer') {
-      setSenderForm(facParty); setReceiverForm(customerInfo); setFareTyForm('040');
+      setSenderForm(facParty); setReceiverForm(customerInfo); setFareTyForm('010');
     }
   }, [showLogenModal, shippingCase, shippingFactoryId, customerInfo, factoryById]);
 

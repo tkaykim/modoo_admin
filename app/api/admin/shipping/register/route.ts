@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { registerOrder, inquirySlipNo, type RegisterOrderInput } from '@/lib/logen';
+import { registerOrder, inquirySlipNo, LOGEN_FARE_TY, LOGEN_CONTRACT_FARE, LOGEN_BOX_TY_CD, type RegisterOrderInput } from '@/lib/logen';
 import { getKstYYYYMMDD } from '@/lib/kst';
 
 // 우리 회사(피스코프/모두의 유니폼) 기본 발송지 — 케이스에 따라 발송자/수신자로 모두 쓰임
@@ -144,7 +144,8 @@ export async function POST(request: Request) {
       const receiver = (allowOverride && receiverOverride)
         ? { name: receiverOverride.name || defaultReceiver.name, addr: receiverOverride.addr || defaultReceiver.addr, tel: (receiverOverride.tel || defaultReceiver.tel).replace(/[^0-9]/g, '') }
         : defaultReceiver;
-      const fareTy = (allowOverride && fareTyOverride && /^0[1234]0$/.test(fareTyOverride)) ? fareTyOverride : '040';
+      // 계약 = 선불(010). 계약과 다른 fareTy는 등록돼도 발행 대상에서 제외되므로 기본값은 계약값.
+      const fareTy = (allowOverride && fareTyOverride && /^0[1234]0$/.test(fareTyOverride)) ? fareTyOverride : LOGEN_FARE_TY;
 
       registerData.push({
         takeDt,
@@ -159,8 +160,10 @@ export async function POST(request: Request) {
         rcvTelNo: receiver.tel,
         rcvCellNo: receiver.tel,
         fareTy,
+        boxTyCd: LOGEN_BOX_TY_CD,
         qty: totalQty || 1,
-        dlvFare: order.delivery_fee || 0,
+        // 로젠 계약운임(선불 단가). 고객에게 받은 배송비(order.delivery_fee)와는 별개의 값이다.
+        dlvFare: LOGEN_CONTRACT_FARE,
         goodsNm,
       });
     }
