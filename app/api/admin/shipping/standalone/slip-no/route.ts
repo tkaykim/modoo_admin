@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     if (Array.isArray(result.data)) {
       for (const item of result.data) {
         if (item.resultCd === 'TRUE' && Array.isArray(item.data1)) {
-          const active = item.data1.find((s: any) => s.delYn !== 'Y');
+          const active = item.data1.find((s: any) => s.delYn !== 'Y' && s.slipNo);
           if (active?.slipNo) {
             const row = rows.find((r) => r.fix_take_no === item.fixTakeNo);
             if (row) {

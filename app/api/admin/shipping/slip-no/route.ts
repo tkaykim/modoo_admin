@@ -39,7 +39,9 @@ export async function POST(request: Request) {
     if (result.data && Array.isArray(result.data)) {
       for (const item of result.data) {
         if (item.resultCd === 'TRUE' && item.data1 && Array.isArray(item.data1)) {
-          const activeSlip = item.data1.find((s: any) => s.delYn !== 'Y');
+          // 같은 주문번호에 무효 접수행(과거 계약값 불일치 건)이 섞여 있을 수 있으므로
+          // 발번된(slipNo 있는) 행을 골라야 한다
+          const activeSlip = item.data1.find((s: any) => s.delYn !== 'Y' && s.slipNo);
           if (activeSlip?.slipNo) {
             await adminClient
               .from('orders')

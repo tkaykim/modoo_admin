@@ -127,7 +127,6 @@ export async function POST(request: Request) {
       ].filter(Boolean).join(' ');
       const rcvZip = (order.postal_code || '').replace(/[^0-9]/g, '').slice(0, 5);
 
-      const totalQty = (order.order_items || []).reduce((sum: number, item: any) => sum + (item.quantity || 1), 0);
       const goodsNm = (order.order_items || []).map((item: any) => item.product_title).join(', ').slice(0, 100) || '상품';
 
       // 기본값(우리→고객) 산정
@@ -161,7 +160,8 @@ export async function POST(request: Request) {
         rcvCellNo: receiver.tel,
         fareTy,
         boxTyCd: LOGEN_BOX_TY_CD,
-        qty: totalQty || 1,
+        // 로젠 qty = 박스 수. 상품 수량 합계를 넣으면 박스 수만큼 운임이 청구되므로 기본 1박스.
+        qty: 1,
         // 로젠 계약운임(선불 단가). 고객에게 받은 배송비(order.delivery_fee)와는 별개의 값이다.
         dlvFare: LOGEN_CONTRACT_FARE,
         goodsNm,
