@@ -169,9 +169,25 @@ export default function OrderModePanel({
       if (!canvasState || !Array.isArray(canvasState.objects)) continue;
 
       const printArea = side.printArea;
-      let pixelToMmRatio = 1;
+      // mm/px 환산: ① 마운트된 캔버스의 캘리브레이션(실측 기반) → ② 레거시 productWidthMm
+      // → ③ 0 (환산 불가 — 절대 1로 두지 않는다. ratio=1은 px가 mm로 둔갑하는
+      // silent failure였음: 2026-06-12 085-CVT 시안 크기 절반 표시 사고).
+      let pixelToMmRatio = 0;
+      const liveCanvas = canvasMap[side.id] as unknown as {
+        calibrationNativeMmPerPx?: number;
+        scaledImageWidth?: number;
+        originalImageWidth?: number;
+      } | undefined;
+      if (liveCanvas) {
+        const native = liveCanvas.calibrationNativeMmPerPx ?? 0;
+        const sw = liveCanvas.scaledImageWidth;
+        const ow = liveCanvas.originalImageWidth;
+        if (native > 0 && sw && ow) {
+          pixelToMmRatio = native / (sw / ow);
+        }
+      }
       const productWidthMm = side.realLifeDimensions?.productWidthMm || 0;
-      if (productWidthMm > 0 && printArea.width > 0) {
+      if (pixelToMmRatio <= 0 && productWidthMm > 0 && printArea.width > 0) {
         pixelToMmRatio = productWidthMm / printArea.width;
       }
 
@@ -214,8 +230,10 @@ export default function OrderModePanel({
           sizeBasis,
           storedWidthMm,
           storedHeightMm,
-          liveWidthMm: objWidth * pixelToMmRatio,
-          liveHeightMm: objHeight * pixelToMmRatio,
+          // 환산비를 모르면(0) live 값을 주지 않는다 → 박제값도 없으면 0으로
+          // 떨어지고 UI가 "측정 불가"를 표시 (틀린 숫자 표시 금지).
+          liveWidthMm: pixelToMmRatio > 0 ? objWidth * pixelToMmRatio : undefined,
+          liveHeightMm: pixelToMmRatio > 0 ? objHeight * pixelToMmRatio : undefined,
         });
 
         let objectType = obj.type || 'Object';
@@ -256,7 +274,8 @@ export default function OrderModePanel({
     }
 
     return dimensions;
-  }, [product, orderItem.canvas_state]);
+    // canvasMap/canvasVersion: 캔버스 마운트·캘리브 로드 후 환산비가 생기면 재계산
+  }, [product, orderItem.canvas_state, canvasMap, canvasVersion]);
 
   // Static fallback previews extracted from canvas_state JSON.
   // Unlike objectPreviews (which relies on live canvas toDataURL and can fail due to
@@ -738,9 +757,15 @@ export default function OrderModePanel({
                               </div>
                               <div className="flex gap-1">
                                 <span className="text-gray-400 shrink-0 w-7">크기</span>
-                                <span className="text-gray-700">
-                                  {formatSizeCm(dim.widthMm, dim.heightMm)}
-                                </span>
+                                {dim.widthMm > 0 && dim.heightMm > 0 ? (
+                                  <span className="text-gray-700">
+                                    {formatSizeCm(dim.widthMm, dim.heightMm)}
+                                  </span>
+                                ) : (
+                                  <span className="text-amber-600 font-medium" title="저장된 실측 mm가 없고 캘리브레이션 환산도 불가한 객체입니다. 에디터에서 객체를 한 번 움직여 저장하면 실측값이 기록됩니다.">
+                                    측정 불가 · 수동 확인 필요
+                                  </span>
+                                )}
                               </div>
                               {dim.colors && dim.colors.length > 0 && (
                                 <div className="flex gap-1 items-center">

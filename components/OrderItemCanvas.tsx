@@ -7,6 +7,7 @@ import { ChevronLeft, Palette, Ruler, Grid3x3, Download, Package, ZoomIn, ZoomOu
 import SingleSideCanvas from './canvas/SingleSideCanvas';
 import { Canvas as FabricCanvas, Point as FabricPoint } from 'fabric';
 import { resolveObjectSizeMm } from '@/lib/canvasUtils';
+import { fetchProductCalibrations } from '@/lib/calibrationFetch';
 import { isPreviewableImageEntry, fileExtensionLabel } from '@/lib/downloadUtils';
 
 interface OrderItemCanvasProps {
@@ -556,10 +557,18 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
     }
   };
 
-  const handleCanvasReady = useCallback((canvas: FabricCanvas, sideId: string, canvasScale: number) => {
+  const handleCanvasReady = useCallback(async (canvas: FabricCanvas, sideId: string, canvasScale: number) => {
     // Extract colors and dimensions from the rendered canvas
     const currentSide = product?.configuration.find(s => s.id === sideId);
     if (!currentSide) return;
+
+    // 캘리브레이션(인쇄영역 실측 기반 native mm/px — 원본 이미지 px 기준) 로드.
+    // objWidthOriginal과 같은 좌표계라 그대로 곱하면 mm가 된다. 캐시되어 있어 저비용.
+    let calibrationNativeMmPerPx = 0;
+    try {
+      const calMap = await fetchProductCalibrations(product?.id || '');
+      calibrationNativeMmPerPx = calMap.get(sideId)?.nativeMmPerPx ?? 0;
+    } catch { /* 폴백 체인으로 진행 */ }
 
     const objects = canvas.getObjects();
     const dimensions: ObjectDimensions[] = [];
@@ -596,9 +605,14 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
 
     const printArea = currentSide.printArea;
 
-    let pixelToMmRatio = 1;
+    // mm/px(원본 px 기준): ① 캘리브레이션 → ② 레거시 productWidthMm → ③ 0(환산 불가).
+    // 절대 1로 두지 않는다 — ratio=1은 px가 mm로 둔갑하는 silent failure였음
+    // (2026-06-12 085-CVT 시안 크기 오표시 사고).
+    let pixelToMmRatio = 0;
     const productWidthMm = currentSide.realLifeDimensions?.productWidthMm || 0;
-    if (productWidthMm > 0 && printArea.width > 0) {
+    if (calibrationNativeMmPerPx > 0) {
+      pixelToMmRatio = calibrationNativeMmPerPx;
+    } else if (productWidthMm > 0 && printArea.width > 0) {
       pixelToMmRatio = productWidthMm / printArea.width;
     }
 
@@ -728,8 +742,9 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
         sizeBasis,
         storedWidthMm,
         storedHeightMm,
-        liveWidthMm: objWidthOriginal * pixelToMmRatio,
-        liveHeightMm: objHeightOriginal * pixelToMmRatio,
+        // 환산비를 모르면(0) live 값을 주지 않는다 → 박제값도 없으면 0 → UI가 "측정 불가" 표시.
+        liveWidthMm: pixelToMmRatio > 0 ? objWidthOriginal * pixelToMmRatio : undefined,
+        liveHeightMm: pixelToMmRatio > 0 ? objHeightOriginal * pixelToMmRatio : undefined,
       });
 
       let objectType = obj.type || 'Object';
@@ -1710,20 +1725,26 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
                             )}
                           </div>
                         )}
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div>
-                            <span className="text-gray-500">너비:</span>
-                            <span className="ml-1 font-medium text-gray-900">
-                              {dimension.widthMm.toFixed(1)} mm
-                            </span>
+                        {dimension.widthMm > 0 && dimension.heightMm > 0 ? (
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <span className="text-gray-500">너비:</span>
+                              <span className="ml-1 font-medium text-gray-900">
+                                {dimension.widthMm.toFixed(1)} mm
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">높이:</span>
+                              <span className="ml-1 font-medium text-gray-900">
+                                {dimension.heightMm.toFixed(1)} mm
+                              </span>
+                            </div>
                           </div>
-                          <div>
-                            <span className="text-gray-500">높이:</span>
-                            <span className="ml-1 font-medium text-gray-900">
-                              {dimension.heightMm.toFixed(1)} mm
-                            </span>
+                        ) : (
+                          <div className="text-xs text-amber-600 font-medium" title="저장된 실측 mm가 없고 캘리브레이션 환산도 불가한 객체입니다. 캘리브레이션 등록 후 다시 확인하세요.">
+                            크기 측정 불가 · 수동 확인 필요
                           </div>
-                        </div>
+                        )}
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <div>
                             <span className="text-xs text-gray-500">인쇄방법:</span>

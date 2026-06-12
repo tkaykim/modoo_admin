@@ -28,6 +28,26 @@ export function serializeCanvasState(
     return true;
   });
 
+  // 저장 안전망: 아직 mm가 박제되지 않은 객체는 캘리브레이션 비율이 있을 때
+  // 직렬화 직전에 박제한다 (admin 에디터에서 만든 주문이 mm 없이 저장되어
+  // 시안 패널이 잘못된 환산 폴백으로 떨어지는 사고 방지 — 2026-06-12 085-CVT).
+  {
+    // @ts-expect-error - Custom property set by SingleSideCanvas calibration effect
+    const native = (canvas.calibrationNativeMmPerPx as number | undefined) ?? 0;
+    // @ts-expect-error - Custom property
+    const sw = canvas.scaledImageWidth as number | undefined;
+    // @ts-expect-error - Custom property
+    const ow = canvas.originalImageWidth as number | undefined;
+    const ratio = native > 0 && sw && ow ? native / (sw / ow) : 0;
+    if (ratio > 0) {
+      userObjects.forEach((obj) => {
+        // @ts-expect-error - Checking custom data property
+        if (typeof obj.data?.widthMm === 'number' && obj.data?.sizeBasis === ALPHA_SIZE_BASIS) return;
+        updateObjectDimensionsData(obj, ratio);
+      });
+    }
+  }
+
   // Create a minimal JSON with only user objects and layer colors
   const canvasData: Record<string, unknown> = {
     version: canvas.toJSON().version,
@@ -140,6 +160,44 @@ export function formatMm(mm: number, precision: number = 1): string {
  * `modoo_app/lib/canvasUtils.updateObjectDimensionsData`.
  */
 export const ALPHA_SIZE_BASIS = 'alpha';
+
+/** Round to 1 decimal place (mm 저장 정밀도 — 고객앱 formatMmNumber와 동일). */
+export function formatMmNumber(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+/**
+ * Stamp an object's real size (mm) onto `obj.data` with the alpha-basis marker —
+ * the admin-editor counterpart of `modoo_app/lib/canvasUtils.updateObjectDimensionsData`.
+ *
+ * `pixelToMmRatio` must be in scaled-canvas-px units (mm per canvas px).
+ * A non-positive ratio means we have no trustworthy conversion (calibration not
+ * loaded and no legacy productWidthMm) — in that case we deliberately do NOT
+ * stamp, because persisting a wrong mm is worse than persisting none
+ * (downstream views show "측정 불가" instead of a silently wrong number).
+ */
+export function updateObjectDimensionsData(
+  obj: fabric.FabricObject,
+  pixelToMmRatio: number
+): void {
+  if (!Number.isFinite(pixelToMmRatio) || pixelToMmRatio <= 0) return;
+  const boundingRect = obj.getBoundingRect();
+  const widthMm = formatMmNumber(boundingRect.width * pixelToMmRatio);
+  const heightMm = formatMmNumber(boundingRect.height * pixelToMmRatio);
+  if (!(widthMm > 0) || !(heightMm > 0)) return;
+
+  // @ts-expect-error - Custom data property
+  if (!obj.data) {
+    // @ts-expect-error - Adding data property
+    obj.data = {};
+  }
+  // @ts-expect-error - Adding custom properties to data
+  obj.data.widthMm = widthMm;
+  // @ts-expect-error - Adding custom properties to data
+  obj.data.heightMm = heightMm;
+  // @ts-expect-error - Adding custom properties to data
+  obj.data.sizeBasis = ALPHA_SIZE_BASIS;
+}
 
 export interface ResolveSizeMmInput {
   /** Size-basis marker read from the object/data (e.g. `obj.data.sizeBasis`). */

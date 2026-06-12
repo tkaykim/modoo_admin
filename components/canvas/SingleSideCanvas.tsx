@@ -5,7 +5,7 @@ import * as fabric from "fabric";
 import { ProductSide, ProductLayer, CanvasState, CustomFont } from '@/types/types';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import ScaleBox from './ScaleBox';
-import { formatMm } from '@/lib/canvasUtils';
+import { formatMm, updateObjectDimensionsData } from '@/lib/canvasUtils';
 // Import CurvedText to register the class with fabric.js for deserialization
 import '@/lib/curvedText';
 import { setupCurvedTextEditing, loadCustomFonts, isCurvedText } from '@/lib/curvedText';
@@ -786,6 +786,33 @@ const SingleSideCanvas: React.FC<SingleSideCanvasProps> = ({
       });
     }
 
+    // 신뢰 가능한 mm/px (캘리브레이션 1순위 → 레거시 productWidthMm 폴백 → 0).
+    // 0이면 박제하지 않는다 — 틀린 mm를 저장하는 것보다 없는 게 낫다.
+    const getTrustedPixelToMmRatio = (): number => {
+      // @ts-expect-error - Custom property
+      const scaledImageWidth = canvas.scaledImageWidth as number | undefined;
+      // @ts-expect-error - Custom property
+      const originalImageWidth = canvas.originalImageWidth as number | undefined;
+      const native = calibrationNativeMmPerPxRef.current;
+      if (native > 0 && scaledImageWidth && originalImageWidth) {
+        return native / (scaledImageWidth / originalImageWidth);
+      }
+      const productWidthMm = side.realLifeDimensions?.productWidthMm || 0;
+      if (productWidthMm > 0 && scaledImageWidth) {
+        return productWidthMm / scaledImageWidth;
+      }
+      return 0;
+    };
+
+    // 객체 실측 mm를 obj.data에 박제 (고객앱 updateObjectDimensionsData와 동일 규약).
+    // admin 에디터에서 만든 디자인도 시안 패널/주문 상세가 박제값을 읽을 수 있게 한다.
+    const stampObjectSizeMm = (obj: fabric.FabricObject | fabric.ActiveSelection) => {
+      // @ts-expect-error - Checking custom data property
+      if (obj.data?.id === 'background-product-image') return;
+      if (obj.excludeFromExport) return;
+      updateObjectDimensionsData(obj as fabric.FabricObject, getTrustedPixelToMmRatio());
+    };
+
     // Helper function to update scale box with object dimensions
     const updateScaleBox = (obj: fabric.FabricObject | fabric.ActiveSelection) => {
         // Get the scaled product image width on the canvas
@@ -882,6 +909,12 @@ const SingleSideCanvas: React.FC<SingleSideCanvasProps> = ({
         obj.selectable = isEditRef.current;
         obj.evented = isEditRef.current;
 
+        // 새 객체에 실측 mm 박제 (이미 alpha 박제된 객체 — 고객 디자인 로드 등 — 는 보존)
+        // @ts-expect-error - Checking custom data property
+        if (typeof obj.data?.widthMm !== 'number' || obj.data?.sizeBasis !== 'alpha') {
+          stampObjectSizeMm(obj);
+        }
+
         // Increment canvas version to trigger updates in components that depend on canvas state
         incrementCanvasVersion();
         saveHistory(side.id);
@@ -895,18 +928,21 @@ const SingleSideCanvas: React.FC<SingleSideCanvasProps> = ({
     canvas.on('object:scaling', (e) => {
         if (e.target) {
           updateScaleBox(e.target);
+          stampObjectSizeMm(e.target);
         }
     });
 
     canvas.on('object:rotating', (e) => {
         if (e.target) {
           updateScaleBox(e.target);
+          stampObjectSizeMm(e.target);
         }
     });
 
     canvas.on('object:modified', (e) => {
         if (e.target) {
           updateScaleBox(e.target);
+          stampObjectSizeMm(e.target);
         }
         // Increment canvas version when object is modified (color, size, etc.)
         incrementCanvasVersion();
