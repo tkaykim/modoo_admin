@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { trackCargoLast } from '@/lib/logen';
+import { trackCargoLast, inquirySlipNo } from '@/lib/logen';
 import { automationPing } from '@/lib/automation-ping';
 
 /** Vercel Hobby: 하루 1회. schedule 0 9 * * * = 매일 09:00 UTC = 한국 18:00 (KST) */
@@ -16,6 +16,47 @@ export async function GET(request: Request) {
 
     const adminClient = createAdminClient();
 
+    // ── STEP 0: 송장번호 자동 동기화 ──
+    // 로젠 접수는 됐는데(logen_registered_at) 송장번호가 아직 없는 주문 →
+    // 출력(발번) 후 시점차로 비어 있을 수 있으므로 매일 자동 조회해 채운다.
+    // (어드민 '송장번호 가져오기' 버튼을 사람이 안 눌러도 자동 반영)
+    let syncedSlips = 0;
+    try {
+      const { data: pending } = await adminClient
+        .from('orders')
+        .select('id')
+        .eq('order_status', 'shipping')
+        .eq('tracking_carrier', 'logen')
+        .not('logen_registered_at', 'is', null)
+        .is('tracking_number', null)
+        .limit(200);
+
+      const pendingIds = (pending || []).map((o) => o.id);
+      for (let i = 0; i < pendingIds.length; i += BATCH_SIZE) {
+        const batch = pendingIds.slice(i, i + BATCH_SIZE);
+        try {
+          const inq = await inquirySlipNo(batch);
+          if (inq.sttsCd === 'FAIL' || !Array.isArray(inq.data)) continue;
+          for (const item of inq.data) {
+            if (item.resultCd !== 'TRUE' || !Array.isArray(item.data1)) continue;
+            const active = item.data1.find((s: any) => s.delYn !== 'Y' && s.slipNo);
+            if (active?.slipNo) {
+              await adminClient
+                .from('orders')
+                .update({ tracking_number: active.slipNo, logen_slip_printed: true })
+                .eq('id', item.fixTakeNo)
+                .is('tracking_number', null);
+              syncedSlips++;
+            }
+          }
+        } catch (e) {
+          console.error(`Cron: slip sync batch ${i} error:`, e);
+        }
+      }
+    } catch (e) {
+      console.error('Cron: slip sync step error:', e);
+    }
+
     const { data: shippingOrders, error } = await adminClient
       .from('orders')
       .select('id, tracking_number')
@@ -29,7 +70,8 @@ export async function GET(request: Request) {
     }
 
     if (!shippingOrders || shippingOrders.length === 0) {
-      return NextResponse.json({ data: { message: '배송 중인 주문이 없습니다.', checked: 0, delivered: 0 } });
+      await automationPing({ key: 'modoo:shipping-status', title: '배송 추적 → delivered 전환', triggerDesc: '매일 18:00 KST', source: 'modoo_admin /api/cron/shipping-status', detail: { checked: 0, delivered: 0, syncedSlips } });
+      return NextResponse.json({ data: { message: '배송 중인 주문이 없습니다.', checked: 0, delivered: 0, syncedSlips } });
     }
 
     const slipNos = shippingOrders
@@ -69,12 +111,13 @@ export async function GET(request: Request) {
       }
     }
 
-    console.log(`Cron shipping-status: checked=${slipNos.length}, delivered=${totalDelivered}`);
+    console.log(`Cron shipping-status: syncedSlips=${syncedSlips}, checked=${slipNos.length}, delivered=${totalDelivered}`);
 
-    await automationPing({ key: 'modoo:shipping-status', title: '배송 추적 → delivered 전환', triggerDesc: '매일 18:00 KST', source: 'modoo_admin /api/cron/shipping-status', detail: { checked: slipNos.length, delivered: totalDelivered } });
+    await automationPing({ key: 'modoo:shipping-status', title: '배송 추적 → delivered 전환', triggerDesc: '매일 18:00 KST', source: 'modoo_admin /api/cron/shipping-status', detail: { checked: slipNos.length, delivered: totalDelivered, syncedSlips } });
 
     return NextResponse.json({
       data: {
+        syncedSlips,
         checked: slipNos.length,
         delivered: totalDelivered,
         timestamp: new Date().toISOString(),
