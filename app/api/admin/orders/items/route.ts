@@ -473,11 +473,19 @@ export async function POST(request: Request) {
     }
 
     const { orderId, designId, productId, variants, pricingMode, customUnitPrice } = payload;
+    // 간이 이미지 항목: 디자인(목업) 없이 "완성 이미지 + 제품"만으로 추가. 목업은 결제 후 에디터에서 채움.
+    const isQuick = payload?.quickImage === true;
+    const quickThumbnailUrl = typeof payload?.thumbnailUrl === 'string' ? payload.thumbnailUrl : null;
+    const designTitleInput = typeof payload?.designTitle === 'string' ? payload.designTitle.trim() : '';
 
     if (!orderId || typeof orderId !== 'string') {
       return NextResponse.json({ error: '주문 ID가 필요합니다.' }, { status: 400 });
     }
-    if (!designId || typeof designId !== 'string') {
+    if (isQuick) {
+      if (!quickThumbnailUrl) {
+        return NextResponse.json({ error: '간이 주문에는 이미지가 필요합니다.' }, { status: 400 });
+      }
+    } else if (!designId || typeof designId !== 'string') {
       return NextResponse.json({ error: '디자인 ID가 필요합니다.' }, { status: 400 });
     }
     if (!productId || typeof productId !== 'string') {
@@ -513,14 +521,25 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: design, error: designError } = await adminClient
-      .from('saved_designs')
-      .select('id, product_id, title, canvas_state, color_selections, preview_url, price_per_item, image_urls, text_svg_exports, custom_fonts')
-      .eq('id', designId)
-      .single();
+    // 간이 항목은 디자인이 없으므로 조회 생략.
+    let design: {
+      id: string; product_id: string; title: string | null;
+      canvas_state: Record<string, unknown> | string | null;
+      color_selections: Record<string, unknown> | string | null;
+      preview_url: string | null;
+      price_per_item: number | null; image_urls: unknown; text_svg_exports: unknown; custom_fonts: unknown;
+    } | null = null;
+    if (!isQuick) {
+      const { data: designData, error: designError } = await adminClient
+        .from('saved_designs')
+        .select('id, product_id, title, canvas_state, color_selections, preview_url, price_per_item, image_urls, text_svg_exports, custom_fonts')
+        .eq('id', designId)
+        .single();
 
-    if (designError || !design) {
-      return NextResponse.json({ error: '디자인을 찾을 수 없습니다.' }, { status: 404 });
+      if (designError || !designData) {
+        return NextResponse.json({ error: '디자인을 찾을 수 없습니다.' }, { status: 404 });
+      }
+      design = designData;
     }
 
     const { data: product, error: productError } = await adminClient
@@ -533,20 +552,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '제품을 찾을 수 없습니다.' }, { status: 404 });
     }
 
-    if (design.product_id !== productId) {
+    if (design && design.product_id !== productId) {
       return NextResponse.json({ error: '디자인과 제품이 일치하지 않습니다.' }, { status: 400 });
     }
 
     let unitPrice: number;
     if (pricingMode === 'custom_unit_price' && customUnitPrice != null && customUnitPrice > 0) {
       unitPrice = customUnitPrice;
-    } else {
+    } else if (design) {
       const designPrice = toNumber(design.price_per_item);
       unitPrice = designPrice > 0 ? designPrice : toNumber(product.base_price);
+    } else {
+      unitPrice = toNumber(product.base_price);
     }
 
-    const colorSelections = normalizeJson<Record<string, unknown>>(design.color_selections ?? null, {});
-    const canvasState = normalizeJson<Record<string, unknown>>(design.canvas_state ?? null, {});
+    const colorSelections = design ? normalizeJson<Record<string, unknown>>(design.color_selections ?? null, {}) : {};
+    const canvasState = design ? normalizeJson<Record<string, unknown>>(design.canvas_state ?? null, {}) : {};
     const productColor = resolveProductColor(colorSelections);
 
     const orderVariants = variants
@@ -566,20 +587,28 @@ export async function POST(request: Request) {
       if (single.color_hex) itemOptions.color_hex = single.color_hex;
     }
 
+    // 디자인명(공장·관리자 구분 라벨): 입력값 우선, 없으면 디자인 title, 간이는 제품명.
+    const designTitleSnapshot = designTitleInput
+      ? designTitleInput.slice(0, 60)
+      : (design ? (design.title || null) : (product.title || '간이주문'));
+
     const itemPayload = {
       order_id: orderId,
       product_id: productId,
-      design_id: designId,
+      design_id: design ? designId : null,
       product_title: product.title || 'Product',
+      design_title: designTitleSnapshot,
       quantity: totalQty,
       price_per_item: unitPrice,
       canvas_state: canvasState,
       color_selections: colorSelections,
       item_options: itemOptions,
-      thumbnail_url: design.preview_url || null,
-      image_urls: design.image_urls || null,
-      text_svg_exports: design.text_svg_exports || null,
-      custom_fonts: design.custom_fonts || null,
+      thumbnail_url: design ? (design.preview_url || null) : quickThumbnailUrl,
+      image_urls: design ? (design.image_urls || null) : null,
+      text_svg_exports: design ? (design.text_svg_exports || null) : null,
+      custom_fonts: design ? (design.custom_fonts || null) : null,
+      // 간이 항목은 목업 미완성 → 공장배정 가드 발동. 일반 항목은 디자인 완성 → 배정 가능.
+      production_ready: isQuick ? false : true,
     };
 
     const { data: newItem, error: insertError } = await adminClient

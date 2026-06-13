@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Search, Loader2, Package, Plus, Minus, ChevronDown, ChevronUp, ExternalLink, Check } from 'lucide-react';
+import { X, Search, Loader2, Package, Plus, Minus, ChevronDown, ChevronUp, ExternalLink, Check, ImageIcon, Upload } from 'lucide-react';
 import type { OrderItem, SizeOption } from '@/types/types';
+import { createClient } from '@/lib/supabase-client';
+import { uploadFileToStorage } from '@/lib/supabase-storage';
 
 interface DesignEntry {
   id: string;
@@ -30,7 +32,7 @@ interface AddOrderItemModalProps {
 
 export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, initialDesignId, editingItem }: AddOrderItemModalProps) {
   const isEditMode = !!editingItem;
-  const [tab, setTab] = useState<'existing' | 'new'>('existing');
+  const [tab, setTab] = useState<'existing' | 'new' | 'quick'>('existing');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [designs, setDesigns] = useState<DesignEntry[]>([]);
@@ -45,9 +47,14 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
   const [pricingMode, setPricingMode] = useState<'auto' | 'custom_unit_price'>('auto');
   const [customUnitPrice, setCustomUnitPrice] = useState('');
 
-  const [products, setProducts] = useState<Array<{ id: string; title: string; thumbnail_image_link?: string[]; category?: string }>>([]);
+  const [products, setProducts] = useState<Array<{ id: string; title: string; thumbnail_image_link?: string[]; category?: string; base_price?: number; size_options?: SizeOption[] }>>([]);
   const [productSearch, setProductSearch] = useState('');
   const [productsLoading, setProductsLoading] = useState(false);
+
+  // 간이 이미지 주문(디자인 없이 이미지+제품): 선택된 제품 + 업로드 이미지
+  const [quickProductId, setQuickProductId] = useState<string>('');
+  const [quickImageUrl, setQuickImageUrl] = useState<string | null>(null);
+  const [quickUploading, setQuickUploading] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +84,9 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
     setError(null);
     setPricingMode('auto');
     setCustomUnitPrice('');
+    setQuickProductId('');
+    setQuickImageUrl(null);
+    setQuickUploading(false);
 
     if (editingItem) {
       const designEntry: DesignEntry = {
@@ -166,11 +176,81 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
 
   const totalQty = variants.reduce((s, v) => s + v.quantity, 0);
 
+  const quickProduct = products.find(p => p.id === quickProductId) || null;
+
+  // 간이 제품 선택: 사이즈 옵션 → 수량 입력칸 세팅
+  const handleSelectQuickProduct = (productId: string) => {
+    setQuickProductId(productId);
+    setError(null);
+    setPricingMode('auto');
+    setCustomUnitPrice('');
+    const product = products.find(p => p.id === productId);
+    const opts = product?.size_options || [];
+    setSizeOptions(opts);
+    setVariants(opts.map(o => ({ sizeLabel: o.label, sizeCode: o.size_code, quantity: 0 })));
+  };
+
+  const handleQuickUpload = async (file: File | null) => {
+    if (!file) return;
+    setQuickUploading(true);
+    setError(null);
+    try {
+      const supabase = createClient();
+      const res = await uploadFileToStorage(supabase, file, 'products', 'quick-order-images');
+      if (!res.success || !res.url) throw new Error(res.error || '이미지 업로드에 실패했습니다.');
+      setQuickImageUrl(res.url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '이미지 업로드에 실패했습니다.');
+    } finally {
+      setQuickUploading(false);
+    }
+  };
+
+  const isQuickTab = tab === 'quick' && !isEditMode;
+  // 사이즈/수량/단가 설정 UI를 보일 조건 (기존 디자인 선택됨 || 수정모드 || 간이 제품+이미지 준비됨)
+  const configReady = (!isQuickTab && selectedDesign) || (isQuickTab && !!quickProductId && !!quickImageUrl);
+
+  const autoUnitPrice = isQuickTab
+    ? (quickProduct?.base_price ?? 0)
+    : (selectedDesign?.price_per_item && selectedDesign.price_per_item > 0 ? selectedDesign.price_per_item : 0);
   const unitPrice = pricingMode === 'custom_unit_price' && parseFloat(customUnitPrice) > 0
     ? parseFloat(customUnitPrice)
-    : (selectedDesign?.price_per_item && selectedDesign.price_per_item > 0 ? selectedDesign.price_per_item : 0);
+    : autoUnitPrice;
 
   const handleSubmit = async () => {
+    // 간이 이미지 항목 추가 (디자인 없이 이미지+제품+가격)
+    if (isQuickTab) {
+      if (!quickProductId) { setError('제품을 선택해주세요.'); return; }
+      if (!quickImageUrl) { setError('완성 이미지를 업로드해주세요.'); return; }
+      if (totalQty <= 0) { setError('수량을 선택해주세요.'); return; }
+      setSubmitting(true);
+      setError(null);
+      try {
+        const res = await fetch('/api/admin/orders/items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId,
+            quickImage: true,
+            productId: quickProductId,
+            thumbnailUrl: quickImageUrl,
+            variants: variants.filter(v => v.quantity > 0),
+            pricingMode,
+            customUnitPrice: pricingMode === 'custom_unit_price' ? parseFloat(customUnitPrice) : undefined,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) { setError(json.error || '추가에 실패했습니다.'); return; }
+        onAdded();
+        onClose();
+      } catch {
+        setError('추가 중 오류가 발생했습니다.');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     if (!selectedDesign) return;
     if (totalQty <= 0) { setError('수량을 선택해주세요.'); return; }
 
@@ -222,7 +302,7 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
   };
 
   useEffect(() => {
-    if (!isOpen || tab !== 'new' || products.length > 0) return;
+    if (!isOpen || (tab !== 'new' && tab !== 'quick') || products.length > 0) return;
     setProductsLoading(true);
     fetch('/api/admin/products')
       .then(r => r.json())
@@ -233,6 +313,78 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
 
   const filteredProducts = products.filter(p =>
     !productSearch.trim() || p.title.toLowerCase().includes(productSearch.toLowerCase())
+  );
+
+  // 사이즈/수량 + 단가 + 소계 — 기존 디자인·수정·간이 항목이 공유
+  const renderItemConfig = () => (
+    <>
+      {/* Size/Quantity */}
+      {variants.length > 0 && (
+        <div>
+          <button onClick={() => setShowVariants(!showVariants)} className="flex items-center gap-1 text-sm font-medium text-gray-700 mb-2">
+            사이즈별 수량 {showVariants ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          {showVariants && (
+            <div className="space-y-2">
+              {variants.map((v, i) => (
+                <div key={v.sizeCode} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
+                  <span className="text-sm font-medium text-gray-700">{v.sizeLabel}</span>
+                  <div className="flex items-center gap-1.5">
+                    <button type="button" onClick={() => handleVariantQty(i, -1)} disabled={v.quantity <= 0} className="p-1.5 rounded bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-40">
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      type="number" min="0" value={v.quantity}
+                      onChange={e => handleVariantInput(i, e.target.value)}
+                      className="w-14 text-center p-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button type="button" onClick={() => handleVariantQty(i, 1)} className="p-1.5 rounded bg-white border border-gray-200 hover:bg-gray-100">
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-gray-500 mt-2">총 수량: {totalQty}개</p>
+        </div>
+      )}
+
+      {/* Pricing */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">단가 설정</label>
+        <div className="flex gap-3 mb-2">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="radio" checked={pricingMode === 'auto'} onChange={() => setPricingMode('auto')} className="w-4 h-4 text-blue-600" />
+            자동 ({autoUnitPrice > 0 ? `${autoUnitPrice.toLocaleString()}원` : '기본가'})
+          </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="radio" checked={pricingMode === 'custom_unit_price'} onChange={() => setPricingMode('custom_unit_price')} className="w-4 h-4 text-blue-600" />
+            직접 입력
+          </label>
+        </div>
+        {pricingMode === 'custom_unit_price' && (
+          <div className="relative">
+            <input
+              type="number" min="0" value={customUnitPrice}
+              onChange={e => setCustomUnitPrice(e.target.value)}
+              placeholder="단가 입력"
+              className="w-full p-2.5 pr-10 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">원</span>
+          </div>
+        )}
+      </div>
+
+      {totalQty > 0 && unitPrice > 0 && (
+        <div className="p-3 bg-blue-50 rounded-lg flex justify-between items-center">
+          <span className="text-sm text-blue-700">소계</span>
+          <span className="text-sm font-bold text-blue-800">{(unitPrice * totalQty).toLocaleString()}원</span>
+        </div>
+      )}
+
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </>
   );
 
   if (!isOpen) return null;
@@ -260,6 +412,13 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
               className={`flex-1 py-3 text-sm font-medium text-center border-b-2 transition-colors ${tab === 'new' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
             >
               새 디자인 만들기
+            </button>
+            <button
+              onClick={() => { setTab('quick'); setSelectedDesign(null); }}
+              className={`flex-1 py-3 text-sm font-medium text-center border-b-2 transition-colors flex items-center justify-center gap-1.5 ${tab === 'quick' ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            >
+              <ImageIcon className="w-4 h-4" />
+              간이 이미지
             </button>
           </div>
         )}
@@ -333,72 +492,85 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
                 </div>
               </div>
 
-              {/* Size/Quantity */}
-              {variants.length > 0 && (
-                <div>
-                  <button onClick={() => setShowVariants(!showVariants)} className="flex items-center gap-1 text-sm font-medium text-gray-700 mb-2">
-                    사이즈별 수량 {showVariants ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </button>
-                  {showVariants && (
-                    <div className="space-y-2">
-                      {variants.map((v, i) => (
-                        <div key={v.sizeCode} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
-                          <span className="text-sm font-medium text-gray-700">{v.sizeLabel}</span>
-                          <div className="flex items-center gap-1.5">
-                            <button type="button" onClick={() => handleVariantQty(i, -1)} disabled={v.quantity <= 0} className="p-1.5 rounded bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-40">
-                              <Minus className="w-3.5 h-3.5" />
-                            </button>
-                            <input
-                              type="number" min="0" value={v.quantity}
-                              onChange={e => handleVariantInput(i, e.target.value)}
-                              className="w-14 text-center p-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <button type="button" onClick={() => handleVariantQty(i, 1)} className="p-1.5 rounded bg-white border border-gray-200 hover:bg-gray-100">
-                              <Plus className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <p className="text-xs text-gray-500 mt-2">총 수량: {totalQty}개</p>
-                </div>
-              )}
+              {renderItemConfig()}
+            </div>
+          )}
 
-              {/* Pricing */}
+          {/* ===== 간이 이미지 주문 탭 ===== */}
+          {isQuickTab && (
+            <div className="space-y-5">
+              <p className="text-xs text-gray-500">
+                완성 이미지와 제품만으로 결제용 항목을 추가합니다. 실제 목업/면별 아트워크는 결제 후 에디터에서 채웁니다.
+              </p>
+
+              {/* 1) 제품 선택 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">단가 설정</label>
-                <div className="flex gap-3 mb-2">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="radio" checked={pricingMode === 'auto'} onChange={() => setPricingMode('auto')} className="w-4 h-4 text-blue-600" />
-                    자동 ({unitPrice > 0 && pricingMode === 'auto' ? `${unitPrice.toLocaleString()}원` : '기본가'})
-                  </label>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="radio" checked={pricingMode === 'custom_unit_price'} onChange={() => setPricingMode('custom_unit_price')} className="w-4 h-4 text-blue-600" />
-                    직접 입력
-                  </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">1. 제품 선택</label>
+                <div className="relative mb-2">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    value={productSearch}
+                    onChange={e => setProductSearch(e.target.value)}
+                    placeholder="제품명으로 검색"
+                    className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                  />
                 </div>
-                {pricingMode === 'custom_unit_price' && (
-                  <div className="relative">
-                    <input
-                      type="number" min="0" value={customUnitPrice}
-                      onChange={e => setCustomUnitPrice(e.target.value)}
-                      placeholder="단가 입력"
-                      className="w-full p-2.5 pr-10 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">원</span>
+                {productsLoading ? (
+                  <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-600" /></div>
+                ) : (
+                  <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg divide-y">
+                    {filteredProducts.length === 0 ? (
+                      <div className="p-4 text-center text-sm text-gray-400">제품이 없습니다</div>
+                    ) : (
+                      filteredProducts.map(p => (
+                        <button
+                          key={p.id}
+                          onClick={() => handleSelectQuickProduct(p.id)}
+                          className={`w-full flex items-center gap-3 p-2.5 text-left hover:bg-gray-50 ${quickProductId === p.id ? 'bg-blue-50' : ''}`}
+                        >
+                          <div className="w-10 h-10 bg-gray-100 rounded overflow-hidden shrink-0 flex items-center justify-center">
+                            {p.thumbnail_image_link?.[0]
+                              ? <img src={p.thumbnail_image_link[0]} alt={p.title} className="w-full h-full object-cover" />
+                              : <Package className="w-5 h-5 text-gray-400" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-gray-900 truncate">{p.title}</p>
+                            <p className="text-xs text-gray-500">{(p.base_price ?? 0).toLocaleString()}원</p>
+                          </div>
+                          {quickProductId === p.id && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
+                        </button>
+                      ))
+                    )}
                   </div>
                 )}
               </div>
 
-              {totalQty > 0 && unitPrice > 0 && (
-                <div className="p-3 bg-blue-50 rounded-lg flex justify-between items-center">
-                  <span className="text-sm text-blue-700">소계</span>
-                  <span className="text-sm font-bold text-blue-800">{(unitPrice * totalQty).toLocaleString()}원</span>
-                </div>
-              )}
+              {/* 2) 이미지 업로드 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">2. 완성 이미지 업로드</label>
+                {quickImageUrl ? (
+                  <div className="flex items-center gap-3">
+                    <img src={quickImageUrl} alt="업로드 이미지" className="w-24 h-24 object-cover rounded-lg border border-gray-200" />
+                    <button onClick={() => setQuickImageUrl(null)} className="text-sm text-red-500 hover:underline">이미지 변경</button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center gap-2 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400">
+                    {quickUploading ? <Loader2 className="w-6 h-6 animate-spin text-blue-500" /> : <Upload className="w-6 h-6 text-gray-400" />}
+                    <span className="text-sm text-gray-500">{quickUploading ? '업로드 중...' : '이미지 선택 (jpg, png 등)'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={quickUploading}
+                      onChange={e => { void handleQuickUpload(e.target.files?.[0] ?? null); e.currentTarget.value = ''; }}
+                    />
+                  </label>
+                )}
+              </div>
 
-              {error && <p className="text-xs text-red-500">{error}</p>}
+              {/* 3) 사이즈/수량/단가 — 제품+이미지 준비되면 */}
+              {configReady && renderItemConfig()}
+              {!configReady && error && <p className="text-xs text-red-500">{error}</p>}
             </div>
           )}
 
@@ -445,7 +617,7 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
         </div>
 
         {/* Footer */}
-        {(tab === 'existing' || isEditMode) && selectedDesign && (
+        {configReady && (
           <div className="px-6 py-4 border-t flex gap-3">
             <button onClick={onClose} className="flex-1 px-4 py-2.5 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">취소</button>
             <button
