@@ -52,6 +52,37 @@ async function fetchDbRevenue(days: number): Promise<{
   return { total, transactions, byDate };
 }
 
+// 매출총이익·원가 (order_profit_summary, KST 최근 N일) — 이익 ROAS / 진짜 마진용
+async function fetchDbProfit(days: number): Promise<{ netRevenue: number; grossProfit: number; itemCost: number; printCost: number }> {
+  const kstNow = new Date(Date.now() + 9 * 60 * 60000);
+  const startKst = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate() - days));
+  const sinceIso = new Date(startKst.getTime() - 9 * 60 * 60000).toISOString();
+  const admin = createAdminClient();
+  let netRevenue = 0, grossProfit = 0, itemCost = 0, printCost = 0;
+  const PAGE = 1000;
+  let from = 0;
+  while (true) {
+    const { data, error } = await admin
+      .from('order_profit_summary')
+      .select('net_revenue, gross_profit, total_item_cost, total_print_cost, order_status')
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    const batch = data ?? [];
+    for (const r of batch) {
+      if (r.order_status === 'cancelled' || r.order_status === 'refunded') continue;
+      netRevenue += Number(r.net_revenue ?? 0);
+      grossProfit += Number(r.gross_profit ?? 0);
+      itemCost += Number(r.total_item_cost ?? 0);
+      printCost += Number(r.total_print_cost ?? 0);
+    }
+    if (batch.length < PAGE) break;
+    from += PAGE;
+  }
+  return { netRevenue, grossProfit, itemCost, printCost };
+}
+
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -67,12 +98,13 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const days = Math.max(1, Math.min(365, Number(searchParams.get('days') ?? 30)));
 
-    const [campaignsRows, revenueRows, funnelRows, trafficRows, dbRevenue] = await Promise.all([
+    const [campaignsRows, revenueRows, funnelRows, trafficRows, dbRevenue, dbProfit] = await Promise.all([
       campaigns(days),
       revenue(days),
       funnel(days),
       traffic(days),
       fetchDbRevenue(days),
+      fetchDbProfit(days),
     ]);
 
     const cs = campaignsRows as unknown as CampaignRow[];
@@ -124,6 +156,10 @@ export async function GET(req: NextRequest) {
           totalTransactions,
           dbRevenue: dbRevenue.total,
           dbTransactions: dbRevenue.transactions,
+          dbNetRevenue: dbProfit.netRevenue,
+          dbGrossProfit: dbProfit.grossProfit,
+          dbItemCost: dbProfit.itemCost,
+          dbPrintCost: dbProfit.printCost,
           paidSessions,
           organicSessions,
         },

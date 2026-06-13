@@ -40,6 +40,10 @@ type OverviewData = {
     totalTransactions: number;
     dbRevenue: number;
     dbTransactions: number;
+    dbNetRevenue?: number;
+    dbGrossProfit?: number;
+    dbItemCost?: number;
+    dbPrintCost?: number;
     paidSessions: number;
     organicSessions: number;
   };
@@ -110,6 +114,14 @@ export default function MarketingTab() {
   const dbRevenue = payload?.summary.dbRevenue ?? 0;
   const ga4Revenue = payload?.summary.totalRevenue ?? 0;
   const roasPct = totalSpend > 0 ? (dbRevenue / totalSpend) * 100 : 0;
+  // 이익 ROAS·진짜 마진 (실원가 반영) — 매출 ROAS는 원가를 무시하므로 이게 진짜 광고 수익성
+  const grossProfit = payload?.summary.dbGrossProfit ?? 0;
+  const netRev = payload?.summary.dbNetRevenue ?? dbRevenue;
+  const profitRoasPct = totalSpend > 0 ? (grossProfit / totalSpend) * 100 : 0;
+  const marginPct = netRev > 0 ? (grossProfit / netRev) * 100 : 0;
+  const printPctOfRev = netRev > 0 ? ((payload?.summary.dbPrintCost ?? 0) / netRev) * 100 : 0;
+  const itemPctOfRev = netRev > 0 ? ((payload?.summary.dbItemCost ?? 0) / netRev) * 100 : 0;
+  const etcPctOfRev = Math.max(0, 100 - marginPct - printPctOfRev - itemPctOfRev);
 
   return (
     <div className="space-y-4">
@@ -143,9 +155,12 @@ export default function MarketingTab() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <KpiCard icon={Target} label="Meta 광고비" value={meta ? krw(meta.summary.spend) : (metaLoading ? '...' : '-')} hint={meta ? `클릭 ${num(meta.summary.clicks)} · 노출 ${num(meta.summary.impressions)}` : (metaError ? 'Meta API 오류' : '연동 중')} accent="border-l-rose-500" />
             <KpiCard icon={BadgeDollarSign} label="실매출 (DB)" value={krw(dbRevenue)} hint={`주문 ${num(payload.summary.dbTransactions)}건 · 취소/환불 제외`} accent="border-l-green-500" />
-            <KpiCard icon={TrendingUp} label="ROAS (실매출÷광고비)" value={meta ? `${roasPct.toFixed(1)}%` : '-'} hint={meta && totalSpend > 0 ? (roasPct >= 100 ? '✓ 광고비 회수' : `손실 ${krw(totalSpend - dbRevenue)}`) : '광고비 데이터 필요'} accent={meta && roasPct >= 100 ? 'border-l-emerald-600' : 'border-l-amber-500'} />
+            <KpiCard icon={TrendingUp} label="ROAS 매출 / 이익" value={meta ? `${roasPct.toFixed(0)}% / ${profitRoasPct.toFixed(0)}%` : '-'} hint={meta && totalSpend > 0 ? '이익ROAS=매출총이익÷광고비 (마진 반영)' : '광고비 데이터 필요'} accent={meta && profitRoasPct >= 100 ? 'border-l-emerald-600' : 'border-l-amber-500'} />
             <KpiCard icon={MousePointerClick} label="평균 CPC" value={meta && meta.summary.clicks > 0 ? krw(meta.summary.spend / meta.summary.clicks) : '-'} hint={meta ? `도달 ${num(meta.summary.reach)}명` : '-'} accent="border-l-blue-500" />
           </div>
+          <p className="text-[11px] text-blue-900 bg-blue-50 border border-blue-200 rounded px-2.5 py-1.5">
+            💰 <b>진짜 마진 {marginPct.toFixed(0)}%</b> (실원가 반영: 인쇄 {printPctOfRev.toFixed(0)}% · 원단 {itemPctOfRev.toFixed(0)}% · 기타 {etcPctOfRev.toFixed(0)}%). 매출 ROAS는 원가를 무시하므로, 증액 판단은 <b>이익 ROAS {profitRoasPct.toFixed(0)}%</b>(광고 1원당 매출총이익) 기준으로 하세요.
+          </p>
           <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
             ⚠ GA4 추정매출 <b>{krw(ga4Revenue)}</b> (GA4 구매이벤트 기준)은 중복·테스트 발화로 부풀려질 수 있어 참고용입니다. 매출 정본은 <b>실매출(DB)</b>이며, ROAS는 전체 실매출÷광고비라 광고 단독 기여가 아닙니다.
           </p>
