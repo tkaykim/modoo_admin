@@ -50,7 +50,7 @@ export default function SalesmanDetailDrawer({
   const [lockMonths, setLockMonths] = useState<number>(3);
   const [lockReason, setLockReason] = useState('');
   const [saving, setSaving] = useState(false);
-  const [busy, setBusy] = useState<'unlock' | 'reeval' | null>(null);
+  const [busy, setBusy] = useState<'unlock' | 'reeval' | 'approval' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
@@ -102,6 +102,32 @@ export default function SalesmanDetailDrawer({
       setError(e instanceof Error ? e.message : '저장 실패');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 승인/거절 — pending 신청자 전용. 기존 PATCH(status) 재사용.
+  const handleApproval = async (decision: 'active' | 'churned') => {
+    setBusy('approval');
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await fetch(`/api/admin/salesmen/${salesmanId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: decision }),
+      });
+      if (!res.ok) {
+        const p = await res.json().catch(() => ({}));
+        throw new Error(p?.error || '처리에 실패했습니다.');
+      }
+      await mutate();
+      onChanged();
+      setStatus(decision);
+      setInfo(decision === 'active' ? '승인되었습니다. 영업사원이 로그인할 수 있습니다.' : '신청을 거절했습니다.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '처리 실패');
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -196,6 +222,38 @@ export default function SalesmanDetailDrawer({
           {info && (
             <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-xs text-blue-800">
               {info}
+            </div>
+          )}
+
+          {/* 승인 대기 배너 — 신청자 검토 (pending) */}
+          {profile?.status === 'pending' && (
+            <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+              <div className="text-sm font-bold text-blue-900 mb-1">영업사원 지원 신청</div>
+              <div className="text-xs text-blue-800 mb-3">
+                {profile.display_name || '신청자'} · {data?.user?.email ?? ''} · {profile.phone ?? '연락처 미상'}
+                <br />
+                신청일 {new Date(profile.joined_at).toLocaleString('ko-KR')}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleApproval('active')}
+                  disabled={busy === 'approval'}
+                  className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded disabled:opacity-50"
+                >
+                  {busy === 'approval' ? '처리 중...' : '✓ 승인'}
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm('이 신청을 거절하시겠습니까? (이탈 처리되어 로그인 불가)')) {
+                      handleApproval('churned');
+                    }
+                  }}
+                  disabled={busy === 'approval'}
+                  className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium rounded disabled:opacity-50"
+                >
+                  거절
+                </button>
+              </div>
             </div>
           )}
 
@@ -302,7 +360,7 @@ export default function SalesmanDetailDrawer({
                 >
                   {SALESMAN_STATUSES.map((s) => (
                     <option key={s} value={s}>
-                      {s === 'active' ? '활성' : s === 'dormant' ? '휴면' : '이탈'}
+                      {s === 'pending' ? '승인대기' : s === 'active' ? '활성' : s === 'dormant' ? '휴면' : '이탈'}
                     </option>
                   ))}
                 </select>

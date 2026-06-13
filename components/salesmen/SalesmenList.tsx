@@ -26,11 +26,13 @@ const fetcher = async (url: string) => {
 };
 
 const STATUS_LABELS: Record<string, string> = {
+  pending: '승인대기',
   active: '활성',
   dormant: '휴면',
   churned: '이탈',
 };
 const STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-blue-100 text-blue-800',
   active: 'bg-green-100 text-green-800',
   dormant: 'bg-yellow-100 text-yellow-800',
   churned: 'bg-gray-200 text-gray-700',
@@ -65,6 +67,12 @@ export default function SalesmenList() {
   }, [page, status, grade, debouncedQ]);
 
   const { data, isLoading, error, mutate } = useSWR<ListResponse>(url, fetcher);
+  // 승인 대기자 수 — 상단 배너용 (status 필터와 무관하게 항상 조회)
+  const { data: pendingData, mutate: mutatePending } = useSWR<ListResponse>(
+    '/api/admin/salesmen?status=pending&page=1&limit=1',
+    fetcher
+  );
+  const pendingCount = pendingData?.total ?? 0;
   const { data: gradeData } = useSWR<{ levels: GradeLevelRow[] }>('/api/admin/grade-levels', fetcher);
   const { data: policyData } = useSWR<{ policy: GradePolicy }>('/api/admin/grade-policy', fetcher);
   const dormantWarn = policyData?.policy?.dormant_inactive_months ?? 3;
@@ -81,6 +89,23 @@ export default function SalesmenList() {
 
   return (
     <div className="space-y-3">
+      {pendingCount > 0 && status !== 'pending' && (
+        <button
+          onClick={() => {
+            setStatus('pending');
+            setPage(1);
+          }}
+          className="w-full flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-md px-4 py-2.5 text-left hover:bg-blue-100 transition-colors"
+        >
+          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold">
+            {pendingCount}
+          </span>
+          <span className="text-sm font-medium text-blue-900">
+            승인 대기 중인 영업사원 신청 {pendingCount}건 — 클릭해서 검토
+          </span>
+          <ChevronRight className="w-4 h-4 text-blue-500 ml-auto" />
+        </button>
+      )}
       <div className="bg-white border border-gray-200/60 rounded-md p-3 shadow-sm space-y-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -280,7 +305,10 @@ export default function SalesmenList() {
           salesmanId={selectedId}
           gradeLevels={gradeData?.levels ?? []}
           onClose={() => setSelectedId(null)}
-          onChanged={() => mutate()}
+          onChanged={() => {
+            mutate();
+            mutatePending();
+          }}
         />
       )}
     </div>

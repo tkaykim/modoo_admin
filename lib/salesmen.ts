@@ -9,7 +9,7 @@ export const GRADE_LEVELS: GradeLevel[] = [
   'LV0', 'LV1', 'LV2', 'LV3', 'LV4', 'LV5', 'LV6', 'LV7', 'LV8', 'LV9', 'LV10',
 ];
 
-export const SALESMAN_STATUSES = ['active', 'dormant', 'churned'] as const;
+export const SALESMAN_STATUSES = ['pending', 'active', 'dormant', 'churned'] as const;
 export type SalesmanStatus = typeof SALESMAN_STATUSES[number];
 
 export interface GradeLevelRow {
