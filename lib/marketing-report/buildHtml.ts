@@ -119,6 +119,12 @@ function diffArrow(now: number, prev: number): string {
 
 export function buildDailyHtml(d: DailyData): string {
   const realRoas = d.meta.spend > 0 ? d.supa.summary.revenue / d.meta.spend : 0;
+  // 이익 ROAS = 매출총이익(실원가 반영) ÷ 광고비. 매출 ROAS는 원가를 무시하므로 이게 진짜 광고 수익성.
+  const profitRoas = d.meta.spend > 0 ? d.supa.summary.grossProfit / d.meta.spend : 0;
+  const sm = d.supa.summary;
+  const printPct = sm.revenue > 0 ? (sm.printCost / sm.revenue) * 100 : 0;
+  const itemPct = sm.revenue > 0 ? (sm.itemCost / sm.revenue) * 100 : 0;
+  const etcPct = sm.revenue > 0 ? ((sm.revenue - sm.grossProfit - sm.itemCost - sm.printCost) / sm.revenue) * 100 : 0;
   const activeAds = d.meta.ads.filter((a) => a.spend > 0).sort((a, b) => b.spend - a.spend);
   const maxAdSpend = Math.max(...activeAds.map((a) => a.spend), 1);
   const maxFunnelUsers = Math.max(...d.ga4.funnel.map((s) => s.users), 1);
@@ -144,9 +150,10 @@ export function buildDailyHtml(d: DailyData): string {
   <div class="kpi-grid">
     <div class="kpi ok"><div class="l">실제 매출</div><div class="v">${won(d.supa.summary.revenue)}</div><div class="s">${d.supa.summary.orders}건 · ${diffArrow(d.supa.summary.revenue, d.prevSupa.revenue)} vs ${d.prevDate}</div></div>
     <div class="kpi"><div class="l">광고 지출</div><div class="v">${won(d.meta.spend)}</div><div class="s">CTR ${pct(d.meta.ctr)} · CPC ${won(d.meta.cpc)}</div></div>
-    <div class="kpi ${realRoas >= 3 ? 'ok' : realRoas >= 1 ? '' : 'warn'}"><div class="l">실제 ROAS</div><div class="v">${realRoas.toFixed(2)}×</div><div class="s">광고비 1원당 매출 ${realRoas.toFixed(2)}원</div></div>
-    <div class="kpi"><div class="l">진짜 마진</div><div class="v">${pct(d.supa.summary.marginPct)}</div><div class="s">${won(d.supa.summary.grossProfit)} (gross)</div></div>
+    <div class="kpi"><div class="l">진짜 마진 (실원가)</div><div class="v">${pct(sm.marginPct)}</div><div class="s">인쇄 ${printPct.toFixed(0)}% · 원단 ${itemPct.toFixed(0)}% · 기타 ${etcPct.toFixed(0)}%</div></div>
+    <div class="kpi ${profitRoas >= 2 ? 'ok' : profitRoas >= 1 ? '' : 'warn'}"><div class="l">ROAS 매출 / 이익</div><div class="v">${realRoas.toFixed(1)}× / ${profitRoas.toFixed(1)}×</div><div class="s">이익ROAS=매출총이익÷광고비 (마진 반영, ≥1이면 흑자)</div></div>
   </div>
+  <div class="note info" style="margin-top:4px;font-size:11px"><b>매출 ROAS</b>는 원가를 무시합니다 — 진짜 광고 수익성은 <b>이익 ROAS ${profitRoas.toFixed(1)}×</b> (광고 1원당 매출총이익 ${profitRoas.toFixed(1)}원). 단체복 실마진 ~50% 기준으로 판단하세요.</div>
 </section>
 
 <section>
@@ -269,6 +276,11 @@ ${d.supa.topProducts.length > 0 ? `<section>
 
 export function buildWeeklyHtml(d: WeeklyData): string {
   const realRoas = d.meta.spend > 0 ? d.supa.summary.revenue / d.meta.spend : 0;
+  const profitRoas = d.meta.spend > 0 ? d.supa.summary.grossProfit / d.meta.spend : 0;
+  const sm = d.supa.summary;
+  const printPct = sm.revenue > 0 ? (sm.printCost / sm.revenue) * 100 : 0;
+  const itemPct = sm.revenue > 0 ? (sm.itemCost / sm.revenue) * 100 : 0;
+  const etcPct = sm.revenue > 0 ? ((sm.revenue - sm.grossProfit - sm.itemCost - sm.printCost) / sm.revenue) * 100 : 0;
   const prevRealRoas = 1; // baseline 알 수 없을 때 단순화
   const profit50 = d.supa.summary.revenue * 0.5 - d.meta.spend;
   const profit35 = d.supa.summary.revenue * 0.35 - d.meta.spend;
@@ -296,9 +308,10 @@ export function buildWeeklyHtml(d: WeeklyData): string {
   <div class="kpi-grid">
     <div class="kpi ok"><div class="l">7일 매출</div><div class="v">${won(d.supa.summary.revenue)}</div><div class="s">${d.supa.summary.orders}건 · ${diffArrow(d.supa.summary.revenue, d.prevSupa.revenue)} vs 직전 주</div></div>
     <div class="kpi"><div class="l">광고 지출</div><div class="v">${won(d.meta.spend)}</div></div>
-    <div class="kpi ${realRoas >= 3 ? 'ok' : realRoas >= 1 ? '' : 'warn'}"><div class="l">실제 ROAS</div><div class="v">${realRoas.toFixed(2)}×</div></div>
-    <div class="kpi"><div class="l">진짜 마진</div><div class="v">${pct(d.supa.summary.marginPct)}</div><div class="s">${won(d.supa.summary.grossProfit)}</div></div>
+    <div class="kpi"><div class="l">진짜 마진 (실원가)</div><div class="v">${pct(sm.marginPct)}</div><div class="s">인쇄 ${printPct.toFixed(0)}% · 원단 ${itemPct.toFixed(0)}% · 기타 ${etcPct.toFixed(0)}%</div></div>
+    <div class="kpi ${profitRoas >= 2 ? 'ok' : profitRoas >= 1 ? '' : 'warn'}"><div class="l">ROAS 매출 / 이익</div><div class="v">${realRoas.toFixed(1)}× / ${profitRoas.toFixed(1)}×</div><div class="s">이익ROAS=매출총이익÷광고비 (마진 반영)</div></div>
   </div>
+  <div class="note info" style="margin-top:4px;font-size:11px"><b>이익 ROAS ${profitRoas.toFixed(1)}×</b> = 광고 1원당 매출총이익 ${profitRoas.toFixed(1)}원. 인쇄비가 최대 원가(매출의 ${printPct.toFixed(0)}%)라 실마진 ~50% 기준으로 증액을 판단하세요.</div>
 </section>
 
 <section>
