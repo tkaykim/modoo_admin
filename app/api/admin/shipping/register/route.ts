@@ -17,6 +17,32 @@ interface PartyOverride {
   tel?: string;
 }
 
+// 송장 품목명(goodsNm) 생성 — 기사가 색상/사이즈/수량을 바로 식별하도록 옵션을 포함한다.
+// 옵션은 order_items.item_options.variants[]에 color_name/size_name/quantity로 들어있다.
+function buildGoodsNm(orderItems: any[], fallback: string): string {
+  return (orderItems || [])
+    .map((item: any) => {
+      const title = item?.product_title || '';
+      if (!title) return '';
+      const variants = item?.item_options?.variants;
+      if (Array.isArray(variants) && variants.length > 0) {
+        const opt = variants
+          .map((v: any) => {
+            const label = [v?.color_name, v?.size_name].filter(Boolean).join(' ');
+            const q = v?.quantity ? ` ${v.quantity}` : '';
+            return `${label}${q}`.trim();
+          })
+          .filter(Boolean)
+          .join('/');
+        return opt ? `${title}(${opt})` : `${title} ${item?.quantity || 1}개`;
+      }
+      return `${title} ${item?.quantity || 1}개`;
+    })
+    .filter(Boolean)
+    .join(', ')
+    .slice(0, 100) || fallback;
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
@@ -52,7 +78,7 @@ export async function POST(request: Request) {
     const adminClient = createAdminClient();
     const { data: orders, error: ordersError } = await adminClient
       .from('orders')
-      .select('id, customer_name, customer_phone, postal_code, address_line_1, address_line_2, shipping_method, order_status, logen_registered_at, delivery_fee, order_items(id, product_title, quantity)')
+      .select('id, customer_name, customer_phone, postal_code, address_line_1, address_line_2, shipping_method, order_status, logen_registered_at, delivery_fee, order_items(id, product_title, quantity, item_options)')
       .in('id', orderIds);
 
     if (ordersError) {
@@ -64,6 +90,92 @@ export async function POST(request: Request) {
     }
 
     const takeDt = getKstYYYYMMDD();
+
+    // ──────────────────────────────────────────────────────────────
+    // 내부 이동(우리↔공장) 전용 경로
+    // 고객 배송과 달리 주문 레벨 배송필드(logen_registered_at/tracking_number/order_status)를
+    // 건드리지 않는다. 그래야 내부 접수 후에도 고객행(우리/공장→고객) 접수가 막히지 않는다.
+    // 로젠 fixTakeNo 충돌 방지를 위해 order.id에 접미사(-U2F/-F2U)를 붙여 별도 접수번호로 등록한다.
+    // (로젠 inquirySlipNo는 정확매칭이라 접미사 행이 고객행 dedup을 오인 차단하지 않음 — 실측 확인)
+    const INTERNAL_SUFFIX: Record<string, string> = { us_to_factory: '-U2F', factory_to_us: '-F2U' };
+    const isInternalCase = allowOverride && !!shippingCase && shippingCase in INTERNAL_SUFFIX;
+    if (isInternalCase) {
+      const order = orders[0];
+      const legType = shippingCase === 'us_to_factory' ? 'to_factory' : 'other';
+      const suffixedFixNo = `${order.id}${INTERNAL_SUFFIX[shippingCase!]}`;
+
+      // 발송자/수신자 필수 (UI가 케이스별로 채워 보냄)
+      if (!senderOverride?.name || !senderOverride?.addr || !senderOverride?.tel ||
+          !receiverOverride?.name || !receiverOverride?.addr || !receiverOverride?.tel) {
+        return NextResponse.json({ error: '내부 이동은 발송자/수신자 정보가 모두 필요합니다.' }, { status: 400 });
+      }
+
+      // 멱등 ①: 이미 같은 종류의 내부 leg가 있으면 = 이미 접수됨
+      const { data: existingLeg } = await adminClient
+        .from('order_shipping_legs')
+        .select('id')
+        .eq('order_id', order.id)
+        .eq('leg_type', legType)
+        .maybeSingle();
+      if (existingLeg) {
+        return NextResponse.json({ error: '이미 접수된 내부 이동입니다.', skipped: [`${order.id}: 내부(${legType}) 이미 접수됨`] }, { status: 400 });
+      }
+
+      // 멱등 ②: 로젠에 접미사번호가 이미 있는지 확인 (fail-closed)
+      let inq;
+      try {
+        inq = await inquirySlipNo([suffixedFixNo]);
+      } catch (e: any) {
+        return NextResponse.json({ error: '로젠 접수 상태 확인에 실패해 접수를 중단했습니다. 잠시 후 다시 시도해주세요. (중복 접수 방지)' }, { status: 502 });
+      }
+      const alreadyAtLogen = Array.isArray(inq.data) && inq.data.some(
+        (it: any) => it.fixTakeNo === suffixedFixNo && it.resultCd === 'TRUE' &&
+          (Array.isArray(it.data1) ? it.data1 : []).some((r: any) => r && r.delYn !== 'Y')
+      );
+
+      if (!alreadyAtLogen) {
+        const goodsNm = buildGoodsNm(order.order_items as any[], '내부 이동');
+        const fareTy = (fareTyOverride && /^0[1234]0$/.test(fareTyOverride)) ? fareTyOverride : LOGEN_FARE_TY;
+        const reg = await registerOrder([{
+          takeDt,
+          fixTakeNo: suffixedFixNo,
+          sndCustNm: senderOverride.name!,
+          sndCustAddr: senderOverride.addr!,
+          sndTelNo: (senderOverride.tel || '').replace(/[^0-9]/g, ''),
+          rcvCustNm: receiverOverride.name!,
+          rcvCustAddr: receiverOverride.addr!,
+          rcvTelNo: (receiverOverride.tel || '').replace(/[^0-9]/g, ''),
+          rcvCellNo: (receiverOverride.tel || '').replace(/[^0-9]/g, ''),
+          fareTy,
+          boxTyCd: LOGEN_BOX_TY_CD,
+          qty: 1,
+          dlvFare: LOGEN_CONTRACT_FARE,
+          goodsNm,
+        }]);
+        if (reg.sttsCd === 'FAIL') {
+          return NextResponse.json({ error: reg.sttsMsg, logenResponse: reg }, { status: 500 });
+        }
+        const ok = Array.isArray(reg.data) && reg.data.some((it: any) => it.fixTakeNo === suffixedFixNo && it.resultCd === 'TRUE');
+        if (!ok) {
+          return NextResponse.json({ error: '로젠 접수가 완료되지 않았습니다.', logenResponse: reg }, { status: 500 });
+        }
+      }
+
+      // leg(원가) 기록 — 주문 레벨 필드는 건드리지 않음
+      await adminClient.from('order_shipping_legs').insert({
+        order_id: order.id,
+        leg_type: legType,
+        amount: LOGEN_CONTRACT_FARE,
+        carrier: 'logen',
+        note: `로젠 내부 이동 접수 자동 기록 (${shippingCase})`,
+        created_by: user.id,
+      });
+
+      return NextResponse.json({
+        data: { internal: true, shippingCase, registered: 1, total: 1, takeDt, alreadyAtLogen },
+      });
+    }
+    // ──────────────────────────────────────────────────────────────
 
     const registerData: RegisterOrderInput[] = [];
     const skipped: string[] = [];
@@ -127,7 +239,7 @@ export async function POST(request: Request) {
       ].filter(Boolean).join(' ');
       const rcvZip = (order.postal_code || '').replace(/[^0-9]/g, '').slice(0, 5);
 
-      const goodsNm = (order.order_items || []).map((item: any) => item.product_title).join(', ').slice(0, 100) || '상품';
+      const goodsNm = buildGoodsNm(order.order_items as any[], '상품');
 
       // 기본값(우리→고객) 산정
       const defaultSender = { name: COMPANY_NAME, addr: COMPANY_ADDR, tel: COMPANY_TEL };
