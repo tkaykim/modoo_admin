@@ -27,12 +27,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '주문 ID가 필요합니다.' }, { status: 400 });
     }
 
-    const result = await inquirySlipNo(orderIds);
-
-    if (result.sttsCd === 'FAIL') {
-      return NextResponse.json({ error: result.sttsMsg, logenResponse: result }, { status: 500 });
-    }
-
     const adminClient = createAdminClient();
     const updated: Array<{ orderId: string; slipNo: string; internal?: boolean }> = [];
 
@@ -55,6 +49,23 @@ export async function POST(request: Request) {
       return ls.every((l) => l.leg_type === 'to_factory' || l.leg_type === 'other');
     };
 
+    // 내부 이동은 로젠에 접미사번호(-U2F/-F2U)로 접수돼 있으므로, 해당 leg가 있는 주문은
+    // 접미사번호도 함께 조회해 leg에 송장을 채운다. (정확매칭이라 고객행 조회와 섞이지 않음)
+    const SUFFIX_BY_LEG: Record<string, string> = { to_factory: '-U2F', other: '-F2U' };
+    const suffixedIds: string[] = [];
+    for (const [oid, ls] of legsByOrder) {
+      for (const l of ls) {
+        if ((l.leg_type === 'to_factory' || l.leg_type === 'other') && !l.tracking_number) {
+          suffixedIds.push(`${oid}${SUFFIX_BY_LEG[l.leg_type]}`);
+        }
+      }
+    }
+
+    const result = await inquirySlipNo([...orderIds, ...suffixedIds]);
+    if (result.sttsCd === 'FAIL') {
+      return NextResponse.json({ error: result.sttsMsg, logenResponse: result }, { status: 500 });
+    }
+
     if (result.data && Array.isArray(result.data)) {
       for (const item of result.data) {
         if (item.resultCd === 'TRUE' && item.data1 && Array.isArray(item.data1)) {
@@ -62,8 +73,21 @@ export async function POST(request: Request) {
           // 발번된(slipNo 있는) 행을 골라야 한다
           const activeSlip = item.data1.find((s: any) => s.delYn !== 'Y' && s.slipNo);
           if (activeSlip?.slipNo) {
-            if (isInternalOnly(item.fixTakeNo)) {
-              // 내부 이동: 주문 상태/고객 송장 필드는 건드리지 않고 leg 행에만 송장 기록
+            const sufMatch = String(item.fixTakeNo).match(/^(.*)-(U2F|F2U)$/);
+            if (sufMatch) {
+              // 접미사번호 = 내부 이동: 해당 leg에만 송장 기록 (주문은 건드리지 않음)
+              const baseOrderId = sufMatch[1];
+              const legType = sufMatch[2] === 'U2F' ? 'to_factory' : 'other';
+              const internalLeg = (legsByOrder.get(baseOrderId) || []).find((l) => l.leg_type === legType);
+              if (internalLeg) {
+                await adminClient
+                  .from('order_shipping_legs')
+                  .update({ tracking_number: activeSlip.slipNo, shipped_at: new Date().toISOString() })
+                  .eq('id', internalLeg.id);
+              }
+              updated.push({ orderId: baseOrderId, slipNo: activeSlip.slipNo, internal: true });
+            } else if (isInternalOnly(item.fixTakeNo)) {
+              // 레거시 내부 이동(접미사 없이 bare id로 접수된 건): 주문 상태 건드리지 않고 leg에 기록
               const internalLeg = (legsByOrder.get(item.fixTakeNo) || [])
                 .find((l) => l.leg_type === 'to_factory' || l.leg_type === 'other');
               if (internalLeg) {

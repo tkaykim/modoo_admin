@@ -769,11 +769,17 @@ export default function OrderDetail({
       const json = await res.json();
       if (res.ok) {
         setShowLogenModal(false);
-        onOrderUpdate({
-          ...order,
-          logen_registered_at: new Date().toISOString(),
-          tracking_carrier: 'logen',
-        } as Order);
+        // 내부 이동(우리↔공장)은 주문 레벨 배송 상태를 점유하지 않는다.
+        // logen_registered_at을 찍지 않아야 이후 고객행(우리/공장→고객) 접수가 가능하다.
+        if (json?.data?.internal) {
+          onOrderUpdate({ ...order } as Order);
+        } else {
+          onOrderUpdate({
+            ...order,
+            logen_registered_at: new Date().toISOString(),
+            tracking_carrier: 'logen',
+          } as Order);
+        }
       } else {
         setLogenError(json.error || '접수에 실패했습니다.');
       }
