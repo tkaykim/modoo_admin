@@ -78,6 +78,43 @@ export async function preloadBackgroundRemoval(model: ModelKey = 'isnet_quint8')
   }
 }
 
+/**
+ * 4모서리 색이 균일하면 단색 배경으로 본다(true). 이 경우 chroma-key로 수 ms 안에
+ * 처리되므로, 메인스레드를 점유하는 imgly(single-thread WASM) 모델을 미리 받을
+ * 필요가 없다 — 오히려 prefetch가 chroma 즉시 처리를 지연시키는 것을 막는다.
+ * chromaKeyRemove의 코너 균일성 기준(maxDiff>25 → 매칭 실패)과 동일하게 25 사용.
+ */
+async function isLikelySolidBackground(file: File | Blob, tolerance = 25): Promise<boolean> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close?.();
+    const w = canvas.width;
+    const h = canvas.height;
+    const data = ctx.getImageData(0, 0, w, h).data;
+    const corners: Array<[number, number]> = [
+      [0, 0],
+      [w - 1, 0],
+      [0, h - 1],
+      [w - 1, h - 1],
+    ];
+    const colors = corners.map(([x, y]) => {
+      const i = (y * w + x) * 4;
+      return [data[i], data[i + 1], data[i + 2]] as const;
+    });
+    const avg = [0, 1, 2].map((c) => colors.reduce((s, col) => s + col[c], 0) / colors.length);
+    const maxDiff = Math.max(...colors.flatMap((col) => col.map((v, i) => Math.abs(v - avg[i]))));
+    return maxDiff <= tolerance;
+  } catch {
+    return false;
+  }
+}
+
 async function chromaKeyRemove(
   file: File | Blob,
   tolerance: number,
@@ -298,9 +335,21 @@ export function BackgroundRemovalFlow({
     return () => URL.revokeObjectURL(url);
   }, [resultBlob]);
 
-  // Start prefetch in the background as soon as a file is present.
+  // Start prefetch in the background as soon as a file is present —
+  // 단, 단색 배경(흰 배경 등)은 chroma로 즉시 처리되므로 무거운 모델을 받지 않는다.
+  // imgly 모델은 single-thread WASM이라 prefetch가 메인스레드를 블록해, 흰 배경인데도
+  // 즉시 처리가 8초씩 지연되던 문제를 막는다. 복잡한 배경만 미리 받는다.
   useEffect(() => {
-    if (file) void preloadBackgroundRemoval(TIERS[0].model);
+    if (!file) return;
+    let cancelled = false;
+    void (async () => {
+      const solid = await isLikelySolidBackground(file).catch(() => false);
+      if (cancelled || solid) return;
+      void preloadBackgroundRemoval(TIERS[0].model);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [file]);
 
   const tier = useMemo<Tier>(() => {
