@@ -9,6 +9,7 @@ import { uploadFileToStorage } from '@/lib/supabase-storage';
 import { STORAGE_BUCKETS, STORAGE_FOLDERS } from '@/lib/storage-config';
 import { createClient } from '@/lib/supabase-client';
 import { convertToPNG, isAiOrPsdFile, getConversionErrorMessage, MAX_UPLOAD_BYTES } from '@/lib/imageConvert';
+import { trimFileToAlphaBounds } from '@/lib/imageAlphaTrim';
 import LoadingModal from '@/components/LoadingModal';
 import { fetchProductCalibrations, calibrationToCanvasMmPerPx } from '@/lib/calibrationFetch';
 import type { AnchorPreset } from '@/lib/anchorPresets';
@@ -362,10 +363,12 @@ const Toolbar: React.FC<ToolbarProps> = ({ sides = [], handleExitEditMode, varia
       const pngFile = new File([conversionResult.pngBlob], `${file.name.split('.')[0]}.png`, {
         type: 'image/png',
       });
+      // 투명 여백 트림(고객 에디터와 동일). 원본 AI/PSD는 origUploadResult로 보존됨.
+      const pngTrim = await trimFileToAlphaBounds(pngFile);
 
       const pngUploadResult = await uploadFileToStorage(
         supabase,
-        pngFile,
+        pngTrim.file,
         STORAGE_BUCKETS.USER_DESIGNS,
         STORAGE_FOLDERS.IMAGES
       );
@@ -387,9 +390,12 @@ const Toolbar: React.FC<ToolbarProps> = ({ sides = [], handleExitEditMode, varia
 
       displayUrl = pngUploadResult.url;
     } else {
+      // 투명 여백 트림(고객 에디터와 동일). JPEG·여백없는 PNG는 원본 그대로 통과,
+      // 투명 여백이 있는 PNG만 잘려 캔버스 크기가 실제 인쇄 영역과 일치한다.
+      const dispTrim = await trimFileToAlphaBounds(file);
       originalFileUploadResult = await uploadFileToStorage(
         supabase,
-        file,
+        dispTrim.file,
         STORAGE_BUCKETS.USER_DESIGNS,
         STORAGE_FOLDERS.IMAGES
       );
@@ -601,9 +607,18 @@ const Toolbar: React.FC<ToolbarProps> = ({ sides = [], handleExitEditMode, varia
         `image-${Date.now()}.png`,
         { type: result.blob.type || 'image/png' },
       );
+      // 고객 에디터(modoo_app)와 동일하게 업로드 직전 alpha-tight 트림.
+      // PNG의 투명 여백을 잘라내 캔버스 객체의 getBoundingRect가 곧 실제 보이는
+      // 인쇄 영역이 되도록 한다 — 투명 배경까지 크기로 잡히던 admin 전용 버그 수정.
+      const trimResult = await trimFileToAlphaBounds(finalFile);
+      if (trimResult.trimmed) {
+        console.log(
+          `[ALPHA-TRIM] ${trimResult.originalWidth}x${trimResult.originalHeight} -> ${trimResult.width}x${trimResult.height}`,
+        );
+      }
       const upload = await uploadFileToStorage(
         supabase,
-        finalFile,
+        trimResult.file,
         STORAGE_BUCKETS.USER_DESIGNS,
         STORAGE_FOLDERS.IMAGES,
       );
