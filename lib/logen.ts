@@ -1,6 +1,6 @@
 import { fetch as undiciFetch, ProxyAgent } from 'undici';
 
-const LOGEN_API_BASE_URL = process.env.LOGEN_API_BASE_URL || 'https://topenapi.ilogen.com';
+const LOGEN_API_BASE_URL = process.env.LOGEN_API_BASE_URL || 'https://openapi.ilogen.com';
 // 로젠 API 자격증명 — 토큰 발급 시 로젠이 함께 제공. Vercel 환경변수 필수.
 const LOGEN_SECRET_KEY = process.env.LOGEN_SECRET_KEY || '';
 // userId(API 사용자 ID): 로젠 접수(registerOrderData)는 userId에 "거래처번호(22254633)"를 요구한다.
