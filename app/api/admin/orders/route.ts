@@ -264,12 +264,13 @@ export async function PATCH(request: Request) {
         .single();
 
       if (existingOrder && allItems) {
-        const allShipped = allItems.every((i) => i.factory_status === 'shipped');
-        const anyInProgress = allItems.some((i) => ['assigned', 'in_progress', 'completed'].includes(i.factory_status || ''));
+        // 공장 출고완료(shipped 포함)여도 고객 order_status를 'shipping'으로 올리지 않는다.
+        // 공장→본사 입고 케이스가 있어, 고객 '배송중'은 실제 택배 접수/송장 경로에서만 전환한다.
+        // 이미 배송/완료/취소 단계면 택배 단계를 보존(downgrade 방지).
+        const anyFactoryActivity = allItems.some((i) => ['assigned', 'in_progress', 'completed', 'shipped'].includes(i.factory_status || ''));
+        const TERMINAL = ['shipping', 'delivered', 'cancelled', 'partially_cancelled'];
         let newOrderStatus: string | null = null;
-        if (allShipped) {
-          newOrderStatus = 'shipping';
-        } else if (anyInProgress || factoryStatusInput) {
+        if ((anyFactoryActivity || factoryStatusInput) && !TERMINAL.includes(existingOrder.order_status || '')) {
           newOrderStatus = 'in_production';
         }
 
@@ -596,9 +597,10 @@ export async function PATCH(request: Request) {
       if (orderStatusInput !== null) {
         updateData.order_status = orderStatusInput;
       } else {
-        if (factoryStatusInput === 'shipped') {
-          updateData.order_status = 'shipping';
-        } else if (['assigned', 'in_progress', 'completed'].includes(factoryStatusInput)) {
+        // 공장 상태(출고완료 포함)로는 고객 order_status를 'shipping'으로 올리지 않는다.
+        // 실제 '배송중' 전환은 택배 접수/송장 경로(수동 송장입력·로젠 조회 등)에서만. 이미 배송/완료/취소면 보존.
+        const TERMINAL = ['shipping', 'delivered', 'cancelled', 'partially_cancelled'];
+        if (!TERMINAL.includes(existingOrder?.order_status || '')) {
           updateData.order_status = 'in_production';
         }
       }

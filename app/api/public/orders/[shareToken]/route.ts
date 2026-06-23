@@ -173,12 +173,15 @@ export async function PATCH(
       if (statuses.length > 0 && statuses.every((s) => s === 'shipped')) rollup = 'shipped';
       else if (statuses.length > 0 && statuses.every((s) => s === 'completed' || s === 'shipped')) rollup = 'completed';
       else if (statuses.some((s) => ['in_progress', 'completed', 'shipped'].includes(s))) rollup = 'in_progress';
-      const orderStatus = rollup === 'shipped' ? 'shipping' : 'in_production';
-      await adminClient
-        .from('orders')
-        .update({ factory_status: rollup, order_status: orderStatus, updated_at: new Date().toISOString() })
-        .eq('id', order.id);
-      return orderStatus;
+      // 공장 출고완료(shipped)여도 고객 노출 order_status를 'shipping'으로 올리지 않는다.
+      // 공장→본사 입고 케이스가 있어, 고객 '배송중'은 실제 택배 접수/송장 경로에서만 전환한다.
+      // 이미 배송/완료/취소 단계면 택배 단계를 보존하기 위해 order_status를 건드리지 않는다.
+      const TERMINAL = ['shipping', 'delivered', 'cancelled', 'partially_cancelled'];
+      const keepOrderStatus = TERMINAL.includes(order.order_status || '');
+      const orderUpdate: Record<string, unknown> = { factory_status: rollup, updated_at: new Date().toISOString() };
+      if (!keepOrderStatus) orderUpdate.order_status = 'in_production';
+      await adminClient.from('orders').update(orderUpdate).eq('id', order.id);
+      return keepOrderStatus ? (order.order_status as string) : 'in_production';
     };
 
     // 품목 단위 업데이트 (신규 동작)
@@ -251,7 +254,11 @@ export async function PATCH(
     }
 
     // 레거시 호환: itemId 없이 온 구버전 요청 — 주문 단위 처리
-    const orderStatus = factoryStatus === 'shipped' ? 'shipping' : 'in_production';
+    // 공장 출고완료(shipped)여도 고객 order_status는 'shipping'으로 올리지 않는다(택배 접수에서만 전환).
+    const LEGACY_TERMINAL = ['shipping', 'delivered', 'cancelled', 'partially_cancelled'];
+    const orderStatus = LEGACY_TERMINAL.includes(order.order_status || '')
+      ? (order.order_status as string)
+      : 'in_production';
     const { data, error } = await adminClient
       .from('orders')
       .update({
