@@ -7,7 +7,7 @@ import type { InvoiceItem, InvoiceDocumentType, InvoiceRecipientBusiness, CashRe
 import { computeInvoiceTotalsByMode } from '@/lib/invoice-payload';
 import { getKstYYYYMMDD } from '@/lib/kst';
 
-const VALID_DOC_TYPES: InvoiceDocumentType[] = ['transaction_statement', 'tax_invoice', 'cash_receipt'];
+const VALID_DOC_TYPES: InvoiceDocumentType[] = ['transaction_statement', 'tax_invoice', 'cash_receipt', 'payment_receipt'];
 
 export const maxDuration = 60;
 
@@ -96,6 +96,7 @@ export async function POST(request: Request) {
       recipient_business,
       cash_receipt_method,
       cash_receipt_identifier,
+      payment_method_label,
       vat_mode,
       attach_invoice,
       attach_pdf,
@@ -113,6 +114,7 @@ export async function POST(request: Request) {
       recipient_business?: InvoiceRecipientBusiness | null;
       cash_receipt_method?: CashReceiptMethod | null;
       cash_receipt_identifier?: string | null;
+      payment_method_label?: string | null;
       vat_mode?: 'none' | 'exclusive' | 'inclusive';
       attach_invoice?: boolean;
       attach_pdf?: boolean;
@@ -196,6 +198,7 @@ export async function POST(request: Request) {
       recipientBusiness: documentType === 'tax_invoice' ? (recipient_business || null) : null,
       cashReceiptMethod: documentType === 'cash_receipt' ? (cash_receipt_method || null) : null,
       cashReceiptIdentifier: documentType === 'cash_receipt' ? (cash_receipt_identifier?.trim() || null) : null,
+      paymentMethodLabel: documentType === 'payment_receipt' ? (payment_method_label?.trim() || null) : null,
       attach_invoice,
       attach_pdf,
       attach_business_registration,

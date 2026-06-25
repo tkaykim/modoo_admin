@@ -10,6 +10,7 @@ const DOC_LABELS: Record<InvoiceDocumentType, string> = {
   transaction_statement: '거래명세서',
   tax_invoice: '세금계산서',
   cash_receipt: '현금영수증',
+  payment_receipt: '영수증',
 };
 
 export type SendInvoiceEmailInput = {
@@ -29,6 +30,7 @@ export type SendInvoiceEmailInput = {
   recipientBusiness?: InvoiceRecipientBusiness | null;
   cashReceiptMethod?: CashReceiptMethod | null;
   cashReceiptIdentifier?: string | null;
+  paymentMethodLabel?: string | null;
   attach_invoice?: boolean;
   attach_pdf?: boolean;
   attach_business_registration?: boolean;
@@ -55,6 +57,7 @@ export async function sendInvoiceEmail(
     recipientBusiness,
     cashReceiptMethod,
     cashReceiptIdentifier,
+    paymentMethodLabel,
     attach_invoice,
     attach_pdf,
     attach_business_registration,
@@ -79,6 +82,7 @@ export async function sendInvoiceEmail(
     recipientBusiness,
     cashReceiptMethod,
     cashReceiptIdentifier,
+    paymentMethodLabel,
   };
 
   const sealBuffer = await fetchCompanySealBuffer(adminClient);

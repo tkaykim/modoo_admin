@@ -1155,7 +1155,7 @@ export interface InvoiceItem {
   day?: string;
 }
 
-export type InvoiceDocumentType = 'transaction_statement' | 'tax_invoice' | 'cash_receipt';
+export type InvoiceDocumentType = 'transaction_statement' | 'tax_invoice' | 'cash_receipt' | 'payment_receipt';
 export type InvoiceStatus = 'draft' | 'issued' | 'sent' | 'external_issued' | 'void';
 export type CashReceiptMethod = 'phone' | 'business' | 'card';
 

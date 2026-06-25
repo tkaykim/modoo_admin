@@ -4,6 +4,7 @@ const DOCUMENT_TITLES: Record<InvoiceDocumentType, string> = {
   transaction_statement: '거 래 명 세 표',
   tax_invoice: '세 금 계 산 서',
   cash_receipt: '현 금 영 수 증',
+  payment_receipt: '영 수 증',
 };
 
 const CASH_RECEIPT_METHOD_LABELS: Record<CashReceiptMethod, string> = {
@@ -44,6 +45,8 @@ export interface InvoiceEmailParams {
   /** 현금영수증 발급수단/식별번호 */
   cashReceiptMethod?: CashReceiptMethod | null;
   cashReceiptIdentifier?: string | null;
+  /** 영수증(payment_receipt) 표시용 결제수단 라벨 (예: '무통장입금', '계좌이체') */
+  paymentMethodLabel?: string | null;
 }
 
 const MIN_TABLE_ROWS = 14;
@@ -102,9 +105,11 @@ export function renderTransactionStatementHtml(params: InvoiceEmailParams): stri
     recipientBusiness,
     cashReceiptMethod,
     cashReceiptIdentifier,
+    paymentMethodLabel,
   } = params;
 
   const docTitle = DOCUMENT_TITLES[documentType] ?? DOCUMENT_TITLES.transaction_statement;
+  const isReceipt = documentType === 'payment_receipt';
 
   const customerParts = [recipientOrg, recipientName].filter((x): x is string => Boolean(x?.trim()));
   const customerLine = customerParts.length ? customerParts.map(escapeHtml).join(' ') : '—';
@@ -197,6 +202,15 @@ export function renderTransactionStatementHtml(params: InvoiceEmailParams): stri
     ? `${parsedDate.y}년 ${parsedDate.m}월 ${parsedDate.d}일`
     : escapeHtml(date);
 
+  // 영수증(payment_receipt): "위 금액을 정히 영수함" 확인 블록
+  const receiptBlock = isReceipt
+    ? `<div style="margin-top:10px;padding:10px;border:1px solid #222;font-size:12px;text-align:center;">
+        <strong style="font-size:13px;">위 금액을 정히 영수하였음을 확인합니다.</strong>
+        ${paymentMethodLabel ? `<div style="margin-top:6px;font-size:11px;color:#374151;">결제수단: ${escapeHtml(paymentMethodLabel)}</div>` : ''}
+        <div style="margin-top:4px;font-size:11px;color:#374151;">영수일: ${dateDisplay}</div>
+      </div>`
+    : '';
+
   return `
 <table role="presentation" style="width:100%;max-width:720px;border-collapse:collapse;margin:0 auto;${border}">
   <!-- 제목 -->
@@ -214,7 +228,7 @@ export function renderTransactionStatementHtml(params: InvoiceEmailParams): stri
       <table role="presentation" style="width:100%;border-collapse:collapse;">
         <tr><td style="${border}padding:8px;font-size:11px;text-align:center;">${dateDisplay}</td></tr>
         <tr><td style="${border}padding:8px;font-size:12px;text-align:center;font-weight:700;">${customerLine} 귀하</td></tr>
-        <tr><td style="${border}padding:10px 8px;font-size:11px;text-align:center;">아래와 같이 계산합니다.</td></tr>
+        <tr><td style="${border}padding:10px 8px;font-size:11px;text-align:center;">${isReceipt ? '아래와 같이 영수합니다.' : '아래와 같이 계산합니다.'}</td></tr>
       </table>
     </td>
     <td colspan="5" style="${border}vertical-align:top;padding:0;position:relative;">
@@ -284,8 +298,9 @@ export function renderTransactionStatementHtml(params: InvoiceEmailParams): stri
 </table>
 ${recipientBusinessBlock}
 ${cashReceiptBlock}
+${receiptBlock}
 ${memoBlock}
-<p style="margin:12px 0 0;font-size:10px;color:#6b7280;text-align:center;">본 ${documentType === 'tax_invoice' ? '세금계산서' : documentType === 'cash_receipt' ? '현금영수증' : '거래명세서'}는 모두의 유니폼(피스코프)에서 발송되었습니다.${documentType === 'tax_invoice' || documentType === 'cash_receipt' ? ' (국세청 전자발행 별도)' : ''}</p>
+<p style="margin:12px 0 0;font-size:10px;color:#6b7280;text-align:center;">본 ${documentType === 'tax_invoice' ? '세금계산서' : documentType === 'cash_receipt' ? '현금영수증' : documentType === 'payment_receipt' ? '영수증' : '거래명세서'}는 모두의 유니폼(피스코프)에서 발송되었습니다.${documentType === 'tax_invoice' || documentType === 'cash_receipt' ? ' (국세청 전자발행 별도)' : ''}</p>
 `;
 }
 

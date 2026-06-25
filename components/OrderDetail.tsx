@@ -132,7 +132,7 @@ export default function OrderDetail({
               : item
           )
         );
-        alert('시안 확인 이메일이 발송되었습니다.');
+        alert('시안 확인 이메일이 발송되었습니다. 알림톡은 워커 처리 후 내역에 표시됩니다.');
       } else {
         const data = await res.json();
         alert(data.error || '발송에 실패했습니다.');
@@ -1318,15 +1318,17 @@ export default function OrderDetail({
                           </div>
                         </div>
                         {!isFactoryUser && item.design_status && item.design_status !== 'pending' && (
-                          <p className="text-[11px] text-gray-400 mt-1.5">
-                            {item.design_status === 'confirmed'
-                              ? `고객이 시안을 확정했습니다${item.design_confirmed_at ? ` · ${new Date(item.design_confirmed_at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}`
-                              : item.design_status === 'design_shared'
-                              ? `고객에게 시안 발송됨 · 고객 확인 대기중${item.design_shared_at ? ` (${new Date(item.design_shared_at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} 발송)` : ''}`
-                              : item.design_status === 'revision_requested'
-                              ? `고객이 수정을 요청했습니다${item.design_revision_note ? `: ${item.design_revision_note}` : ''}`
-                              : ''}
-                          </p>
+                          <>
+                            <p className="text-[11px] text-gray-400 mt-1.5">
+                              {item.design_status === 'confirmed'
+                                ? `고객이 시안을 확정했습니다${item.design_confirmed_at ? ` · ${new Date(item.design_confirmed_at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}`
+                                : item.design_status === 'design_shared'
+                                ? `고객에게 시안 발송됨 · 고객 확인 대기중${item.design_shared_at ? ` (${new Date(item.design_shared_at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} 발송)` : ''}`
+                                : item.design_status === 'revision_requested'
+                                ? `고객이 수정을 요청했습니다${item.design_revision_note ? `: ${item.design_revision_note}` : ''}`
+                                : ''}
+                            </p>
+                          </>
                         )}
                       </div>
                     </div>
@@ -2366,6 +2368,9 @@ export default function OrderDetail({
                     차액 추가청구
                   </button>
                 )}
+                {!isFactoryUser && order.payment_status === 'completed' && (
+                  <OrderReceiptActions order={order} />
+                )}
                 {!isFactoryUser && (
                   <button
                     onClick={() => router.push(`/invoices/new?orderId=${encodeURIComponent(order.id)}`)}
@@ -2779,6 +2784,93 @@ export default function OrderDetail({
 }
 
 // --- Sub-components ---
+
+function OrderReceiptActions({ order }: { order: Order }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<null | 'view' | 'send'>(null);
+
+  const isToss = order.payment_method === 'toss';
+  // 무통장입금·관리자 처리(계좌이체/입금확인) 건 → 자체 영수증 발행
+  const isSelfReceipt = order.payment_method === 'bank_transfer' || order.payment_method === 'admin';
+
+  const fetchTossReceiptUrl = useCallback(async (): Promise<string | null> => {
+    const res = await fetch(`/api/admin/orders/toss-receipt?orderId=${encodeURIComponent(order.id)}`);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(json?.error || '토스 영수증 조회에 실패했습니다.');
+      return null;
+    }
+    return json?.data?.receiptUrl || null;
+  }, [order.id]);
+
+  const handleViewToss = useCallback(async () => {
+    setBusy('view');
+    try {
+      const url = await fetchTossReceiptUrl();
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    } finally {
+      setBusy(null);
+    }
+  }, [fetchTossReceiptUrl]);
+
+  const handleSendToss = useCallback(async () => {
+    const target = order.customer_email || order.guest_email || '';
+    if (!confirm(`고객(${target || '이메일 없음'})에게 영수증 링크를 메일로 보내시겠습니까?`)) return;
+    setBusy('send');
+    try {
+      const res = await fetch('/api/admin/orders/toss-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: order.id }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(json?.error || '영수증 메일 발송에 실패했습니다.');
+        return;
+      }
+      alert(`영수증 링크를 ${json?.data?.email || target}(으)로 발송했습니다.`);
+    } finally {
+      setBusy(null);
+    }
+  }, [order.id, order.customer_email, order.guest_email]);
+
+  if (isToss) {
+    return (
+      <div className="space-y-2 mt-2">
+        <button
+          onClick={handleViewToss}
+          disabled={busy !== null}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white text-gray-700 text-sm rounded-md border border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-60"
+        >
+          {busy === 'view' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Receipt className="w-4 h-4" />}
+          토스 영수증 보기
+        </button>
+        <button
+          onClick={handleSendToss}
+          disabled={busy !== null}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors disabled:opacity-60"
+        >
+          {busy === 'send' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          고객에게 영수증 전송
+        </button>
+      </div>
+    );
+  }
+
+  if (isSelfReceipt) {
+    return (
+      <button
+        onClick={() => router.push(`/invoices/new?orderId=${encodeURIComponent(order.id)}&docType=payment_receipt`)}
+        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors mt-2"
+      >
+        <Receipt className="w-4 h-4" />
+        영수증 발행/전송
+      </button>
+    );
+  }
+
+  return null;
+}
 
 function PaymentLinkCard({ token }: { token: string }) {
   const [copied, setCopied] = useState(false);

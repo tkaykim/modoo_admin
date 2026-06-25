@@ -12,7 +12,16 @@ const DOC_TYPE_OPTIONS: { value: InvoiceDocumentType; label: string }[] = [
   { value: 'transaction_statement', label: '거래명세서' },
   { value: 'tax_invoice', label: '세금계산서' },
   { value: 'cash_receipt', label: '현금영수증' },
+  { value: 'payment_receipt', label: '영수증' },
 ];
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  toss: '토스페이',
+  paypal: 'PayPal',
+  admin: '관리자 처리',
+  bank_transfer: '무통장입금',
+  free: '무료',
+};
 const CASH_METHOD_OPTIONS: { value: CashReceiptMethod; label: string }[] = [
   { value: 'phone', label: '휴대폰번호' },
   { value: 'business', label: '사업자번호(지출증빙)' },
@@ -72,6 +81,8 @@ export default function NewInvoicePage() {
   // 현금영수증
   const [cashMethod, setCashMethod] = useState<CashReceiptMethod>('phone');
   const [cashIdentifier, setCashIdentifier] = useState('');
+  // 영수증(payment_receipt): 주문 결제수단 라벨 (표시용)
+  const [paymentMethodLabel, setPaymentMethodLabel] = useState('');
   const [sending, setSending] = useState(false);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [documents, setDocuments] = useState<AdminDocument[]>([]);
@@ -114,6 +125,8 @@ export default function NewInvoicePage() {
           setRecipientOrg((ord.customer_name as string) || '');
           if (ord.customer_email) setRecipientEmail(ord.customer_email as string);
           setMemo((m) => m || `주문번호 ${ord.id}`);
+          const pm = ord.payment_method as string | undefined;
+          if (pm) setPaymentMethodLabel(PAYMENT_METHOD_LABELS[pm] || pm);
         }
         const oItems = Array.isArray(itemsJson?.data) ? itemsJson.data : [];
         if (oItems.length > 0) {
@@ -215,6 +228,7 @@ export default function NewInvoicePage() {
       recipientBusiness: buildRecipientBusiness(),
       cashReceiptMethod: documentType === 'cash_receipt' ? cashMethod : null,
       cashReceiptIdentifier: documentType === 'cash_receipt' ? cashIdentifier.trim() || null : null,
+      paymentMethodLabel: documentType === 'payment_receipt' ? paymentMethodLabel.trim() || null : null,
     });
     setPreviewHtml(html);
   };
@@ -262,6 +276,7 @@ export default function NewInvoicePage() {
           recipient_business: buildRecipientBusiness() || undefined,
           cash_receipt_method: documentType === 'cash_receipt' ? cashMethod : undefined,
           cash_receipt_identifier: documentType === 'cash_receipt' ? cashIdentifier.trim() : undefined,
+          payment_method_label: documentType === 'payment_receipt' ? (paymentMethodLabel.trim() || undefined) : undefined,
           memo: memo.trim() || undefined,
           attach_invoice: attachInvoice,
           attach_pdf: attachPdf,
@@ -280,7 +295,7 @@ export default function NewInvoicePage() {
       if (result.warning) {
         alert(result.warning);
       } else {
-        alert(`${docLabel}가 성공적으로 발송되었습니다.`);
+        alert(`${docLabel} 발송이 완료되었습니다.`);
       }
 
       router.push('/invoices');
@@ -325,8 +340,11 @@ export default function NewInvoicePage() {
           {orderId && (
             <p className="mt-2 text-xs text-gray-500">주문 <span className="font-mono">{orderId}</span> 정보로 자동 채움됨 (수정 가능)</p>
           )}
-          {documentType !== 'transaction_statement' && (
+          {(documentType === 'tax_invoice' || documentType === 'cash_receipt') && (
             <p className="mt-2 text-xs text-amber-700">⚠ 본 문서는 내부 발행용입니다. 국세청 전자 {documentType === 'tax_invoice' ? '세금계산서' : '현금영수증'} 발행은 홈택스에서 별도로 진행하세요.</p>
+          )}
+          {documentType === 'payment_receipt' && (
+            <p className="mt-2 text-xs text-gray-500">계좌이체·입금확인 건의 결제 영수증입니다. &lsquo;위 금액을 정히 영수함&rsquo; 문구와 회사 도장이 찍힌 자체 양식 PDF로 발송됩니다. (세무 증빙용 현금영수증은 별도)</p>
           )}
         </section>
 
@@ -461,6 +479,17 @@ export default function NewInvoicePage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">식별번호 <span className="text-red-500">*</span></label>
                 <input type="text" value={cashIdentifier} onChange={(e) => setCashIdentifier(e.target.value)} placeholder="휴대폰/사업자/카드번호" className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
+            </div>
+          </section>
+        )}
+
+        {documentType === 'payment_receipt' && (
+          <section className="bg-white border border-gray-200 rounded-lg p-5">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">영수 정보</h2>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">결제수단 (영수증 표시)</label>
+              <input type="text" value={paymentMethodLabel} onChange={(e) => setPaymentMethodLabel(e.target.value)} placeholder="무통장입금 / 계좌이체 등" className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <p className="mt-1 text-xs text-gray-400">비워두면 결제수단 줄이 생략됩니다. 주문에서 들어온 경우 자동 채움됩니다.</p>
             </div>
           </section>
         )}
