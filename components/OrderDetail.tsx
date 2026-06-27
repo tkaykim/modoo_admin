@@ -13,6 +13,7 @@ import OrderProfitSection from '@/components/orders/OrderProfitSection';
 import WorkPhotoModal from '@/components/orders/WorkPhotoModal';
 import OrderItemArtworksModal from '@/components/orders/OrderItemArtworksModal';
 import OrderItemPrintRowsInline from '@/components/orders/OrderItemPrintRowsInline';
+import ProofAlimtalkLogPanel from '@/components/orders/ProofAlimtalkLogPanel';
 import { extractVariants } from '@/lib/orderUtils';
 import FactoryPriceConfirmModal from '@/components/factory/FactoryPriceConfirmModal';
 import { coerceImageUrlsBySide, isPreviewableImageEntry, fileExtensionLabel } from '@/lib/downloadUtils';
@@ -1328,6 +1329,7 @@ export default function OrderDetail({
                                 ? `고객이 수정을 요청했습니다${item.design_revision_note ? `: ${item.design_revision_note}` : ''}`
                                 : ''}
                             </p>
+                            <ProofAlimtalkLogPanel orderId={order.id} itemId={item.id} />
                           </>
                         )}
                       </div>
