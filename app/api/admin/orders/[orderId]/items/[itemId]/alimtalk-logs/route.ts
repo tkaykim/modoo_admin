@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { isAdminLike } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { createOrchestratorAdminClient } from '@/lib/orchestrator-supabase';
 
 const PROOF_TEMPLATE =
   '#{고객명}님, 요청하신 디자인 시안이 준비되었습니다.\n' +
@@ -75,16 +74,8 @@ export async function GET(
       return NextResponse.json({ error: '주문 항목을 찾을 수 없습니다.' }, { status: 404 });
     }
 
-    const orchestrator = createOrchestratorAdminClient();
-    if (!orchestrator) {
-      return NextResponse.json({
-        configured: false,
-        logs: [],
-        error: '알림톡 로그 DB 환경변수가 설정되지 않았습니다.',
-      });
-    }
-
-    const { data, error } = await orchestrator
+    // 발송 로그는 modoo DB(자기 DB)에 보관 → 어드민이 허브 결합 없이 직접 조회.
+    const { data, error } = await adminClient
       .from('modoo_alimtalk_log')
       .select('id,event_type,entity_id,phone,template_key,status,message_id,error,variables,created_at')
       .eq('event_type', 'proof_request')
