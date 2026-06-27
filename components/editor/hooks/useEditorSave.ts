@@ -164,7 +164,12 @@ export function useEditorSave({
       const canvas = canvasMap[side.id];
       if (!canvas) continue;
 
-      const objects = canvas.getObjects().filter((obj) => {
+      const allObjects = canvas.getObjects();
+      const hasBackground = allObjects.some((obj) => {
+        const objData = obj as { data?: { id?: string } };
+        return objData.data?.id === 'background-product-image';
+      });
+      const objects = allObjects.filter((obj) => {
         const objData = obj as { data?: { id?: string } };
         return objData.data?.id !== 'background-product-image';
       });
@@ -174,6 +179,18 @@ export function useEditorSave({
       );
 
       const existingState = parseCanvasState(orderItem.canvas_state?.[side.id]);
+      const existingObjs = Array.isArray(existingState?.objects) ? existingState.objects : [];
+
+      // 레이스 가드: 캔버스가 아직 준비되지 않은 상태(배경 목업 미로딩 = 기존 시안도
+      // 아직 복원 전)에서 빈 객체로 덮어쓰면 기존 시안이 통째로 날아간다.
+      // 직렬화 결과가 비었는데 기존엔 객체가 있었고 배경도 없으면 = 미준비로 보고
+      // 해당 면은 기존 상태를 보존한다. (의도적 '면 비우기'는 배경 로딩 후라 통과됨)
+      if (serializedObjects.length === 0 && existingObjs.length > 0 && !hasBackground) {
+        if (existingState) updatedCanvasState[side.id] = existingState;
+        console.warn(`[saveOrderMode] side "${side.id}" 미준비 감지 — 빈 덮어쓰기 차단, 기존 시안 보존`);
+        continue;
+      }
+
       updatedCanvasState[side.id] = {
         ...existingState,
         objects: serializedObjects,
