@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
+import { isAdminLike } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 
@@ -66,6 +66,7 @@ export async function GET() {
           color_hex,
           color_name,
           color_code,
+          price,
           logo_placements,
           canvas_state,
           preview_url,

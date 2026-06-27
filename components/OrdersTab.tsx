@@ -29,9 +29,23 @@ type OrderItemSummary = {
 };
 type OrderWithItemCount = Order & {
   order_items?: { count: number }[] | OrderItemSummary[];
+  partner_mall?: { id: string; name: string | null; slug: string | null } | null;
 };
 
-function getOrderSourceInfo(order: Pick<Order, 'id' | 'order_category'>): { label: string; color: string } {
+const ORDER_SOURCE_FILTERS = [
+  { value: 'partner_mall', label: '영업몰고객주문' },
+  { value: 'salesman_direct', label: '영업직접주문' },
+  { value: 'admin_created', label: '관리자생성' },
+  { value: 'customer_direct', label: '고객직접' },
+  { value: 'quick', label: '간이주문' },
+  { value: 'surcharge', label: '차액주문' },
+] as const;
+
+type OrderSourceKey = typeof ORDER_SOURCE_FILTERS[number]['value'];
+
+function getOrderSourceInfo(
+  order: Pick<OrderWithItemCount, 'id' | 'order_category' | 'partner_mall_id' | 'partner_mall'>
+): { label: string; color: string } {
   if (order.order_category === 'surcharge') {
     return { label: '차액주문', color: 'bg-orange-100 text-orange-800' };
   }
@@ -44,7 +58,27 @@ function getOrderSourceInfo(order: Pick<Order, 'id' | 'order_category'>): { labe
   if (order.order_category === 'salesman_direct') {
     return { label: '영업직접주문', color: 'bg-emerald-100 text-emerald-800' };
   }
+  if (order.partner_mall_id) {
+    return { label: '영업몰고객주문', color: 'bg-teal-100 text-teal-800' };
+  }
   return { label: '고객직접주문', color: 'bg-sky-100 text-sky-800' };
+}
+
+function getOrderSourceKey(
+  order: Pick<OrderWithItemCount, 'id' | 'order_category' | 'partner_mall_id'>
+): OrderSourceKey {
+  if (order.order_category === 'surcharge') return 'surcharge';
+  if (order.order_category === 'quick') return 'quick';
+  if (order.id.startsWith('ORDER-')) return 'admin_created';
+  if (order.order_category === 'salesman_direct') return 'salesman_direct';
+  if (order.partner_mall_id) return 'partner_mall';
+  return 'customer_direct';
+}
+
+function hasUnassignedFactoryItem(order: OrderWithItemCount): boolean {
+  const items = order.order_items;
+  if (!items || items.length === 0 || 'count' in items[0]) return false;
+  return (items as OrderItemSummary[]).some((item) => !item.assigned_manufacturer_id);
 }
 
 export default function OrdersTab() {
@@ -58,6 +92,7 @@ export default function OrdersTab() {
 
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
   const [selectedPaymentStatuses, setSelectedPaymentStatuses] = useState<Set<string>>(new Set());
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [showOrderCreator, setShowOrderCreator] = useState(!!resumeProductId && !!resumeDesignId);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
@@ -80,6 +115,20 @@ export default function OrdersTab() {
   }, [user]);
 
   const { data: orders = [], isLoading: loading, mutate: mutateOrders } = useSWR<OrderWithItemCount[]>(ordersKey);
+  const sourceCounts = useMemo(() => {
+    const counts = ORDER_SOURCE_FILTERS.reduce((acc, filter) => {
+      acc[filter.value] = 0;
+      return acc;
+    }, {} as Record<OrderSourceKey, number>);
+
+    orders.forEach((order) => {
+      const key = getOrderSourceKey(order);
+      counts[key] += 1;
+    });
+
+    return counts;
+  }, [orders]);
+  const partnerMallOrderCount = sourceCounts.partner_mall ?? 0;
 
   // Factories: fetch for admin, compute from profile for factory user
   const { data: fetchedFactories = [] } = useSWR<Factory[]>(
@@ -256,6 +305,15 @@ export default function OrdersTab() {
     });
   }, []);
 
+  const toggleSource = useCallback((source: string) => {
+    setSelectedSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(source)) next.delete(source);
+      else next.add(source);
+      return next;
+    });
+  }, []);
+
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -306,6 +364,11 @@ export default function OrdersTab() {
       }
       case 'customer_name':
         return order.customer_name?.toLowerCase() || '';
+      case 'assignee': {
+        const salesmanName = order.attributed_salesman?.display_name?.toLowerCase() || '';
+        const salesmanCode = order.attributed_salesman?.salesman_code?.toLowerCase() || '';
+        return salesmanName || salesmanCode || '';
+      }
       case 'created_at':
         return new Date(order.created_at).getTime();
       case 'total_amount':
@@ -344,7 +407,11 @@ export default function OrdersTab() {
       result = result.filter((o) => selectedPaymentStatuses.has(o.payment_status));
     }
 
-    // Text search (name, email, order ID, design title)
+    if (selectedSources.size > 0) {
+      result = result.filter((o) => selectedSources.has(getOrderSourceKey(o)));
+    }
+
+    // Text search (name, email, order ID, design title, mall, salesman)
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       result = result.filter((o) => {
@@ -353,10 +420,16 @@ export default function OrdersTab() {
           .filter(Boolean)
           .join(', ')
           .toLowerCase() || '';
+        const mallName = o.partner_mall?.name?.toLowerCase() || '';
+        const salesmanName = o.attributed_salesman?.display_name?.toLowerCase() || '';
+        const salesmanCode = o.attributed_salesman?.salesman_code?.toLowerCase() || '';
         return (
           o.id.toLowerCase().includes(q) ||
           o.customer_name?.toLowerCase().includes(q) ||
           o.customer_email?.toLowerCase().includes(q) ||
+          mallName.includes(q) ||
+          salesmanName.includes(q) ||
+          salesmanCode.includes(q) ||
           designTitles.includes(q)
         );
       });
@@ -383,7 +456,7 @@ export default function OrdersTab() {
     }
 
     return result;
-  }, [orders, selectedStatuses, selectedPaymentStatuses, searchQuery, isFactoryUser, sortKey, sortDir, getSortValue]);
+  }, [orders, selectedStatuses, selectedPaymentStatuses, selectedSources, searchQuery, isFactoryUser, sortKey, sortDir, getSortValue]);
 
   // Get order item count from the API response
   const getOrderItemCount = (order: OrderWithItemCount) => {
@@ -481,6 +554,28 @@ export default function OrdersTab() {
     return { status, deadline, amount, payDate, payStatus };
   }, [getMyFactoryItems]);
 
+  const fieldSalesOpsSummary = useMemo(() => {
+    const fieldOrders = orders.filter((order) => getOrderSourceKey(order) === 'partner_mall');
+    const pendingOrders = fieldOrders.filter((order) => order.payment_status === 'pending');
+    const activeSalesmen = new Set(
+      fieldOrders
+        .map((order) => order.attributed_salesman?.salesman_code || order.attributed_salesman?.display_name || order.salesman_id)
+        .filter(Boolean)
+    );
+    const activeMalls = new Set(fieldOrders.map((order) => order.partner_mall_id).filter(Boolean));
+    return {
+      total: fieldOrders.length,
+      pendingPayment: pendingOrders.length,
+      pendingAmount: pendingOrders.reduce((sum, order) => sum + Number(order.total_amount ?? 0), 0),
+      completedAmount: fieldOrders
+        .filter((order) => order.payment_status === 'completed')
+        .reduce((sum, order) => sum + Number(order.total_amount ?? 0), 0),
+      unassignedFactory: fieldOrders.filter(hasUnassignedFactoryItem).length,
+      activeSalesmen: activeSalesmen.size,
+      activeMalls: activeMalls.size,
+    };
+  }, [orders]);
+
   const handleOrderClick = useCallback((orderId: string) => {
     router.push(`/orders/${orderId}`);
   }, [router]);
@@ -524,7 +619,9 @@ export default function OrdersTab() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base sm:text-xl font-semibold text-gray-900">주문 관리</h2>
-          <p className="text-xs sm:text-sm text-gray-500 mt-1">총 {filteredOrders.length}개의 주문</p>
+          <p className="text-xs sm:text-sm text-gray-500 mt-1">
+            총 {filteredOrders.length}개의 주문{!isFactoryUser && ` · 영업몰 고객 ${partnerMallOrderCount}건`}
+          </p>
         </div>
         {!isFactoryUser && (
           <button
@@ -538,6 +635,73 @@ export default function OrdersTab() {
         )}
       </div>
 
+      {!isFactoryUser && (
+        <div className="bg-teal-50 border border-teal-100 rounded-md px-3 py-3 sm:px-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold text-teal-900">영업몰 운영 요약</p>
+              <p className="text-[11px] text-teal-700 mt-0.5">
+                파트너몰 고객 주문만 집계합니다.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:min-w-[620px]">
+              <button
+                type="button"
+                onClick={() => setSelectedSources(new Set(['partner_mall']))}
+                className="rounded bg-white/80 px-3 py-2 text-left ring-1 ring-teal-100 hover:bg-white"
+              >
+                <div className="text-[11px] text-teal-700">영업몰 주문</div>
+                <div className="mt-0.5 text-sm font-bold text-gray-900 tabular-nums">
+                  {fieldSalesOpsSummary.total.toLocaleString('ko-KR')}건
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSources(new Set(['partner_mall']));
+                  setSelectedPaymentStatuses(new Set(['pending']));
+                }}
+                className="rounded bg-white/80 px-3 py-2 text-left ring-1 ring-teal-100 hover:bg-white"
+              >
+                <div className="text-[11px] text-teal-700">결제대기</div>
+                <div className="mt-0.5 text-sm font-bold text-gray-900 tabular-nums">
+                  {fieldSalesOpsSummary.pendingPayment.toLocaleString('ko-KR')}건
+                </div>
+                <div className="text-[10px] text-gray-500 tabular-nums">
+                  {fieldSalesOpsSummary.pendingAmount.toLocaleString('ko-KR')}원
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSources(new Set(['partner_mall']));
+                  setSortKey('factory');
+                  setSortDir('asc');
+                }}
+                className="rounded bg-white/80 px-3 py-2 text-left ring-1 ring-teal-100 hover:bg-white"
+              >
+                <div className="text-[11px] text-teal-700">공장 미배정</div>
+                <div className="mt-0.5 text-sm font-bold text-gray-900 tabular-nums">
+                  {fieldSalesOpsSummary.unassignedFactory.toLocaleString('ko-KR')}건
+                </div>
+                <div className="text-[10px] text-gray-500">
+                  클릭 시 영업몰 우선 정렬
+                </div>
+              </button>
+              <div className="rounded bg-white/70 px-3 py-2 ring-1 ring-teal-100">
+                <div className="text-[11px] text-teal-700">담당/몰</div>
+                <div className="mt-0.5 text-sm font-bold text-gray-900 tabular-nums">
+                  {fieldSalesOpsSummary.activeSalesmen.toLocaleString('ko-KR')}명 · {fieldSalesOpsSummary.activeMalls.toLocaleString('ko-KR')}몰
+                </div>
+                <div className="text-[10px] text-gray-500 tabular-nums">
+                  결제완료 {fieldSalesOpsSummary.completedAmount.toLocaleString('ko-KR')}원
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Search & Filters */}
       <div className="bg-white border border-gray-200/60 rounded-md p-2 sm:p-3 shadow-sm space-y-2">
         <div className="relative">
@@ -546,7 +710,7 @@ export default function OrdersTab() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="이름, 이메일, 주문 ID, 디자인명 검색..."
+            placeholder="이름, 이메일, 주문 ID, 디자인명, 파트너몰, 영업담당자 검색..."
             className="w-full pl-8 pr-8 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
           />
           {searchQuery && (
@@ -614,6 +778,35 @@ export default function OrdersTab() {
             {selectedPaymentStatuses.size > 0 && (
               <button
                 onClick={() => setSelectedPaymentStatuses(new Set())}
+                className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium text-gray-500 hover:bg-gray-100 transition-colors"
+              >
+                초기화
+              </button>
+            )}
+          </div>
+        )}
+        {!isFactoryUser && (
+          <div className="flex gap-1.5 flex-wrap items-center">
+            <span className="text-[11px] sm:text-xs text-gray-400 mr-0.5">경로</span>
+            {ORDER_SOURCE_FILTERS.map((filter) => (
+              <button
+                key={filter.value}
+                onClick={() => toggleSource(filter.value)}
+                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium transition-colors ${
+                  selectedSources.has(filter.value)
+                    ? 'bg-teal-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {filter.label}
+                <span className={`ml-1 tabular-nums ${selectedSources.has(filter.value) ? 'text-white/80' : 'text-gray-400'}`}>
+                  {sourceCounts[filter.value] ?? 0}
+                </span>
+              </button>
+            ))}
+            {selectedSources.size > 0 && (
+              <button
+                onClick={() => setSelectedSources(new Set())}
                 className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium text-gray-500 hover:bg-gray-100 transition-colors"
               >
                 초기화
@@ -873,9 +1066,16 @@ export default function OrdersTab() {
                         {(() => {
                           const src = getOrderSourceInfo(order);
                           return (
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${src.color}`}>
-                              {src.label}
-                            </span>
+                            <div className="flex flex-col gap-0.5">
+                              <span className={`inline-flex w-fit items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${src.color}`}>
+                                {src.label}
+                              </span>
+                              {order.partner_mall?.name && (
+                                <span className="text-[10px] text-gray-500 max-w-[120px] truncate" title={order.partner_mall.name}>
+                                  {order.partner_mall.name}
+                                </span>
+                              )}
+                            </div>
                           );
                         })()}
                       </td>
@@ -1172,11 +1372,22 @@ export default function OrdersTab() {
                         })()}
                       </div>
                       <div className="text-[11px] text-gray-400 truncate">{order.customer_email}</div>
+                      {order.partner_mall?.name && (
+                        <div className="text-[11px] text-teal-700 truncate">
+                          {order.partner_mall.name}
+                        </div>
+                      )}
+                      {order.attributed_salesman?.display_name && (
+                        <div className="text-[11px] text-gray-500 truncate">
+                          {order.attributed_salesman.display_name}
+                          {order.attributed_salesman.salesman_code ? ` · ${order.attributed_salesman.salesman_code}` : ''}
+                        </div>
+                      )}
                     </div>
                     <div onClick={(e) => e.stopPropagation()}>
                       <select
                         value={order.order_status}
-                        onChange={(e) => handleStatusChange(order.id, e.target.value as any)}
+                        onChange={(e) => handleStatusChange(order.id, e.target.value as Order['order_status'])}
                         disabled={updatingStatusId === order.id}
                         className={`px-1.5 py-0.5 rounded text-[11px] font-medium border-0 cursor-pointer disabled:opacity-60 ${getStatusColor(order.order_status)}`}
                       >
