@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
+import { resolveColorByHex } from '@/lib/colorLookup';
 import { randomBytes } from 'crypto';
 import { getKstYYYYMMDD } from '@/lib/kst';
 
@@ -311,6 +312,8 @@ export async function POST(request: Request) {
         ? normalizeJson<Record<string, unknown>>(design.canvas_state ?? null, {})
         : (isInherit && parentItem ? normalizeJson<Record<string, unknown>>((parentItem.canvas_state as Record<string, unknown> | string | null) ?? null, {}) : {});
       const productColor = resolveProductColor(colorSelections);
+      // hex → 색상명/코드 조회 (발주서에 색상명이 표시되도록 고객앱 주문과 동일한 형태로 저장)
+      const resolvedColor = await resolveColorByHex(adminClient, item.productId, productColor);
 
       const usedVariantIds = new Set<string>();
       const orderVariants = (ceq ? item.variants : item.variants.filter(v => v.quantity > 0))
@@ -331,6 +334,9 @@ export async function POST(request: Request) {
             size_name: variant.sizeLabel,
             quantity: variant.quantity,
             color_hex: productColor || undefined,
+            color_id: productColor || undefined,
+            color_name: resolvedColor?.color_name,
+            color_code: resolvedColor?.color_code,
           };
         });
 
@@ -340,6 +346,8 @@ export async function POST(request: Request) {
         itemOptions.size_id = single.size_id;
         itemOptions.size_name = single.size_name;
         if (single.color_hex) itemOptions.color_hex = single.color_hex;
+        if (single.color_name) itemOptions.color_name = single.color_name;
+        if (single.color_code) itemOptions.color_code = single.color_code;
       }
 
       // 디자인명: admin이 직접 입력했으면 그것을, 아니면 저장된 디자인의 title을 스냅샷.

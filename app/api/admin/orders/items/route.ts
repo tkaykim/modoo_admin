@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
+import { resolveColorByHex } from '@/lib/colorLookup';
 
 const toNumber = (value: unknown) => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -232,7 +233,7 @@ export async function PATCH(request: Request) {
 
       const { data: existingItem, error: existingErr } = await adminClient
         .from('order_items')
-        .select('id, order_id')
+        .select('id, order_id, product_id, color_selections')
         .eq('id', orderItemId)
         .single();
 
@@ -294,8 +295,15 @@ export async function PATCH(request: Request) {
           return NextResponse.json({ error: '총 수량은 1개 이상이어야 합니다.' }, { status: 400 });
         }
 
-        const colorSelections = (updateData.color_selections as Record<string, unknown> | undefined) ?? {};
+        // 디자인 변경 시 새 color_selections, 수량만 변경 시 기존 행의 color_selections 로 폴백
+        // (폴백이 없으면 수량 변경만으로 기존 색상정보가 지워지는 회귀 발생)
+        const colorSelections =
+          (updateData.color_selections as Record<string, unknown> | undefined)
+          ?? (normalizeJson<Record<string, unknown>>((existingItem?.color_selections as Record<string, unknown> | string | null) ?? null, {}));
         const productColor = resolveProductColor(colorSelections);
+        // 변경 후 productId 기준으로 색상명/코드 조회 (디자인 미변경 시 기존 행의 product_id 사용)
+        const variantProductId = (updateData.product_id as string | undefined) ?? existingItem?.product_id;
+        const resolvedColor = await resolveColorByHex(adminClient, variantProductId, productColor);
         const orderVariants = variants
           .filter((v: { quantity: number }) => v.quantity > 0)
           .map((v: { sizeCode: string; sizeLabel: string; quantity: number }) => ({
@@ -303,6 +311,9 @@ export async function PATCH(request: Request) {
             size_name: v.sizeLabel,
             quantity: v.quantity,
             color_hex: productColor || undefined,
+            color_id: productColor || undefined,
+            color_name: resolvedColor?.color_name,
+            color_code: resolvedColor?.color_code,
           }));
 
         const itemOptions: Record<string, unknown> = { variants: orderVariants };
@@ -311,6 +322,8 @@ export async function PATCH(request: Request) {
           itemOptions.size_id = single.size_id;
           itemOptions.size_name = single.size_name;
           if (single.color_hex) itemOptions.color_hex = single.color_hex;
+          if (single.color_name) itemOptions.color_name = single.color_name;
+          if (single.color_code) itemOptions.color_code = single.color_code;
         }
 
         updateData.quantity = totalQty;
@@ -569,6 +582,8 @@ export async function POST(request: Request) {
     const colorSelections = design ? normalizeJson<Record<string, unknown>>(design.color_selections ?? null, {}) : {};
     const canvasState = design ? normalizeJson<Record<string, unknown>>(design.canvas_state ?? null, {}) : {};
     const productColor = resolveProductColor(colorSelections);
+    // hex → 색상명/코드 조회 (발주서에 색상명 표시)
+    const resolvedColor = await resolveColorByHex(adminClient, productId, productColor);
 
     const orderVariants = variants
       .filter((v: { quantity: number }) => v.quantity > 0)
@@ -577,6 +592,9 @@ export async function POST(request: Request) {
         size_name: v.sizeLabel,
         quantity: v.quantity,
         color_hex: productColor || undefined,
+        color_id: productColor || undefined,
+        color_name: resolvedColor?.color_name,
+        color_code: resolvedColor?.color_code,
       }));
 
     const itemOptions: Record<string, unknown> = { variants: orderVariants };
@@ -585,6 +603,8 @@ export async function POST(request: Request) {
       itemOptions.size_id = single.size_id;
       itemOptions.size_name = single.size_name;
       if (single.color_hex) itemOptions.color_hex = single.color_hex;
+      if (single.color_name) itemOptions.color_name = single.color_name;
+      if (single.color_code) itemOptions.color_code = single.color_code;
     }
 
     // 디자인명(공장·관리자 구분 라벨): 입력값 우선, 없으면 디자인 title, 간이는 제품명.

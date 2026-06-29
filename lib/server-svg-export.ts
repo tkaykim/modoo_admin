@@ -21,6 +21,9 @@ interface CanvasObject {
   fontWeight?: string | number;
   fontStyle?: string;
   fill?: string;
+  stroke?: string;
+  strokeWidth?: number;
+  paintFirst?: string;
   angle?: number;
   scaleX?: number;
   scaleY?: number;
@@ -109,6 +112,17 @@ export function extractTextFromCanvasState(
     const fontStyle = textObj.fontStyle || 'normal';
     const textAlign = textObj.textAlign || 'left';
 
+    // 텍스트 테두리(stroke) — 고객이 설정한 테두리 색/두께를 생산 SVG에 반영
+    const stroke = typeof textObj.stroke === 'string' ? textObj.stroke : '';
+    const strokeWidth = typeof textObj.strokeWidth === 'number' ? textObj.strokeWidth : 0;
+    const paintFirst = textObj.paintFirst === 'stroke' ? 'stroke' : 'fill';
+    const strokeAttrs = (stroke && strokeWidth > 0)
+      ? `\n      stroke="${escapeXml(stroke)}"` +
+        `\n      stroke-width="${strokeWidth}"` +
+        `\n      paint-order="${paintFirst === 'stroke' ? 'stroke fill' : 'fill stroke'}"` +
+        `\n      stroke-linejoin="round"`
+      : '';
+
     // Calculate position
     const left = textObj.left || 0;
     const top = textObj.top || 0;
@@ -143,7 +157,7 @@ export function extractTextFromCanvasState(
       font-size="${fontSize}"
       fill="${escapeXml(fill)}"
       font-weight="${escapeXml(fontWeight)}"
-      font-style="${escapeXml(fontStyle)}"
+      font-style="${escapeXml(fontStyle)}"${strokeAttrs}
       text-anchor="${textAnchor}"
       transform="${transform}"${dataAttrs}>`;
 

@@ -122,6 +122,112 @@ export async function sendDesignProofEmail(params: DesignProofEmailParams): Prom
   }
 }
 
+interface DesignProofBulkEmailParams {
+  orderId: string;
+  customerName: string;
+  customerEmail: string;
+  items: Array<{ label: string; previewUrl: string | null }>;
+  confirmToken: string;
+}
+
+/**
+ * 한 주문 내 여러 디자인(상품)을 한 번에 시안확인 요청하는 일괄 메일.
+ * 확인 링크(token)는 주문 단위라 한 통의 메일로 모든 시안을 보여준다.
+ */
+export async function sendDesignProofEmailBulk(params: DesignProofBulkEmailParams): Promise<boolean> {
+  const { orderId, customerName, customerEmail, items, confirmToken } = params;
+  if (items.length === 0) return false;
+
+  const confirmUrl = `https://modoouniform.com/order/${orderId}/design-review?token=${confirmToken}`;
+  const countLabel = `${items.length}개 상품`;
+
+  const itemsHtml = items.map((it) => {
+    const previewHtml = it.previewUrl && !it.previewUrl.startsWith('data:')
+      ? `<div style="margin-top:10px;"><img src="${it.previewUrl}" alt="${it.label}" style="max-width:100%;max-height:280px;border-radius:8px;" /></div>`
+      : '';
+    return `<div style="background:${BRAND_BG};border-radius:10px;padding:16px;margin:12px 0;">
+        <p style="margin:0;font-size:14px;font-weight:600;color:#222;">${it.label}</p>
+        ${previewHtml}
+      </div>`;
+  }).join('');
+
+  const html = `
+    <div style="font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;max-width:600px;margin:0 auto;background:#ffffff;">
+      <div style="text-align:center;padding:24px 0;background:${BRAND_BG};">
+        <img src="https://modoouniform.com/icons/modoo_logo.png" alt="모두의 유니폼" style="height:48px;" />
+      </div>
+      <div style="height:3px;background:${BRAND_COLOR};"></div>
+      <div style="padding:32px 28px;">
+        <div style="text-align:center;margin-bottom:24px;">
+          <div style="display:inline-block;background:${BRAND_COLOR};color:#fff;padding:8px 20px;border-radius:20px;font-size:14px;font-weight:600;">시안 확인 요청</div>
+        </div>
+        <p style="font-size:16px;color:#222;line-height:1.7;margin:0 0 8px;">
+          <strong>${customerName}</strong>님, 안녕하세요.
+        </p>
+        <p style="font-size:15px;color:#444;line-height:1.7;margin:0 0 20px;">
+          주문하신 <strong>${countLabel}</strong>의 디자인 시안이 준비되었습니다.<br/>
+          아래에서 시안을 확인하시고, 확정 또는 수정 요청을 해주세요.
+        </p>
+
+        <div style="background:#f8f9fa;border-radius:8px;padding:14px 16px;margin:16px 0;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <tr>
+              <td style="color:#888;padding:3px 0;width:80px;">주문번호</td>
+              <td style="font-weight:600;padding:3px 0;">${orderId}</td>
+            </tr>
+            <tr>
+              <td style="color:#888;padding:3px 0;">상품</td>
+              <td style="padding:3px 0;">${countLabel}</td>
+            </tr>
+          </table>
+        </div>
+
+        ${itemsHtml}
+
+        <div style="text-align:center;margin:28px 0;">
+          <a href="${confirmUrl}" style="display:inline-block;padding:16px 40px;background-color:${BRAND_COLOR};color:#ffffff;border-radius:10px;font-weight:bold;font-size:15px;text-decoration:none;">시안 전체 확인하기</a>
+        </div>
+
+        <p style="font-size:13px;color:#888;text-align:center;line-height:1.6;">
+          수정이 필요하시면 위 페이지에서 상품별로 수정 요청을 해주세요.
+        </p>
+      </div>
+      <div style="border-top:1px solid #e5e7eb;padding:24px 28px;background:${BRAND_BG};">
+        <p style="margin:0 0 2px;font-size:13px;font-weight:bold;color:#333;">MODOO UNIFORM | 모두의 유니폼</p>
+        <p style="margin:0 0 2px;font-size:12px;color:#888;">서울특별시 마포구 성지3길 55, 4층</p>
+        <p style="margin:0;font-size:12px;color:#888;">T. 010-8140-0621 | 카카오톡: 모두의유니폼</p>
+      </div>
+    </div>
+  `;
+
+  const text = [
+    `[모두의 유니폼] 시안 확인 요청`,
+    '',
+    `${customerName}님, 안녕하세요.`,
+    `주문하신 ${countLabel}의 디자인 시안이 준비되었습니다.`,
+    '',
+    `주문번호: ${orderId}`,
+    `상품:`,
+    ...items.map((it) => ` - ${it.label}`),
+    '',
+    `시안 전체 확인하기: ${confirmUrl}`,
+    '',
+    '문의: 카카오톡 채널 "모두의유니폼" / 010-8140-0621',
+  ].join('\n');
+
+  try {
+    return await sendGmailEmail({
+      to: [{ email: customerEmail, name: customerName }],
+      subject: `[모두의 유니폼] 시안이 준비되었습니다 - ${countLabel} (${orderId})`,
+      text,
+      html,
+    });
+  } catch (error) {
+    console.error('Failed to send bulk design proof email:', error);
+    return false;
+  }
+}
+
 export async function sendDesignConfirmedNotification(params: DesignConfirmedEmailParams): Promise<boolean> {
   const { orderId, customerName, productTitle, designTitle } = params;
   const itemLabel = designTitle || productTitle;

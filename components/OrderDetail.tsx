@@ -97,6 +97,7 @@ export default function OrderDetail({
   const [shareError, setShareError] = useState<string | null>(null);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
   const [sendingDesignItemId, setSendingDesignItemId] = useState<string | null>(null);
+  const [sendingAllDesigns, setSendingAllDesigns] = useState(false);
 
   // Logen shipping state
   const [showLogenModal, setShowLogenModal] = useState(false);
@@ -117,6 +118,40 @@ export default function OrderDetail({
   const [manualTrackingError, setManualTrackingError] = useState<string | null>(null);
   const [trackingHistory, setTrackingHistory] = useState<any[] | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
+
+  const handleSendAllDesigns = useCallback(async () => {
+    if (!confirm('이 주문의 모든 준비된 시안을 한 번에 고객에게 확인요청 하시겠습니까?')) return;
+    setSendingAllDesigns(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/send-design`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const sharedIds: string[] = Array.isArray(data.shared) ? data.shared : [];
+        const sharedSet = new Set(sharedIds);
+        const now = new Date().toISOString();
+        setOrderItems((prev) =>
+          prev.map((item) =>
+            sharedSet.has(item.id)
+              ? { ...item, design_status: 'design_shared', design_shared_at: now }
+              : item
+          )
+        );
+        const skipped: Array<{ label: string; reason: string }> = Array.isArray(data.skipped) ? data.skipped : [];
+        let msg = `${sharedIds.length}개 상품 시안 확인요청을 발송했습니다.`;
+        if (skipped.length > 0) {
+          msg += `\n\n제외된 상품 ${skipped.length}개:\n` + skipped.map((s) => ` - ${s.label} (${s.reason})`).join('\n');
+        }
+        msg += '\n\n알림톡은 워커 처리 후 내역에 표시됩니다.';
+        alert(msg);
+      } else {
+        alert(data.error || '일괄 발송에 실패했습니다.');
+      }
+    } catch {
+      alert('일괄 발송 중 오류가 발생했습니다.');
+    } finally {
+      setSendingAllDesigns(false);
+    }
+  }, [order.id]);
 
   const handleSendDesign = useCallback(async (itemId: string) => {
     if (!confirm('고객에게 시안확인요청을 보내시겠습니까? (고객이 링크에서 실제 출력 화면을 보고 확정/수정요청)')) return;
@@ -1114,6 +1149,18 @@ export default function OrderDetail({
                 <h3 className="text-sm font-semibold text-gray-900">주문 상품</h3>
                 {!loading && <span className="text-xs text-gray-400">({orderItems.length})</span>}
               </div>
+              <div className="flex items-center gap-2">
+              {!isFactoryUser && !loading && orderItems.length > 1 && (
+                <button
+                  onClick={handleSendAllDesigns}
+                  disabled={sendingAllDesigns}
+                  title="이 주문의 여러 상품 시안을 한 번에 고객에게 확인요청합니다."
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-md hover:bg-indigo-100 transition-colors disabled:opacity-60"
+                >
+                  {sendingAllDesigns ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  전체 시안 확인요청
+                </button>
+              )}
               {!isFactoryUser && order.order_category !== 'cobuy' && (
                 order.payment_status === 'completed' ? (
                   // 결제 완료 주문은 상품 직접 추가 불가(정합성). 차액 추가청구로 유도.
@@ -1135,6 +1182,7 @@ export default function OrderDetail({
                   </button>
                 )
               )}
+              </div>
             </div>
             <div className="p-4">
               {loading ? (

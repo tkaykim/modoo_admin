@@ -9,6 +9,7 @@ import { useCanvasStore } from '@/store/useCanvasStore';
 import { Canvas as FabricCanvas } from 'fabric';
 import { formatKstDateLong } from '@/lib/kst';
 import { calculatePixelToMmRatio, resolveObjectSizeMm } from '@/lib/canvasUtils';
+import { getTextSvgFromCanvasState } from '@/lib/downloadUtils';
 
 type ImageUrlEntry = { url: string; path?: string; uploadedAt?: string };
 type ImageUrlsBySide = Record<string, ImageUrlEntry[]>;
@@ -94,101 +95,8 @@ const normalizeColorToHex = (value: string): string | null => {
   return `#${toHex(rgbMatch[1])}${toHex(rgbMatch[2])}${toHex(rgbMatch[3])}`.toUpperCase();
 };
 
-const escapeXml = (value: string): string => {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-};
-
-const getTextSvgFromCanvasState = (canvasState: CanvasState, sideId: string): string | null => {
-  const objects = Array.isArray(canvasState?.objects) ? canvasState.objects : [];
-  const textObjects = objects.filter((obj) => {
-    const type = typeof obj?.type === 'string' ? obj.type.toLowerCase() : '';
-    return type === 'i-text' || type === 'itext' || type === 'text' || type === 'textbox' || type === 'curvedtext';
-  });
-
-  if (textObjects.length === 0) {
-    return null;
-  }
-
-  const canvasWidth = 800;
-  const canvasHeight = 600;
-
-  let svgContent = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n` +
-    `<svg xmlns=\"http://www.w3.org/2000/svg\"\n` +
-    `     xmlns:xlink=\"http://www.w3.org/1999/xlink\"\n` +
-    `     width=\"${canvasWidth}\"\n` +
-    `     height=\"${canvasHeight}\"\n` +
-    `     viewBox=\"0 0 ${canvasWidth} ${canvasHeight}\">\n` +
-    `  <title>${escapeXml(sideId)} Text Objects</title>\n`;
-
-  svgContent += `  <metadata>\n` +
-    `    <description>Text objects exported for production - ${escapeXml(sideId)}</description>\n` +
-    `    <created>${new Date().toISOString()}</created>\n` +
-    `  </metadata>\n`;
-
-  svgContent += '  <g id="text-objects">\n';
-
-  textObjects.forEach((textObj, index) => {
-    const text = typeof textObj.text === 'string' ? textObj.text : '';
-    const fontFamily = typeof textObj.fontFamily === 'string' ? textObj.fontFamily : 'Arial';
-    const fontSize = typeof textObj.fontSize === 'number' ? textObj.fontSize : 16;
-    const fill = typeof textObj.fill === 'string' ? textObj.fill : '#000000';
-    const fontWeight = textObj.fontWeight ? String(textObj.fontWeight) : 'normal';
-    const fontStyle = typeof textObj.fontStyle === 'string' ? textObj.fontStyle : 'normal';
-    const textAlign = typeof textObj.textAlign === 'string' ? textObj.textAlign : 'left';
-
-    const left = typeof textObj.left === 'number' ? textObj.left : 0;
-    const top = typeof textObj.top === 'number' ? textObj.top : 0;
-    const angle = typeof textObj.angle === 'number' ? textObj.angle : 0;
-    const scaleX = typeof textObj.scaleX === 'number' ? textObj.scaleX : 1;
-    const scaleY = typeof textObj.scaleY === 'number' ? textObj.scaleY : 1;
-
-    let transform = `translate(${left}, ${top})`;
-    if (angle !== 0) {
-      transform += ` rotate(${angle})`;
-    }
-    if (scaleX !== 1 || scaleY !== 1) {
-      transform += ` scale(${scaleX}, ${scaleY})`;
-    }
-
-    let textAnchor = 'start';
-    if (textAlign === 'center') textAnchor = 'middle';
-    else if (textAlign === 'right') textAnchor = 'end';
-
-    const printMethod = textObj.data?.printMethod || '';
-    const dataAttrs = printMethod ? ` data-print-method=\"${escapeXml(printMethod)}\"` : '';
-
-    svgContent += `    <text\n` +
-      `      id=\"text-${escapeXml(sideId)}-${index}\"\n` +
-      `      x=\"0\"\n` +
-      `      y=\"0\"\n` +
-      `      font-family=\"${escapeXml(fontFamily)}\"\n` +
-      `      font-size=\"${fontSize}\"\n` +
-      `      fill=\"${escapeXml(fill)}\"\n` +
-      `      font-weight=\"${escapeXml(fontWeight)}\"\n` +
-      `      font-style=\"${escapeXml(fontStyle)}\"\n` +
-      `      text-anchor=\"${textAnchor}\"\n` +
-      `      transform=\"${transform}\"${dataAttrs}>`;
-
-    const lines = text.split('\n');
-    if (lines.length > 1) {
-      lines.forEach((line, lineIndex) => {
-        const dy = lineIndex === 0 ? 0 : fontSize * 1.2;
-        svgContent += `\n      <tspan x=\"0\" dy=\"${dy}\">${escapeXml(line)}</tspan>`;
-      });
-      svgContent += '\n    </text>\n';
-    } else {
-      svgContent += `${escapeXml(text)}</text>\n`;
-    }
-  });
-
-  svgContent += '  </g>\n</svg>';
-  return svgContent;
-};
+// getTextSvgFromCanvasState 는 @/lib/downloadUtils 의 정본을 사용 (텍스트 테두리 stroke 포함).
+// 과거 로컬 복제본은 stroke 누락 버그가 있어 제거하고 import 로 일원화.
 
 const getFileExtensionFromName = (name?: string | null) => {
   if (!name) return null;

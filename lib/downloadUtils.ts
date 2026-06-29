@@ -227,6 +227,18 @@ export const getTextSvgFromCanvasState = (canvasState: CanvasState, sideId: stri
     const fontStyle = typeof textObj.fontStyle === 'string' ? textObj.fontStyle : 'normal';
     const textAlign = typeof textObj.textAlign === 'string' ? textObj.textAlign : 'left';
 
+    // 텍스트 테두리(stroke) — 고객이 에디터에서 설정한 테두리 색상/두께를 발주·시안 SVG에 반영.
+    // (이 값이 누락되면 관리자/공장에서 테두리가 안 보였음)
+    const stroke = typeof textObj.stroke === 'string' ? textObj.stroke : '';
+    const strokeWidth = typeof textObj.strokeWidth === 'number' ? textObj.strokeWidth : 0;
+    const paintFirst = textObj.paintFirst === 'stroke' ? 'stroke' : 'fill';
+    const strokeAttrs = (stroke && strokeWidth > 0)
+      ? `      stroke="${escapeXml(stroke)}"\n` +
+        `      stroke-width="${strokeWidth}"\n` +
+        `      paint-order="${paintFirst === 'stroke' ? 'stroke fill' : 'fill stroke'}"\n` +
+        `      stroke-linejoin="round"\n`
+      : '';
+
     const left = typeof textObj.left === 'number' ? textObj.left : 0;
     const top = typeof textObj.top === 'number' ? textObj.top : 0;
     const angle = typeof textObj.angle === 'number' ? textObj.angle : 0;
@@ -257,6 +269,7 @@ export const getTextSvgFromCanvasState = (canvasState: CanvasState, sideId: stri
       `      fill="${escapeXml(fill)}"\n` +
       `      font-weight="${escapeXml(fontWeight)}"\n` +
       `      font-style="${escapeXml(fontStyle)}"\n` +
+      strokeAttrs +
       `      text-anchor="${textAnchor}"\n` +
       `      transform="${transform}"${dataAttrs}>`;
 

@@ -149,7 +149,7 @@ export default function PurchaseOrdersTab() {
         if (!map.has(productKey)) {
           map.set(productKey, { productTitle: productKey, variants: new Map() });
         }
-        const variantKey = `${v.color_name || '-'}_${v.size_name || '-'}`;
+        const variantKey = `${v.color_name || v.color_code || '-'}_${v.size_name || '-'}`;
         const entry = map.get(productKey)!;
         const existing = entry.variants.get(variantKey);
         if (existing) {
@@ -157,7 +157,7 @@ export default function PurchaseOrdersTab() {
           if (item.purchase_order_status === 'pending') existing.pendingQty += qty;
         } else {
           entry.variants.set(variantKey, {
-            colorName: v.color_name,
+            colorName: v.color_name || v.color_code,
             colorHex: v.color_hex,
             colorCode: v.color_code,
             sizeName: v.size_name,
@@ -660,7 +660,7 @@ function OrdersView({
                               className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 rounded text-[11px] text-gray-600"
                             >
                               <ColorDot hex={v.color_hex} />
-                              {v.color_name && <span>{v.color_name}</span>}
+                              {(v.color_name || v.color_code) && <span>{v.color_name || v.color_code}</span>}
                               {v.size_name && <span>{v.size_name}</span>}
                               <span className="font-medium">x{v.quantity ?? item.quantity}</span>
                             </span>
