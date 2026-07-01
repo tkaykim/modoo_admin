@@ -446,10 +446,16 @@ export async function PATCH(request: Request) {
         {}
       );
       const nextItemOptions: Record<string, unknown> = { ...prevItemOptions };
+      const prevColor = typeof prevColorSelections.productColor === 'string' ? prevColorSelections.productColor : null;
       if (Array.isArray(prevItemOptions.variants)) {
-        nextItemOptions.variants = (prevItemOptions.variants as Array<Record<string, unknown>>).map(
-          (v) => ({ ...v, color_hex: newProductColor })
-        );
+        // 다색상 보존: 이 item 의 기존 단일색(prevColor)과 같던 variant(또는 색 미지정)만 새 색으로 갱신.
+        // 의도적으로 다른 색으로 담긴 variant(블랙/화이트/버건디 혼합 주문)는 그대로 둔다.
+        // (색 혼합 주문이 시안수정 저장 한 번에 한 색으로 뭉개지던 사고 방지 — ORD-20260630-S3H58R)
+        nextItemOptions.variants = (prevItemOptions.variants as Array<Record<string, unknown>>).map((v) => {
+          const vhex = typeof v.color_hex === 'string' ? v.color_hex : '';
+          if (!vhex || (prevColor && vhex === prevColor)) return { ...v, color_hex: newProductColor };
+          return v;
+        });
       }
       if (typeof prevItemOptions.color_hex === 'string') {
         nextItemOptions.color_hex = newProductColor;
