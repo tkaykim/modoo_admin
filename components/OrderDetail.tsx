@@ -1288,8 +1288,8 @@ export default function OrderDetail({
                           return variants.length > 1 ? (
                             <div className="flex flex-wrap gap-1 mt-2">
                               {variants.filter(v => (v.quantity ?? 0) > 0).map((v, vi) => (
-                                <span key={vi} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
-                                  {v.color_hex && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: v.color_hex }} />}
+                                <span key={vi} title={[v.color_name, v.size_name].filter(Boolean).join(" / ") || undefined} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
+                                  {v.color_hex && <span title={v.color_name || undefined} className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: v.color_hex }} />}
                                   {v.size_name && <span>{v.size_name}</span>}
                                   <span className="font-medium">x{v.quantity}</span>
                                 </span>

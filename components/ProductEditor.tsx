@@ -1968,7 +1968,7 @@ export default function ProductEditor({ product, onSave, onCancel }: ProductEdit
                             <div
                               className="w-4 h-4 rounded border border-gray-300 shrink-0"
                               style={{ backgroundColor: mColor?.hex || '#ccc' }}
-                              title={mColor?.hex}
+                              title={mColor ? [mColor.name, mColor.color_code, mColor.hex].filter(Boolean).join(' · ') : undefined}
                             />
                             <span className="text-sm text-gray-700">{mColor?.name || '알 수 없음'}</span>
                             {color.side_mockups && Object.keys(color.side_mockups).length > 0 && (
