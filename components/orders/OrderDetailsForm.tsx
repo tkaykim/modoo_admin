@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { ArrowLeft, Loader2, Search, MapPin, Tag, Percent, DollarSign, CreditCard, Building2, Link2, Plus, Package } from 'lucide-react';
 import AddressSearch from './AddressSearch';
 import { type OrderItemDraft, type OrderCreateResult, type CustomerEditableFields, getItemUnitPrice, getItemTotalQuantity, getItemSubtotal } from './AdminOrderCreator';
+import { getRemoteAreaSurcharge } from '@/lib/remoteAreaShipping';
 
 type ShippingMethod = 'pickup' | 'domestic';
 type OrderPricingMode = 'auto' | 'custom_total';
@@ -85,9 +86,15 @@ export default function OrderDetailsForm({ items, customerEditableFields, onCust
     [adminSurcharge],
   );
 
+  // 제주·도서산간(국내배송) 추가 택배비 — 고객 부담. 우편번호 확정 시 자동 가산.
+  const remoteAreaSurcharge = useMemo(
+    () => getRemoteAreaSurcharge(shippingAddress.postalCode, shippingMethod),
+    [shippingAddress.postalCode, shippingMethod],
+  );
+
   const deliveryFee = useMemo(
-    () => shippingMethod === 'domestic' ? 3000 : 0,
-    [shippingMethod],
+    () => (shippingMethod === 'domestic' ? 3000 : 0) + remoteAreaSurcharge,
+    [shippingMethod, remoteAreaSurcharge],
   );
 
   const computedCouponDiscount = useMemo(
@@ -532,6 +539,12 @@ export default function OrderDetailsForm({ items, customerEditableFields, onCust
             <span>배송비 ({shippingMethod === 'domestic' ? '국내 배송' : '직접 수령'})</span>
             <span>{deliveryFee > 0 ? `+${deliveryFee.toLocaleString()}원` : '무료'}</span>
           </div>
+          {remoteAreaSurcharge > 0 && (
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>└ 제주·도서산간 추가배송비</span>
+              <span>+{remoteAreaSurcharge.toLocaleString()}원</span>
+            </div>
+          )}
 
           {pricingMode !== 'custom_total' && (
             <>

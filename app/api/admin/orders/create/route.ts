@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase-admin';
 import { resolveColorByHex } from '@/lib/colorLookup';
 import { randomBytes } from 'crypto';
 import { getKstYYYYMMDD } from '@/lib/kst';
+import { getRemoteAreaSurcharge } from '@/lib/remoteAreaShipping';
 
 interface CreateOrderVariant {
   sizeLabel: string;
@@ -389,7 +390,10 @@ export async function POST(request: Request) {
     const orderPricingMode = payload.pricingMode || 'auto';
     const paymentType: PaymentType = payload.paymentType || 'completed';
     const originalAmount = grandOriginalAmount;
-    const deliveryFee = payload.deliveryFee ?? (payload.shippingMethod === 'domestic' ? 3000 : 0);
+    // 제주·도서산간 추가 택배비(고객 부담). 클라가 deliveryFee를 명시하면 이미 할증 포함분이므로 그대로 사용,
+    // 미명시 시 fallback에 base + 할증을 함께 반영한다(이중가산 방지).
+    const remoteSurcharge = getRemoteAreaSurcharge(payload.postalCode, payload.shippingMethod);
+    const deliveryFee = payload.deliveryFee ?? ((payload.shippingMethod === 'domestic' ? 3000 : 0) + remoteSurcharge);
     let couponDiscount = 0;
     let adminDiscount = 0;
     let adminSurcharge = 0;
