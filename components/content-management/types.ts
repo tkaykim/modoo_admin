@@ -3,6 +3,8 @@ export type SectionKey = 'reviews' | 'examples' | 'heroBanners' | 'announcements
 export type ProductSummary = {
   id: string;
   title: string;
+  product_code?: string | null;
+  is_active?: boolean;
 };
 
 export type ReviewRecord = {

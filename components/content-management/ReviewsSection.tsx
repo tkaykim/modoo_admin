@@ -80,7 +80,7 @@ export default function ReviewsSection() {
       const supabase = createClient();
       const { data, error } = await supabase
         .from('products')
-        .select('id, title')
+        .select('id, title, product_code, is_active')
         .order('title', { ascending: true });
 
       if (error) throw error;
@@ -397,11 +397,17 @@ export default function ReviewsSection() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
                 >
                   <option value="">제품 선택</option>
-                  {products.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.title}
-                    </option>
-                  ))}
+                  {products
+                    // 비활성 제품은 숨긴다(이름 같은 유령 SKU 오선택 방지).
+                    // 단, 편집 중인 후기가 이미 가리키는 제품은 비활성이어도 유지.
+                    .filter((product) => product.is_active !== false || product.id === reviewForm.product_id)
+                    .map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.title}
+                        {product.product_code ? ` (${product.product_code})` : ''}
+                        {product.is_active === false ? ' · 비활성' : ''}
+                      </option>
+                    ))}
                 </select>
               </label>
               <label className="space-y-2 text-sm text-gray-700">
