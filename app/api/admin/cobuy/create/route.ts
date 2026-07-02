@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase-admin';
+import { requireAdmin } from '@/lib/admin/requireAdmin';
 
 const INDIVIDUAL_DELIVERY_FEE = 5000;
 
@@ -25,6 +26,9 @@ function normalizeDeliverySettings(input: unknown): Record<string, unknown> | nu
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdmin();
+  if (auth.error) return auth.error;
+
   const supabase = createAdminClient();
 
   try {
