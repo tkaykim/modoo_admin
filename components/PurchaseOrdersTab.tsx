@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import useSWR from 'swr';
 import { OrderItem, Order } from '@/types/types';
 import {
@@ -83,6 +83,13 @@ function ImagePreviewModal({ src, alt, onClose }: { src: string; alt: string; on
 export default function PurchaseOrdersTab() {
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  // 검색어 디바운스: 입력창은 즉시 반응하되, 서버 조회(swrKey)는 타이핑이 멈춘 뒤에만
+  // 반영해 키 입력마다 재조회가 폭주(로딩 깜빡임·결과 뒤엉킴)하던 문제를 막는다.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [dateType, setDateType] = useState<'ordered' | 'created'>('created');
@@ -99,7 +106,7 @@ export default function PurchaseOrdersTab() {
     if (selectedStatuses.size === 1) {
       params.set('status', [...selectedStatuses][0]);
     }
-    if (searchQuery.trim()) params.set('search', searchQuery.trim());
+    if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
     if (dateFrom) {
       params.set('dateFrom', dateFrom);
       params.set('dateType', dateType);
@@ -110,7 +117,7 @@ export default function PurchaseOrdersTab() {
     }
     const qs = params.toString();
     return `/api/admin/purchase-orders${qs ? `?${qs}` : ''}`;
-  }, [selectedStatuses, searchQuery, dateFrom, dateTo, dateType]);
+  }, [selectedStatuses, debouncedSearch, dateFrom, dateTo, dateType]);
 
   const {
     data: items = [],
