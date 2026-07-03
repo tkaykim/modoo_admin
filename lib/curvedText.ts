@@ -53,11 +53,11 @@ async function loadFontFace(fontFamily: string, fontUrl: string): Promise<void> 
   }
 
   try {
-    // Check if font is already available
-    if (document.fonts.check(`12px "${fontFamily}"`)) {
-      loadedFontFaces.add(fontKey);
-      return;
-    }
+    // ⚠ document.fonts.check()로 "이미 있는지" 판정하면 안 된다.
+    // check()는 등록되지 않은(=로드 안 된) 폰트에도 true를 반환한다(폴백을 쓸 수 있으니
+    // "로드할 게 없다"고 보고 true). 그래서 이 가드가 있으면 커스텀 폰트를 실제로 로드하지
+    // 않고 조기 반환 → 폰트를 업로드한 적 없는 브라우저(관리자)에서 기본 폰트로 렌더되는
+    // 버그가 났다. 중복 로드는 위의 loadedFontFaces Set으로만 방지한다.
 
     // Create and load the FontFace
     const fontFace = new FontFace(fontFamily, `url(${fontUrl})`, {
