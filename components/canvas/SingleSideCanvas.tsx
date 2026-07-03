@@ -59,6 +59,9 @@ const SingleSideCanvas: React.FC<SingleSideCanvasProps> = ({
   const suppressObjectAddedRef = useRef(false);
   const lastCanvasStateRef = useRef<string | null>(null);
   const lastCanvasSideRef = useRef<string | null>(null);
+  // 렌더에 반영된 커스텀 폰트 집합. 폰트가 늦게 로드돼도(빈 배열→N개) 재적용하도록
+  // 가드에 포함한다. 이게 없으면 canvasState만 같으면 스킵돼 폴백 폰트로 고정된다.
+  const lastCustomFontsRef = useRef<string | null>(null);
   /** Native mmPerPx fetched from product_calibrations. 0 = no calibration → legacy fallback. */
   const calibrationNativeMmPerPxRef = useRef<number>(0);
 
@@ -1258,9 +1261,14 @@ const SingleSideCanvas: React.FC<SingleSideCanvasProps> = ({
         ? canvasState
         : JSON.stringify(canvasState ?? {});
 
+    // 커스텀 폰트는 비동기로 늦게 도착할 수 있다. canvasState가 같아도 폰트가
+    // 바뀌면(빈 배열→로드됨) 반드시 재적용해 폰트가 반영된 텍스트로 다시 그린다.
+    const customFontsKey = customFonts.map((f) => `${f.fontFamily}:${f.url}`).join('|');
+
     if (
       lastCanvasStateRef.current === serializedState &&
-      lastCanvasSideRef.current === side.id
+      lastCanvasSideRef.current === side.id &&
+      lastCustomFontsRef.current === customFontsKey
     ) {
       return;
     }
@@ -1286,6 +1294,7 @@ const SingleSideCanvas: React.FC<SingleSideCanvasProps> = ({
     // which would result in objects being added to the canvas twice.
     lastCanvasStateRef.current = serializedState;
     lastCanvasSideRef.current = side.id;
+    lastCustomFontsRef.current = customFontsKey;
 
     const existingObjects = canvas.getObjects().filter((obj) => {
       if (obj.excludeFromExport) return false;
