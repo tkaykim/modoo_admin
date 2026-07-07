@@ -8,7 +8,7 @@ import { useAuthStore, type AuthStatus, type UserData } from '@/store/useAuthSto
 
 type AdminRole = 'admin' | 'factory' | 'super_admin';
 
-const adminRoutes = ['/dashboard', '/analytics', '/products', '/designs', '/templates', '/content', '/orders', '/purchase-orders', '/factories', '/factory', '/cobuy', '/partner_malls', '/coupons', '/users', '/settings', '/editor', '/print-methods', '/customer-pricing', '/invoices', '/shipping', '/test', '/salespersons', '/leads'];
+const adminRoutes = ['/dashboard', '/analytics', '/products', '/designs', '/templates', '/content', '/orders', '/purchase-orders', '/factories', '/factory', '/cobuy', '/partner_malls', '/coupons', '/users', '/settings', '/editor', '/print-methods', '/customer-pricing', '/invoices', '/shipping', '/test', '/salespersons', '/leads', '/bug-reports'];
 
 const allowedRoutesByRole: Record<AdminRole, string[]> = {
   admin: adminRoutes,
