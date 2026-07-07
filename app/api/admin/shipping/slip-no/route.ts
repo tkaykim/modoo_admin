@@ -30,6 +30,15 @@ export async function POST(request: Request) {
     const adminClient = createAdminClient();
     const updated: Array<{ orderId: string; slipNo: string; internal?: boolean }> = [];
 
+    // 현재 주문 상태 조회 — 이미 배송완료/취소된 주문을 '배송중'으로 되돌리지 않기 위함
+    const { data: orderRows } = await adminClient
+      .from('orders')
+      .select('id, order_status')
+      .in('id', orderIds);
+    const statusByOrder = new Map<string, string>(
+      (orderRows || []).map((o: any) => [o.id, o.order_status])
+    );
+
     // 배송 leg 조회: 이 주문이 "고객행(우리/공장→고객)"인지 "내부행(우리↔공장)"인지 판별.
     // 내부 이동(자재 출고/완성품 회수)의 송장으로 고객 주문이 '배송중'으로 오전환되는 것을 막는다.
     // 규칙: to_customer leg가 있거나 leg가 아예 없으면(레거시) 고객 배송으로 간주(기존 동작 유지).
@@ -98,14 +107,19 @@ export async function POST(request: Request) {
               }
               updated.push({ orderId: item.fixTakeNo, slipNo: activeSlip.slipNo, internal: true });
             } else {
-              // 고객 배송: 기존 동작 — 주문을 '배송중'으로 전환하고 고객 송장 필드 채움
+              // 고객 배송: 송장 필드 채움 + '배송중' 전환.
+              // 단, 이미 배송완료/취소된 주문은 상태를 되돌리지 않는다(송장 필드만 갱신).
+              const currentStatus = statusByOrder.get(item.fixTakeNo);
+              const patch: Record<string, unknown> = {
+                tracking_number: activeSlip.slipNo,
+                logen_slip_printed: true,
+              };
+              if (currentStatus !== 'delivered' && currentStatus !== 'cancelled') {
+                patch.order_status = 'shipping';
+              }
               await adminClient
                 .from('orders')
-                .update({
-                  tracking_number: activeSlip.slipNo,
-                  logen_slip_printed: true,
-                  order_status: 'shipping',
-                })
+                .update(patch)
                 .eq('id', item.fixTakeNo);
 
               updated.push({ orderId: item.fixTakeNo, slipNo: activeSlip.slipNo });
