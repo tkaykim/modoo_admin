@@ -17,30 +17,18 @@ interface PartyOverride {
   tel?: string;
 }
 
-// 송장 품목명(goodsNm) 생성 — 기사가 색상/사이즈/수량을 바로 식별하도록 옵션을 포함한다.
-// 옵션은 order_items.item_options.variants[]에 color_name/size_name/quantity로 들어있다.
+// 송장 품목명(goodsNm) 생성 — "디자인명 제품명" 형식.
+// 색상/사이즈 나열은 송장을 보는 고객에게 혼선을 줘 제외한다(2026-07-07 운영 요청).
 function buildGoodsNm(orderItems: any[], fallback: string): string {
-  return (orderItems || [])
+  const labels = (orderItems || [])
     .map((item: any) => {
       const title = item?.product_title || '';
       if (!title) return '';
-      const variants = item?.item_options?.variants;
-      if (Array.isArray(variants) && variants.length > 0) {
-        const opt = variants
-          .map((v: any) => {
-            const label = [v?.color_name, v?.size_name].filter(Boolean).join(' ');
-            const q = v?.quantity ? ` ${v.quantity}` : '';
-            return `${label}${q}`.trim();
-          })
-          .filter(Boolean)
-          .join('/');
-        return opt ? `${title}(${opt})` : `${title} ${item?.quantity || 1}개`;
-      }
-      return `${title} ${item?.quantity || 1}개`;
+      const design = typeof item?.design_title === 'string' ? item.design_title.trim() : '';
+      return design ? `${design} ${title}` : title;
     })
-    .filter(Boolean)
-    .join(', ')
-    .slice(0, 100) || fallback;
+    .filter(Boolean);
+  return Array.from(new Set(labels)).join(', ').slice(0, 100) || fallback;
 }
 
 export async function POST(request: Request) {
@@ -78,7 +66,7 @@ export async function POST(request: Request) {
     const adminClient = createAdminClient();
     const { data: orders, error: ordersError } = await adminClient
       .from('orders')
-      .select('id, customer_name, customer_phone, postal_code, address_line_1, address_line_2, shipping_method, order_status, logen_registered_at, delivery_fee, order_items(id, product_title, quantity, item_options)')
+      .select('id, customer_name, customer_phone, postal_code, address_line_1, address_line_2, shipping_method, order_status, logen_registered_at, delivery_fee, order_items(id, product_title, design_title, quantity, item_options)')
       .in('id', orderIds);
 
     if (ordersError) {
