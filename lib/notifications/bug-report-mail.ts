@@ -95,6 +95,89 @@ function buildText(report: BugReportInput): string {
     .join('\n');
 }
 
+// ── 신고자 회신(처리 결과 알림) ──────────────────────────────────────────
+export type BugReportStatus =
+  | 'open'
+  | 'in_progress'
+  | 'resolved'
+  | 'improvement'
+  | 'not_a_bug'
+  | 'wont_fix';
+
+const STATUS_REPLY: Record<BugReportStatus, { label: string; color: string }> = {
+  open: { label: '접수됨', color: '#6c757d' },
+  in_progress: { label: '처리 중', color: '#f39c12' },
+  resolved: { label: '개선 완료', color: '#27ae60' },
+  improvement: { label: '개선 예정으로 접수', color: '#2980b9' },
+  not_a_bug: { label: '정상 동작 안내', color: '#8e44ad' },
+  wont_fix: { label: '보류', color: '#7f8c8d' },
+};
+
+export interface BugReportResolvedInput {
+  title: string;
+  status: BugReportStatus;
+  resolutionNote: string;
+  reporterName?: string;
+  reporterEmail: string;
+}
+
+export async function sendBugReportResolvedMail(
+  input: BugReportResolvedInput
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const st = STATUS_REPLY[input.status] ?? STATUS_REPLY.resolved;
+    const greetingName = input.reporterName ? `${input.reporterName}님,` : '안녕하세요,';
+
+    const text = [
+      `${greetingName}`,
+      '',
+      `신고해주신 "${input.title}" 건의 처리 결과를 알려드립니다.`,
+      `처리 상태: ${st.label}`,
+      '',
+      '[처리 내용]',
+      input.resolutionNote,
+      '',
+      '신고해주셔서 감사합니다.',
+      '추가로 이상이 있으시면 언제든 다시 신고해주세요.',
+      '',
+      '모두의 유니폼 개발팀 드림',
+    ].join('\n');
+
+    const noteHtml = escapeHtml(input.resolutionNote).replace(/\n/g, '<br>');
+    const html = `
+      <div style="max-width:600px;margin:0 auto;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;color:#222;">
+        <div style="background:${st.color};padding:18px 24px;">
+          <h1 style="color:#fff;margin:0;font-size:18px;">고장신고 처리 결과 안내</h1>
+          <p style="color:#fff;margin:6px 0 0;font-size:13px;opacity:0.92;">
+            <span style="background:rgba(255,255,255,0.2);padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;">${st.label}</span>
+          </p>
+        </div>
+        <div style="padding:20px 24px;font-size:14px;line-height:1.7;">
+          <p style="margin:0 0 12px;">${escapeHtml(greetingName)}</p>
+          <p style="margin:0 0 12px;">신고해주신 <strong>"${escapeHtml(input.title)}"</strong> 건의 처리 결과를 알려드립니다.</p>
+          <div style="background:#f8f9fa;border-left:4px solid ${st.color};padding:14px 16px;margin:14px 0;">
+            <div style="font-weight:600;font-size:13px;color:#555;margin-bottom:6px;">처리 내용</div>
+            <div style="font-size:13px;">${noteHtml}</div>
+          </div>
+          <p style="margin:12px 0 0;">신고해주셔서 감사합니다.<br>추가로 이상이 있으시면 언제든 다시 신고해주세요.</p>
+        </div>
+        <div style="background:#f8f9fa;padding:14px 24px;font-size:12px;color:#999;">모두의 유니폼 개발팀 드림</div>
+      </div>
+    `;
+
+    const ok = await sendGmailEmail({
+      to: [{ email: input.reporterEmail }],
+      subject: `[모두의유니폼] 신고하신 "${input.title.slice(0, 60)}" 처리 결과 (${st.label})`,
+      text,
+      html,
+    });
+    return { ok };
+  } catch (err) {
+    console.error('[bug-report-resolved-mail] failed:', err);
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
 export async function sendBugReport(report: BugReportInput): Promise<{ ok: boolean; error?: string }> {
   try {
     const attachments: GmailAttachment[] = [];

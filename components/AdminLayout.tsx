@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp, LayoutTemplate, DollarSign, Target } from 'lucide-react';
+import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp, LayoutTemplate, DollarSign, Target, AlertTriangle } from 'lucide-react';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import BugReportButton from '@/components/BugReportButton';
 
@@ -103,6 +103,7 @@ const navGroups: NavGroup[] = [
         ],
       },
       { type: 'link', href: '/users', label: '사용자 관리', icon: Users, roles: ['admin', 'factory', 'super_admin'] },
+      { type: 'link', href: '/bug-reports', label: '고장신고 내역', icon: AlertTriangle, roles: ['admin', 'super_admin'] },
     ],
   },
   {
