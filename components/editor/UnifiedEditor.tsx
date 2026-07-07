@@ -33,11 +33,13 @@ import {
   getFileExtensionFromType,
   buildFilename,
   sanitizeFilenameSegment,
+  // (buildOutlinedTextSvg 는 아래 별도 import — 폰트 설치 없이 열리는 벡터 아웃라인)
   parseCanvasState,
   downloadBlob,
   downloadUrl,
   sleep,
 } from '@/lib/downloadUtils';
+import { buildOutlinedTextSvg } from '@/lib/text-outline-export';
 
 interface PartnerMallAddData {
   partnerMallId: string;
@@ -748,6 +750,21 @@ export default function UnifiedEditor({
             }
           });
         });
+      }
+
+      // 텍스트 아웃라인 SVG (폰트 불필요) — 곡률·italic·테두리를 벡터 path 로 구워
+      // Illustrator 에서 폰트 설치 없이 캔버스와 동일하게 열린다. (관리자 버그신고 UID 1586)
+      const outlineFallbackFonts = new Set<string>();
+      for (const [sideId, stateRaw] of Object.entries(orderItem.canvas_state || {})) {
+        const state = parseCanvasState(stateRaw);
+        if (!state || !Array.isArray(state.objects)) continue;
+        const { svg, textCount, fallbackFonts } = await buildOutlinedTextSvg(state, sideId, { customFonts });
+        if (!svg || textCount === 0) continue;
+        fallbackFonts.forEach((f) => outlineFallbackFonts.add(f));
+        files.push({ type: 'blob', blob: new Blob([svg], { type: 'image/svg+xml' }), filename: `${prefix}-${sideId}-outline.svg` });
+      }
+      if (outlineFallbackFonts.size > 0) {
+        console.warn('[outline] 파일을 못 구했거나 글자를 지원하지 않아 일반 텍스트로 남은 폰트:', [...outlineFallbackFonts].join(', '));
       }
 
       // Custom fonts

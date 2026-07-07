@@ -9,6 +9,7 @@ import { Canvas as FabricCanvas, Point as FabricPoint } from 'fabric';
 import { resolveObjectSizeMm } from '@/lib/canvasUtils';
 import { fetchProductCalibrations } from '@/lib/calibrationFetch';
 import { isPreviewableImageEntry, fileExtensionLabel, getTextSvgFromCanvasState } from '@/lib/downloadUtils';
+import { buildOutlinedTextSvg } from '@/lib/text-outline-export';
 
 interface OrderItemCanvasProps {
   orderItem: OrderItem;
@@ -202,6 +203,7 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
   const [dimensionsBySide, setDimensionsBySide] = useState<Record<string, ObjectDimensions[]>>({});
   const [productColors, setProductColors] = useState<Array<{ name: string; hex: string; color_code?: string }>>([]);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isDownloadingOutlines, setIsDownloadingOutlines] = useState(false);
 
   // Editor mode & zoom state
   const [isEditMode, setIsEditMode] = useState(false);
@@ -1234,6 +1236,54 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
     }
   };
 
+  // 텍스트를 벡터 아웃라인(<path>)으로 구운 SVG 다운로드 — 폰트 설치 없이 Illustrator에서
+  // 곡률·italic·테두리까지 캔버스와 동일하게 열린다. (관리자 버그신고 UID 1586)
+  const handleDownloadOutlines = async () => {
+    if (isDownloadingOutlines) return;
+    setIsDownloadingOutlines(true);
+
+    try {
+      const prefix = `order-${orderItem.id}`;
+      const canvasStates = orderItem.canvas_state || {};
+      let downloaded = 0;
+      const missingFonts = new Set<string>();
+
+      for (const [sideId, canvasStateRaw] of Object.entries(canvasStates)) {
+        const parsedState = parseCanvasState(canvasStateRaw);
+        if (!parsedState || !Array.isArray(parsedState.objects)) continue;
+
+        const { svg, textCount, fallbackFonts } = await buildOutlinedTextSvg(parsedState, sideId, { customFonts });
+        if (!svg || textCount === 0) continue;
+
+        fallbackFonts.forEach((f) => missingFonts.add(f));
+        downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), `${prefix}-${sideId}-outline.svg`);
+        downloaded += 1;
+        await sleep(120);
+      }
+
+      if (downloaded === 0) {
+        alert('아웃라인으로 내보낼 텍스트가 없습니다.');
+        return;
+      }
+
+      if (missingFonts.size > 0) {
+        // 폰트 파일을 못 구한(또는 해당 글자를 담지 않은) 텍스트는 아웃라인 대신 일반 텍스트로
+        // 남았음을 알림. 이 경우엔 여전히 해당 폰트가 필요하다.
+        alert(
+          `아웃라인 SVG ${downloaded}개를 다운로드했습니다.\n\n` +
+            `단, 다음 폰트는 파일을 구하지 못해(또는 해당 글자를 지원하지 않아) 일반 텍스트로 남았습니다:\n` +
+            `${[...missingFonts].join(', ')}\n` +
+            `이 텍스트는 여전히 해당 폰트 설치가 필요합니다.`,
+        );
+      }
+    } catch (error) {
+      console.error('아웃라인 SVG 생성 실패:', error);
+      alert('아웃라인 SVG 생성 중 오류가 발생했습니다.');
+    } finally {
+      setIsDownloadingOutlines(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -1315,6 +1365,16 @@ export default function OrderItemCanvas({ orderItem, onBack }: OrderItemCanvasPr
               >
                 <Download className="w-4 h-4" />
                 {isDownloading ? '다운로드 중...' : '전체 에셋 다운로드'}
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadOutlines}
+                disabled={isDownloadingOutlines}
+                title="텍스트를 벡터 아웃라인(path)으로 변환해 내보냅니다. 폰트 설치 없이 곡률·italic·테두리까지 그대로 열립니다."
+                className="flex items-center gap-2 text-sm font-medium text-white bg-purple-600 px-3 py-2 rounded-md hover:bg-purple-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Download className="w-4 h-4" />
+                {isDownloadingOutlines ? '생성 중...' : '아웃라인 SVG (폰트 불필요)'}
               </button>
             </>
           )}

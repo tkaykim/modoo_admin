@@ -38,6 +38,7 @@ import {
   isPreviewableImageEntry,
   fileExtensionLabel,
 } from '@/lib/downloadUtils';
+import { buildOutlinedTextSvg } from '@/lib/text-outline-export';
 import { normalizePrintMethod, getPrintMethodDisplayName } from '@/lib/printPricingConfig';
 import { isAdminLike } from '@/lib/auth-helpers';
 import { resolveObjectSizeMm, formatSizeCm } from '@/lib/canvasUtils';
@@ -431,6 +432,26 @@ export default function OrderModePanel({
 
     try {
       if (objectId && isTextObjectType(rawType)) {
+        // 텍스트는 벡터 아웃라인(폰트 불필요)을 우선 제공한다 — 곡률·italic·테두리를 path 로
+        // 구워 Illustrator 에서 폰트 설치 없이 캔버스와 동일하게 열린다. (관리자 버그신고 UID 1586)
+        // 아웃라인이 불가한 경우(폰트 파일 없음/글자 미지원)에만 기존 <text> 방식으로 폴백.
+        if (resolvedSideId) {
+          const cs = parseCanvasState(orderItem.canvas_state?.[resolvedSideId]);
+          const filtered = cs?.objects?.find((o) => {
+            if (!o || typeof o !== 'object') return false;
+            const t = typeof o.type === 'string' ? o.type.toLowerCase() : '';
+            if (!isTextObjectType(t)) return false;
+            return (o.data?.objectId || o.objectId) === objectId;
+          });
+          if (cs && filtered) {
+            const { svg, outlinedCount } = await buildOutlinedTextSvg({ ...cs, objects: [filtered] }, resolvedSideId, { customFonts });
+            if (svg && outlinedCount > 0) {
+              downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), `${basePrefix}-${resolvedSideId}-text-${safeObjectId}-outline.svg`);
+              return;
+            }
+          }
+        }
+
         const svgAsset = findTextSvgUrlForObject(objectId, resolvedSideId);
         if (svgAsset?.url) {
           await downloadUrl(svgAsset.url, `${basePrefix}-${svgAsset.sideId}-text-${safeObjectId}.svg`);
