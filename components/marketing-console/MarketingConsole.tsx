@@ -15,6 +15,8 @@ import {
   TrendingDown,
   TrendingUp,
   Video,
+  X,
+  ZoomIn,
 } from 'lucide-react';
 import { fetcher } from '@/lib/fetcher';
 
@@ -143,11 +145,21 @@ export default function MarketingConsole() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [doneIds, setDoneIds] = useState<string[]>([]);
+  const [previewCreative, setPreviewCreative] = useState<Creative | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem('modoo:marketing-console:done');
     if (saved) setDoneIds(JSON.parse(saved) as string[]);
   }, []);
+
+  useEffect(() => {
+    if (!previewCreative) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPreviewCreative(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [previewCreative]);
 
   const { data, error, isLoading, isValidating, mutate } = useSWR<Payload>(
     `/api/admin/marketing-console?days=${days}`,
@@ -297,7 +309,12 @@ export default function MarketingConsole() {
               {tab === 'creatives' && (
                 <div className="grid gap-3 p-4 md:grid-cols-2 2xl:grid-cols-3">
                   {topCreatives.map((creative) => (
-                    <CreativeCard key={creative.adId} creative={creative} onQuickAction={(recommendation) => setConfirm(recommendation)} />
+                    <CreativeCard
+                      key={creative.adId}
+                      creative={creative}
+                      onPreview={() => setPreviewCreative(creative)}
+                      onQuickAction={(recommendation) => setConfirm(recommendation)}
+                    />
                   ))}
                 </div>
               )}
@@ -349,6 +366,13 @@ export default function MarketingConsole() {
           busy={busyId === confirm.id}
           onClose={() => setConfirm(null)}
           onConfirm={() => executeRecommendation(confirm)}
+        />
+      )}
+
+      {previewCreative && (
+        <CreativePreviewDialog
+          creative={previewCreative}
+          onClose={() => setPreviewCreative(null)}
         />
       )}
     </div>
@@ -427,7 +451,15 @@ function RecommendationRow({
   );
 }
 
-function CreativeCard({ creative, onQuickAction }: { creative: Creative; onQuickAction: (recommendation: Recommendation) => void }) {
+function CreativeCard({
+  creative,
+  onPreview,
+  onQuickAction,
+}: {
+  creative: Creative;
+  onPreview: () => void;
+  onQuickAction: (recommendation: Recommendation) => void;
+}) {
   const isActive = creative.effectiveStatus === 'ACTIVE';
   const quickAction: Recommendation = isActive
     ? {
@@ -460,7 +492,19 @@ function CreativeCard({ creative, onQuickAction }: { creative: Creative; onQuick
       <div className="grid grid-cols-[112px_minmax(0,1fr)]">
         <div className="h-36 bg-gray-100">
           {creative.imageUrl ? (
-            <div className="h-full w-full bg-cover bg-center" style={{ backgroundImage: `url("${creative.imageUrl}")` }} />
+            <button
+              type="button"
+              onClick={onPreview}
+              aria-label={`${creative.name} 이미지 크게 보기`}
+              className="group relative h-full w-full overflow-hidden bg-cover bg-center text-left"
+              style={{ backgroundImage: `url("${creative.imageUrl}")` }}
+            >
+              <span className="absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/20" />
+              <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-md bg-gray-950/80 px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                <ZoomIn className="h-3.5 w-3.5" />
+                크게 보기
+              </span>
+            </button>
           ) : (
             <div className="flex h-full items-center justify-center text-gray-400">
               <ImageIcon className="h-7 w-7" />
@@ -495,6 +539,85 @@ function CreativeCard({ creative, onQuickAction }: { creative: Creative; onQuick
         </div>
       </div>
     </article>
+  );
+}
+
+function CreativePreviewDialog({ creative, onClose }: { creative: Creative; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-gray-950/80 p-3 md:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${creative.name} 이미지 크게 보기`}
+      onClick={onClose}
+    >
+      <div
+        className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden rounded-md bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-gray-200 px-4 py-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <VerdictBadge verdict={creative.verdict} />
+              <StatusBadge status={creative.effectiveStatus} />
+              <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-1.5 py-0.5 text-[10px] font-bold text-gray-600">
+                {creative.hasVideo ? <Video className="h-3 w-3" /> : <ImageIcon className="h-3 w-3" />}
+                {creative.mediaType}
+              </span>
+            </div>
+            <h2 className="mt-2 line-clamp-2 text-base font-bold text-gray-900">{creative.name}</h2>
+            <p className="mt-0.5 truncate text-xs text-gray-500">{creative.campaignName} · {creative.adSetName}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-gray-200 p-1.5 text-gray-600 hover:bg-gray-50"
+            aria-label="닫기"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="flex min-h-[58vh] items-center justify-center overflow-auto bg-gray-950 p-3 md:p-5">
+            {creative.imageUrl ? (
+              <img
+                src={creative.imageUrl}
+                alt={creative.name}
+                className="max-h-[76vh] max-w-full rounded-md bg-white object-contain shadow-xl"
+              />
+            ) : (
+              <div className="flex h-64 w-full max-w-md items-center justify-center rounded-md bg-gray-900 text-gray-500">
+                <ImageIcon className="h-10 w-10" />
+              </div>
+            )}
+          </div>
+
+          <aside className="min-h-0 overflow-y-auto border-t border-gray-200 p-4 lg:border-l lg:border-t-0">
+            <div className="grid grid-cols-2 gap-2">
+              <Metric label="지출" value={krw(creative.spend)} />
+              <Metric label="ROAS" value={pct(creative.roas)} />
+              <Metric label="CTR" value={pct2(creative.ctr)} />
+              <Metric label="CPC" value={krw(creative.cpc)} />
+              <Metric label="클릭" value={num(creative.clicks)} />
+              <Metric label="구매" value={num(creative.purchases)} />
+            </div>
+
+            <div className="mt-4 rounded-md bg-gray-50 px-3 py-2">
+              <div className="text-[11px] font-semibold text-gray-500">판정 근거</div>
+              <p className="mt-1 text-xs leading-5 text-gray-700">{creative.reason}</p>
+            </div>
+
+            <div className="mt-4">
+              <div className="text-[11px] font-semibold text-gray-500">광고 카피</div>
+              <p className="mt-1 whitespace-pre-wrap rounded-md border border-gray-200 px-3 py-2 text-xs leading-5 text-gray-700">
+                {creative.message || '카피 데이터가 없습니다.'}
+              </p>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
   );
 }
 
