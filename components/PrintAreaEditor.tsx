@@ -8,13 +8,27 @@ interface PrintAreaEditorProps {
   product: Product;
   onSave: (updatedProduct: Product) => void;
   onCancel: () => void;
+  saveLabel?: string;
+  savingLabel?: string;
+  saveHelpText?: string;
+  onPersist?: (sides: ProductSide[]) => Promise<Product | null | void>;
   /** 외부에서 시작/현재 면을 지정 (캘리브 도구에서 상단 '면' 선택과 동기화 용). */
   initialSideId?: string;
   /** 내부 캐러셀(◀▶)로 면을 바꿀 때 부모에 알림 — 외부 면 선택기(캘리브 드롭다운)와 양방향 동기화. */
   onSideChange?: (sideId: string) => void;
 }
 
-export default function PrintAreaEditor({ product, onSave, onCancel, initialSideId, onSideChange }: PrintAreaEditorProps) {
+export default function PrintAreaEditor({
+  product,
+  onSave,
+  onCancel,
+  saveLabel = '저장',
+  savingLabel,
+  saveHelpText,
+  onPersist,
+  initialSideId,
+  onSideChange,
+}: PrintAreaEditorProps) {
   const [currentSideIndex, setCurrentSideIndex] = useState(() => {
     if (initialSideId) {
       const i = (product.configuration || []).findIndex((s) => s.id === initialSideId);
@@ -51,7 +65,6 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
-  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
 
   const currentSide = sides[currentSideIndex];
 
@@ -70,24 +83,6 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
     if (layers.length === 0) return '';
     const sortedLayers = [...layers].sort((a, b) => a.zIndex - b.zIndex);
     return sortedLayers.find((layer) => layer.imageUrl)?.imageUrl || '';
-  };
-
-  // Helper function to calculate real-life dimensions from pixel dimensions
-  const calculateRealLifeDimensions = (printArea: { width: number; height: number }) => {
-    const productWidthMm = currentSide.realLifeDimensions?.productWidthMm || 0;
-    if (imageSize.width === 0 || productWidthMm === 0) {
-      return {
-        printAreaWidthMm: 0,
-        printAreaHeightMm: 0,
-      };
-    }
-
-    const pixelToMmRatio = productWidthMm / imageSize.width;
-
-    return {
-      printAreaWidthMm: Math.round(printArea.width * pixelToMmRatio),
-      printAreaHeightMm: Math.round(printArea.height * pixelToMmRatio),
-    };
   };
 
   useEffect(() => {
@@ -129,9 +124,6 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
       // Set canvas to a fixed size (matching the container)
       canvas.width = img.width * scaleFactor;
       canvas.height = img.height * scaleFactor;
-
-      // Store original image dimensions
-      setImageSize({ width: img.width, height: img.height });
 
       // Draw product image centered on canvas
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -285,9 +277,6 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
       pa.x = Math.max(0, Math.round(pa.x));
       pa.y = Math.max(0, Math.round(pa.y));
 
-      // Calculate real-life dimensions automatically
-      const realDimensions = calculateRealLifeDimensions(pa);
-
       newSides[currentSideIndex] = {
         ...currentSide,
         printArea: pa,
@@ -305,6 +294,12 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
   const handleSave = async () => {
     setSaving(true);
     try {
+      if (onPersist) {
+        const updatedProduct = await onPersist(sides);
+        onSave((updatedProduct ?? { ...product, configuration: sides }) as Product);
+        return;
+      }
+
       const response = await fetch('/api/admin/products', {
         method: 'PATCH',
         headers: {
@@ -322,7 +317,8 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
       onSave(payload?.data as Product);
     } catch (error) {
       console.error('Error saving product:', error);
-      alert('제품 저장 중 오류가 발생했습니다.');
+      const message = error instanceof Error ? error.message : '제품 저장 중 오류가 발생했습니다.';
+      alert(message);
     } finally {
       setSaving(false);
     }
@@ -334,9 +330,6 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
       ...currentSide.printArea,
       [field]: Math.max(0, Math.round(value)),
     };
-
-    // Calculate real-life dimensions automatically when width or height changes
-    const realDimensions = calculateRealLifeDimensions(newPrintArea);
 
     newSides[currentSideIndex] = {
       ...currentSide,
@@ -381,6 +374,9 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
         <div>
           <h2 className="text-xl font-semibold text-gray-900">인쇄 영역 편집</h2>
           <p className="text-sm text-gray-500 mt-1">{product.title}</p>
+          {saveHelpText && (
+            <p className="text-xs text-indigo-700 mt-1">{saveHelpText}</p>
+          )}
         </div>
         <div className="flex gap-2">
           <button
@@ -397,7 +393,7 @@ export default function PrintAreaEditor({ product, onSave, onCancel, initialSide
             className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
             <Save className="w-5 h-5" />
-            {saving ? '저장 중...' : '저장'}
+            {saving ? (savingLabel ?? `${saveLabel} 중...`) : saveLabel}
           </button>
         </div>
       </div>

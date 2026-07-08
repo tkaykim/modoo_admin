@@ -1,8 +1,11 @@
 /**
- * Read-only operational DB access for the calibration test page.
+ * Operational DB access for the calibration test page.
  *
  * Hard rules:
- * - SELECT only. No insert/update/delete/RPC/storage write.
+ * - Product reads are SELECT only.
+ * - Writes are limited to product_calibrations upsert through explicit save buttons.
+ * - Product configuration writes go through /api/admin/products.
+ * - No delete/drop/truncate/RPC/storage write.
  * - Separate Supabase client instance with isolated session storage key
  *   so we never collide with the live admin session.
  * - Only consumed inside `app/test/calibration/**`.
@@ -12,6 +15,32 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AnchorId } from './types';
 
 let cached: SupabaseClient | null = null;
+
+type ManufacturerRef = { name?: string | null } | Array<{ name?: string | null }> | null;
+
+type ProductRow = {
+  id: string;
+  title: string;
+  category: string | null;
+  product_code: string | null;
+  configuration: unknown;
+  manufacturer?: ManufacturerRef;
+};
+
+type ProductSideConfig = {
+  id?: unknown;
+  name?: unknown;
+  imageUrl?: unknown;
+  printArea?: OperationalSide['printArea'];
+  realLifeDimensions?: OperationalSide['realLifeDimensions'];
+};
+
+export type CalibPayload = Record<string, unknown> & {
+  printAreaRealMm?: {
+    widthMm?: number | null;
+    heightMm?: number | null;
+  };
+};
 
 /**
  * Uses the admin-session-aware browser client so RLS checks
@@ -57,13 +86,13 @@ export async function fetchOperationalProducts(): Promise<OperationalProduct[]> 
     throw error;
   }
 
-  return (data ?? [])
-    .map((row: any) => {
+  return ((data ?? []) as ProductRow[])
+    .map((row) => {
       const cfg = row.configuration;
       if (!Array.isArray(cfg)) return null;
       const sides: OperationalSide[] = cfg
-        .filter((s: any) => s && typeof s === 'object')
-        .map((s: any) => ({
+        .filter((s): s is ProductSideConfig => !!s && typeof s === 'object')
+        .map((s) => ({
           id: String(s.id ?? ''),
           name: String(s.name ?? s.id ?? ''),
           imageUrl: typeof s.imageUrl === 'string' ? s.imageUrl : null,
@@ -118,7 +147,7 @@ export async function fetchProductRaw(
 export interface CalibPayloadRow {
   product_id: string;
   side_id: string;
-  payload: any;
+  payload: CalibPayload | null;
   updated_at: string;
 }
 
@@ -134,10 +163,23 @@ export async function loadAllCalibPayloads(): Promise<CalibPayloadRow[]> {
   return (data ?? []) as CalibPayloadRow[];
 }
 
+export async function loadCalibPayloadsForProduct(productId: string): Promise<CalibPayloadRow[]> {
+  const supabase = getClient();
+  const { data, error } = await supabase
+    .from('product_calibrations')
+    .select('product_id, side_id, payload, updated_at')
+    .eq('product_id', productId);
+  if (error) {
+    console.error('[CALIB-TEST] loadCalibPayloadsForProduct error', error);
+    throw error;
+  }
+  return (data ?? []) as CalibPayloadRow[];
+}
+
 export async function upsertCalibPayload(
   operationalProductId: string,
   sideId: string,
-  payload: any,
+  payload: CalibPayload,
 ): Promise<void> {
   const supabase = getClient();
   const { error } = await supabase

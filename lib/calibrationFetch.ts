@@ -45,6 +45,9 @@ export interface SideCalibration {
    *  (printAreaRealMm.widthMm / printArea.width px), 폴백 = 캘리브 선분
    *  (선분 measuredMm / 선분 픽셀길이). 둘 다 없으면 0. */
   nativeMmPerPx: number;
+  /** 인쇄영역 실측(mm). product_calibrations 우선, products.configuration 폴백. */
+  printAreaWidthMm?: number;
+  printAreaHeightMm?: number;
   /** Label of the line used (for tooltips / audit). */
   activeLineLabel?: string;
   /** Registered anchor presets with snapshot labels (label may be missing on older rows). */
@@ -90,18 +93,34 @@ export async function fetchProductCalibrations(
         console.warn('[CALIB] fetch failed, falling back to legacy', error);
         return new Map<string, SideCalibration>();
       }
-      // 인쇄영역 실측(환산 1순위) 산출에 필요한 printArea 픽셀폭을 제품 config에서 로드.
+      // 인쇄영역 실측(환산 1순위) 산출에 필요한 printArea 픽셀폭과 config 폴백값을 로드.
       const printAreaPxBySide = new Map<string, number>();
+      const printAreaRealBySide = new Map<string, { widthMm: number; heightMm?: number }>();
       try {
         const { data: prod } = await supabase
           .from('products')
           .select('configuration')
           .eq('id', productId)
           .single();
-        const cfg = (prod?.configuration ?? []) as Array<{ id?: string; printArea?: { width?: number } }>;
+        const cfg = (prod?.configuration ?? []) as Array<{
+          id?: string;
+          printArea?: { width?: number };
+          realLifeDimensions?: {
+            printAreaWidthMm?: number | null;
+            printAreaHeightMm?: number | null;
+          };
+        }>;
         for (const s of cfg) {
           const w = Number(s?.printArea?.width) || 0;
           if (s?.id && w > 0) printAreaPxBySide.set(s.id, w);
+          const realW = Number(s?.realLifeDimensions?.printAreaWidthMm) || 0;
+          const realH = Number(s?.realLifeDimensions?.printAreaHeightMm) || 0;
+          if (s?.id && realW > 0) {
+            printAreaRealBySide.set(s.id, {
+              widthMm: realW,
+              heightMm: realH > 0 ? realH : undefined,
+            });
+          }
         }
       } catch (e) {
         console.warn('[CALIB] product config fetch failed; print-area-real disabled', e);
@@ -112,12 +131,26 @@ export async function fetchProductCalibrations(
         const payload = (row.payload ?? {}) as SideCalibrationPayload;
         const activeLine = pickActiveLine(payload);
         const lineMmPerPx = activeLine ? lineNativeMmPerPx(activeLine) : 0;
+        const configPrintAreaReal = printAreaRealBySide.get(row.side_id);
         // 환산 1순위: 인쇄영역 실측(printAreaRealMm.widthMm / printArea.width px). 폴백: 캘리브 선분.
-        const paW = Number(payload.printAreaRealMm?.widthMm) || 0;
+        const payloadPaW = Number(payload.printAreaRealMm?.widthMm) || 0;
+        const payloadPaH = Number(payload.printAreaRealMm?.heightMm) || 0;
+        const paW = payloadPaW > 0 ? payloadPaW : (configPrintAreaReal?.widthMm ?? 0);
+        const paH = payloadPaH > 0 ? payloadPaH : (configPrintAreaReal?.heightMm ?? 0);
         const paPxW = printAreaPxBySide.get(row.side_id) ?? 0;
         const printAreaMmPerPx = paW > 0 && paPxW > 0 ? paW / paPxW : 0;
         const nativeMmPerPx = printAreaMmPerPx > 0 ? printAreaMmPerPx : lineMmPerPx;
         if (!Number.isFinite(nativeMmPerPx) || nativeMmPerPx <= 0) continue;
+        const effectivePayload: SideCalibrationPayload =
+          paW > 0
+            ? {
+                ...payload,
+                printAreaRealMm: {
+                  widthMm: paW,
+                  heightMm: paH > 0 ? paH : null,
+                },
+              }
+            : payload;
         const anchors: AnchorPreset[] = (payload.registeredAnchors ?? [])
           .filter((a) => a && typeof a === 'object' && a.id)
           .map((a) => ({
@@ -133,10 +166,33 @@ export async function fetchProductCalibrations(
           productId: row.product_id,
           sideId: row.side_id,
           nativeMmPerPx,
+          printAreaWidthMm: paW > 0 ? paW : undefined,
+          printAreaHeightMm: paH > 0 ? paH : undefined,
           activeLineLabel: activeLine?.label,
           anchors,
-          payload,
+          payload: effectivePayload,
           updatedAt: row.updated_at,
+        });
+      }
+      for (const [sideId, real] of printAreaRealBySide) {
+        if (map.has(sideId)) continue;
+        const paPxW = printAreaPxBySide.get(sideId) ?? 0;
+        const nativeMmPerPx = real.widthMm > 0 && paPxW > 0 ? real.widthMm / paPxW : 0;
+        if (!Number.isFinite(nativeMmPerPx) || nativeMmPerPx <= 0) continue;
+        map.set(sideId, {
+          productId,
+          sideId,
+          nativeMmPerPx,
+          printAreaWidthMm: real.widthMm,
+          printAreaHeightMm: real.heightMm,
+          anchors: [],
+          payload: {
+            printAreaRealMm: {
+              widthMm: real.widthMm,
+              heightMm: real.heightMm ?? null,
+            },
+          },
+          updatedAt: '',
         });
       }
       return map;

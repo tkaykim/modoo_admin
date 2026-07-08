@@ -68,8 +68,8 @@ export function CalibrationPageClient() {
         const rows = await loadAllCalibPayloads();
         applyCalibPayloads(rows);
         setOpStatus(`✅ 제품 ${products.length}개 · 저장된 캘리브 ${rows.length}건 로드`);
-      } catch (e: any) {
-        setOpStatus(`❌ 자동 로드 실패: ${e?.message ?? e}`);
+      } catch (e: unknown) {
+        setOpStatus(`❌ 자동 로드 실패: ${getErrorMessage(e)}`);
       } finally {
         setLoadingOp(false);
       }
@@ -97,8 +97,8 @@ export function CalibrationPageClient() {
       const rows = await loadAllCalibPayloads();
       applyCalibPayloads(rows);
       setOpStatus(`✅ 제품 ${products.length}개 · 캘리브 ${rows.length}건 동기화`);
-    } catch (e: any) {
-      setOpStatus(`❌ 실패: ${e?.message ?? e}`);
+    } catch (e: unknown) {
+      setOpStatus(`❌ 실패: ${getErrorMessage(e)}`);
     } finally {
       setLoadingOp(false);
     }
@@ -111,7 +111,7 @@ export function CalibrationPageClient() {
       alert('운영 DB에서 불러온 제품·면만 DB 저장이 가능합니다.');
       return;
     }
-    setOpStatus('DB 저장 중...');
+    setOpStatus('선분·앵커 저장 중...');
     try {
       // Embed human-readable label per anchor so user/admin canvases can
       // display custom anchor labels without access to the test page's
@@ -134,9 +134,9 @@ export function CalibrationPageClient() {
           heightMm: selectedSide.printAreaHeightMm ?? null,
         },
       });
-      setOpStatus(`✅ "${selectedProduct.name} / ${selectedSide.name}" 저장됨`);
-    } catch (e: any) {
-      setOpStatus(`❌ 저장 실패: ${e?.message ?? e}`);
+      setOpStatus(`✅ "${selectedProduct.name} / ${selectedSide.name}" 선분·앵커 저장됨`);
+    } catch (e: unknown) {
+      setOpStatus(`❌ 저장 실패: ${getErrorMessage(e)}`);
     }
   };
 
@@ -156,7 +156,8 @@ export function CalibrationPageClient() {
           <p className="text-xs text-yellow-800 mt-1">
             운영 제품(<code>products</code>)을 자동 로드하고, 면별 환산비·앵커·자주
             쓰는 위치를 <code>product_calibrations</code> 테이블(jsonb)에 저장합니다.
-            로컬 캐시는 작업 중 임시 보관용이며, "현재 면 DB 저장" 버튼이 진실원입니다.
+            ①·③ 탭에서는 <b>선분·앵커 저장</b>을, ② 탭에서는 <b>인쇄영역+캘리브 저장</b>을 사용합니다.
+            로컬 캐시는 작업 중 임시 보관용입니다.
           </p>
         </header>
 
@@ -233,15 +234,17 @@ export function CalibrationPageClient() {
           >
             {loadingOp ? '불러오는 중...' : '🔄 새로고침'}
           </button>
-          <button
-            type="button"
-            onClick={handleSaveSideToDb}
-            disabled={!selectedProduct?.id.startsWith('op-')}
-            className="px-2 py-1 text-xs bg-emerald-600 text-white hover:bg-emerald-700 rounded disabled:opacity-40"
-            title="현재 면의 캘리브/앵커/시나리오를 DB에 저장"
-          >
-            현재 면 DB 저장
-          </button>
+          {tab !== 'print-area' && (
+            <button
+              type="button"
+              onClick={handleSaveSideToDb}
+              disabled={!selectedProduct?.id.startsWith('op-')}
+              className="px-2 py-1 text-xs bg-emerald-600 text-white hover:bg-emerald-700 rounded disabled:opacity-40"
+              title="현재 면의 선분·앵커·시나리오를 캘리브 DB에 저장"
+            >
+              선분·앵커 저장
+            </button>
+          )}
           <button
             type="button"
             onClick={handleResetAll}
@@ -328,4 +331,8 @@ function PlaceholderPanel({ title }: { title: string }) {
       <p className="text-xs">이 탭은 다음 단계에서 구현됩니다.</p>
     </div>
   );
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
