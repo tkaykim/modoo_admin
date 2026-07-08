@@ -268,23 +268,38 @@ export async function buildAnalyticsPayload(
     countInquiriesByTable(admin, 'chatbot_inquiries', range),
   ]);
 
-  const isCancelled = (o: ListedOrder) => o.order_status === 'cancelled';
-  const isPaid = (o: ListedOrder) => o.payment_status === 'completed' && !isCancelled(o);
-  const isRefunded = (o: ListedOrder) => o.payment_status === 'refunded';
+  // 주문의 매출 상태를 단일 값으로 분류한다(우선순위: 환불 > 취소 > 결제 > 미결제).
+  // 환불하면 order_status도 cancelled가 되므로, 환불건을 환불로만 계상해 환불액·취소액 이중계상을 막는다.
+  const amt = (o: ListedOrder) => Number(o.total_amount ?? 0);
+  type RevState = 'paid' | 'refunded' | 'cancelled' | 'pending';
+  const revState = (o: ListedOrder): RevState => {
+    if (o.payment_status === 'refunded') return 'refunded';
+    if (o.order_status === 'cancelled') return 'cancelled';
+    if (o.payment_status === 'completed') return 'paid';
+    return 'pending';
+  };
 
-  const paidOrders = orders.filter(isPaid);
-  const sumPaid = paidOrders.reduce((s, o) => s + Number(o.total_amount ?? 0), 0);
-  const paidCount = paidOrders.length;
-  const refunded = orders.filter(isRefunded);
-  const refundedAmount = refunded.reduce((s, o) => s + Number(o.total_amount ?? 0), 0);
-  const cancelled = orders.filter(isCancelled);
-  const cancelledAmount = cancelled.reduce((s, o) => s + Number(o.total_amount ?? 0), 0);
+  let keptPaid = 0, paidCount = 0;
+  let refundedAmount = 0, refundedCount = 0;
+  let cancelledAmount = 0, cancelledCount = 0;
+  for (const o of orders) {
+    const a = amt(o);
+    switch (revState(o)) {
+      case 'paid': keptPaid += a; paidCount += 1; break;
+      case 'refunded': refundedAmount += a; refundedCount += 1; break;
+      case 'cancelled': cancelledAmount += a; cancelledCount += 1; break;
+    }
+  }
+  // 주문 매출액(gross) = 결제 성사분(환불 포함, 취소 제외). 확정매출 = gross − 환불 = 실제 보유분(keptPaid).
+  // 환불건은 keptPaid에 애초에 없으므로 다시 빼지 않는다(과거 이중차감 버그 수정).
+  const grossPaid = keptPaid + refundedAmount;
+  const confirmedRevenue = keptPaid;
 
   const bySource = { homepage: { count: 0, paid_revenue: 0 }, external: { count: 0, paid_revenue: 0 }, other: { count: 0, paid_revenue: 0 } };
   for (const o of orders) {
     const cls = classifyOrderSource(o.id);
     bySource[cls].count += 1;
-    if (isPaid(o)) bySource[cls].paid_revenue += Number(o.total_amount ?? 0);
+    if (revState(o) === 'paid') bySource[cls].paid_revenue += amt(o);
   }
 
   const uniqueSessions = new Set(visitorEvents.map((e) => e.session_id).filter((s): s is string => !!s)).size;
@@ -303,21 +318,25 @@ export async function buildAnalyticsPayload(
     const slot = daily.get(k);
     if (!slot) continue;
     slot.order_count += 1;
-    if (isPaid(o)) slot.paid_revenue += Number(o.total_amount ?? 0);
-    if (isRefunded(o)) slot.refunded_amount += Number(o.total_amount ?? 0);
-    if (isCancelled(o)) slot.cancelled_amount += Number(o.total_amount ?? 0);
+    const a = amt(o);
+    switch (revState(o)) {
+      case 'paid': slot.paid_revenue += a; break;       // 보유분(kept)
+      case 'refunded': slot.refunded_amount += a; break;
+      case 'cancelled': slot.cancelled_amount += a; break;
+    }
   }
 
   const daily_series = keys.map((k) => {
     const s = daily.get(k)!;
+    const gross = s.paid_revenue + s.refunded_amount; // 주문매출(gross) = 보유분 + 환불
     return {
       date: k,
       label: bucketLabel(k, bucket),
       visitors: s.visitors.size,
-      paid_revenue: s.paid_revenue,
+      paid_revenue: gross,
       refunded_amount: s.refunded_amount,
       cancelled_amount: s.cancelled_amount,
-      confirmed_revenue: s.paid_revenue - s.refunded_amount,
+      confirmed_revenue: s.paid_revenue, // gross − 환불 = 보유분
       order_count: s.order_count,
     };
   });
@@ -332,12 +351,12 @@ export async function buildAnalyticsPayload(
     orders: {
       total_count: orders.length,
       paid_count: paidCount,
-      paid_revenue: sumPaid,
-      refunded_count: refunded.length,
+      paid_revenue: grossPaid,
+      refunded_count: refundedCount,
       refunded_amount: refundedAmount,
-      cancelled_count: cancelled.length,
+      cancelled_count: cancelledCount,
       cancelled_amount: cancelledAmount,
-      confirmed_revenue: sumPaid - refundedAmount,
+      confirmed_revenue: confirmedRevenue,
     },
     orders_by_source: bySource,
     inquiries_by_source: {

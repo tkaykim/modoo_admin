@@ -275,10 +275,10 @@ function SalesTab() {
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
             <KpiCard icon={Users} label="유입자수" value={num(data.visitors.unique_sessions)} hint={data.visitors.note ? '수집 시작 후' : `PV ${num(data.visitors.pageviews)}`} accent="border-l-purple-500" />
             <KpiCard icon={ShoppingCart} label="주문 건수" value={num(data.orders.total_count)} hint={`결제 ${num(data.orders.paid_count)} · 취소 ${num(data.orders.cancelled_count)}`} accent="border-l-blue-500" />
-            <KpiCard icon={BadgeDollarSign} label="주문 매출액" value={krw(data.orders.paid_revenue)} hint="결제완료 (취소 제외)" accent="border-l-green-500" />
+            <KpiCard icon={BadgeDollarSign} label="주문 매출액" value={krw(data.orders.paid_revenue)} hint="총결제 · 환불 전 (취소 제외)" accent="border-l-green-500" />
             <KpiCard icon={Ban} label="취소액" value={krw(data.orders.cancelled_amount)} hint={`${num(data.orders.cancelled_count)}건 (주문상태 취소)`} accent="border-l-rose-500" />
             <KpiCard icon={TrendingDown} label="환불액" value={krw(data.orders.refunded_amount)} hint={`${num(data.orders.refunded_count)}건`} accent="border-l-red-500" />
-            <KpiCard icon={TrendingUp} label="확정매출액" value={krw(data.orders.confirmed_revenue)} hint="결제 - 환불 (취소 제외)" accent="border-l-emerald-600" />
+            <KpiCard icon={TrendingUp} label="확정매출액" value={krw(data.orders.confirmed_revenue)} hint="주문매출 − 환불 (실수령)" accent="border-l-emerald-600" />
             <KpiCard icon={MessageSquare} label="문의 합계" value={num(data.inquiries_by_source.dashboard + data.inquiries_by_source.chatbot + data.inquiries_by_source.kakao)} hint="실제 대시+챗봇+카톡" accent="border-l-orange-500" />
           </div>
 
