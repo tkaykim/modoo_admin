@@ -4,11 +4,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp, LayoutTemplate, DollarSign, Target, AlertTriangle } from 'lucide-react';
+import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp, LayoutTemplate, DollarSign, Target, AlertTriangle, Megaphone } from 'lucide-react';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import BugReportButton from '@/components/BugReportButton';
 
-type AdminRole = 'admin' | 'factory' | 'super_admin';
+type AdminRole = 'admin' | 'factory' | 'super_admin' | 'marketing_manager';
 
 type NavLink = {
   type: 'link';
@@ -44,7 +44,8 @@ const navGroups: NavGroup[] = [
     label: '핵심 관리',
     items: [
       { type: 'link', href: '/dashboard', label: '대시보드', icon: LayoutDashboard, roles: ['admin', 'super_admin'] },
-      { type: 'link', href: '/analytics', label: '분석', icon: LineChart, roles: ['admin', 'super_admin'] },
+      { type: 'link', href: '/analytics', label: '분석', icon: LineChart, roles: ['admin', 'super_admin', 'marketing_manager'] },
+      { type: 'link', href: '/marketing-console', label: '마케팅 콘솔', icon: Megaphone, roles: ['admin', 'super_admin', 'marketing_manager'] },
       { type: 'link', href: '/orders', label: '주문 관리', icon: BarChart3, roles: ['admin', 'factory', 'super_admin'] },
       { type: 'link', href: '/purchase-orders', label: '발주 관리', icon: ClipboardList, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/products', label: '제품 관리', icon: Package, roles: ['admin', 'super_admin'] },
@@ -166,7 +167,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return <>{children}</>;
   }
 
-  const role = (user?.role === 'admin' || user?.role === 'factory' || user?.role === 'super_admin') ? user.role : null;
+  const role = (user?.role === 'admin' || user?.role === 'factory' || user?.role === 'super_admin' || user?.role === 'marketing_manager') ? user.role : null;
 
   return (
     <div className="min-h-screen bg-gray-50">

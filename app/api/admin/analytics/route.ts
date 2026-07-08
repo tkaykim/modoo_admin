@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { requireMarketingAccess } from '@/lib/admin/require-marketing-access';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { RangePreset, Bucket, buildAnalyticsPayload, resolveRange } from '@/lib/analytics/aggregations';
 
@@ -8,7 +8,7 @@ const VALID_BUCKETS: Bucket[] = ['hour', 'day', 'month'];
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireAdmin();
+    const auth = await requireMarketingAccess();
     if ('error' in auth && auth.error) return auth.error;
 
     const { searchParams } = new URL(req.url);

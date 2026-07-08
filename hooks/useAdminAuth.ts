@@ -3,23 +3,26 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase-client';
-import { normalizeProfileRole, assertBackofficeProfileRole, isBackofficeOperatorRole } from '@/lib/auth-helpers';
+import { normalizeProfileRole, assertModooAdminAppProfileRole, isModooAdminAppRole } from '@/lib/auth-helpers';
 import { useAuthStore, type AuthStatus, type UserData } from '@/store/useAuthStore';
 
-type AdminRole = 'admin' | 'factory' | 'super_admin';
+type AdminRole = 'admin' | 'factory' | 'super_admin' | 'marketing_manager';
 
-const adminRoutes = ['/dashboard', '/analytics', '/products', '/designs', '/templates', '/content', '/orders', '/purchase-orders', '/factories', '/factory', '/cobuy', '/partner_malls', '/coupons', '/users', '/settings', '/editor', '/print-methods', '/customer-pricing', '/invoices', '/shipping', '/test', '/salespersons', '/leads', '/bug-reports'];
+const adminRoutes = ['/dashboard', '/analytics', '/marketing-console', '/products', '/designs', '/templates', '/content', '/orders', '/purchase-orders', '/factories', '/factory', '/cobuy', '/partner_malls', '/coupons', '/users', '/settings', '/editor', '/print-methods', '/customer-pricing', '/invoices', '/shipping', '/test', '/salespersons', '/leads', '/bug-reports'];
+const marketingRoutes = ['/analytics', '/marketing-console'];
 
 const allowedRoutesByRole: Record<AdminRole, string[]> = {
   admin: adminRoutes,
   factory: ['/orders', '/users', '/editor', '/factory'],
   super_admin: [...adminRoutes, '/finance'],
+  marketing_manager: marketingRoutes,
 };
 
 const defaultRouteByRole: Record<AdminRole, string> = {
   admin: '/dashboard',
   factory: '/orders',
   super_admin: '/dashboard',
+  marketing_manager: '/analytics',
 };
 
 interface UseAdminAuthOptions {
@@ -115,9 +118,9 @@ export function useAdminAuth(options: UseAdminAuthOptions = {}): UseAdminAuthRes
         }
 
         const canonicalRole = normalizeProfileRole(profile.role);
-        if (!assertBackofficeProfileRole(canonicalRole)) {
+        if (!assertModooAdminAppProfileRole(canonicalRole)) {
           console.error(
-            '[모두관리] 허용되지 않은 역할입니다. 필요: admin · factory · super_admin (표준 문자열 또는 super-admin 형태). 현재값:',
+            '[모두관리] 허용되지 않은 역할입니다. 필요: admin · factory · super_admin · marketing_manager. 현재값:',
             profile.role,
             '→ 정규화:',
             canonicalRole
@@ -206,7 +209,7 @@ export function useAdminAuth(options: UseAdminAuthOptions = {}): UseAdminAuthRes
     if (skip || authStatus !== 'authenticated' || !user?.role) return;
 
     const role = user.role as AdminRole;
-    if (!isBackofficeOperatorRole(role)) return;
+    if (!isModooAdminAppRole(role)) return;
 
     const allowedRoutes = allowedRoutesByRole[role];
     const isAllowed = allowedRoutes.some(

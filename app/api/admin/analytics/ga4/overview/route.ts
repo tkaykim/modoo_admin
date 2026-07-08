@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { requireMarketingAccess } from '@/lib/admin/require-marketing-access';
 import { campaigns, revenue, funnel, traffic } from '@/lib/ga4/reports';
 import { createAdminClient } from '@/lib/supabase-admin';
 
@@ -92,7 +92,7 @@ type CampaignRow = { sessionSource: string; sessionMedium: string; sessionCampai
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireAdmin();
+    const auth = await requireMarketingAccess();
     if ('error' in auth && auth.error) return auth.error;
 
     const { searchParams } = new URL(req.url);

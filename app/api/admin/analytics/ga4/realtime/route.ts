@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { requireMarketingAccess } from '@/lib/admin/require-marketing-access';
 import { realtime } from '@/lib/ga4/reports';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 
 export async function GET() {
   try {
-    const auth = await requireAdmin();
+    const auth = await requireMarketingAccess();
     if ('error' in auth && auth.error) return auth.error;
 
     const data = await realtime();

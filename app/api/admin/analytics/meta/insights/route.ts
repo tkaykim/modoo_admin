@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { requireMarketingAccess } from '@/lib/admin/require-marketing-access';
 import { fetchCampaigns, fetchInsightsDaily, fetchAccountSummary, rangeFromDays } from '@/lib/meta-ads';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireAdmin();
+    const auth = await requireMarketingAccess();
     if ('error' in auth && auth.error) return auth.error;
 
     const { searchParams } = new URL(req.url);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { requireMarketingAccess } from '@/lib/admin/require-marketing-access';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { fetchAccountSummary, fetchInsightsDaily } from '@/lib/meta-ads';
 import { previousPeriodYmd, todayKstYmd } from '@/lib/analytics/period';
@@ -119,7 +119,7 @@ async function computeMetrics(
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireAdmin();
+    const auth = await requireMarketingAccess();
     if ('error' in auth && auth.error) return auth.error;
 
     const { searchParams } = new URL(req.url);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { unstable_cache } from 'next/cache';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { requireMarketingAccess } from '@/lib/admin/require-marketing-access';
 import { topPages } from '@/lib/ga4/reports';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +15,7 @@ const fetchTopPages = (days: number) =>
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireAdmin();
+    const auth = await requireMarketingAccess();
     if ('error' in auth && auth.error) return auth.error;
 
     const { searchParams } = new URL(req.url);

@@ -549,7 +549,7 @@ export interface Profile {
   email: string;
   name: string | null;
   phone_number: string | null;
-  role: 'customer' | 'admin' | 'factory';
+  role: 'customer' | 'admin' | 'factory' | 'super_admin' | 'marketing_manager';
   manufacturer_id?: string | null;
   created_at: string;
   updated_at: string;
@@ -1203,7 +1203,7 @@ export interface Invoice {
 
 export interface EditorChatMessageSender {
   name: string | null;
-  role: 'admin' | 'customer' | 'factory';
+  role: 'admin' | 'customer' | 'factory' | 'super_admin' | 'marketing_manager';
   email: string;
 }
 

@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase-client';
-import { normalizeProfileRole, assertBackofficeProfileRole } from '@/lib/auth-helpers';
+import { normalizeProfileRole, assertModooAdminAppProfileRole } from '@/lib/auth-helpers';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
@@ -11,7 +11,7 @@ export interface UserData {
   name?: string;
   avatar_url?: string;
   phone?: string;
-  role?: 'admin' | 'customer' | 'factory' | 'super_admin';
+  role?: 'admin' | 'customer' | 'factory' | 'super_admin' | 'marketing_manager';
   manufacturer_id?: string | null;
   manufacturer_name?: string | null;
   created_at?: string;
@@ -131,7 +131,7 @@ export const useAuthStore = create<AuthState>()(
             }
 
             const canonicalRole = normalizeProfileRole(profile?.role ?? null);
-            if (!assertBackofficeProfileRole(canonicalRole)) {
+            if (!assertModooAdminAppProfileRole(canonicalRole)) {
               await supabase.auth.signOut();
               set({
                 user: null,
@@ -143,7 +143,7 @@ export const useAuthStore = create<AuthState>()(
                 success: false,
                 error: !profile
                   ? '관리자 프로필을 찾을 수 없습니다. 계정 또는 Supabase 프로필/RLS 정책을 확인해주세요.'
-                  : '관리자·공장·슈퍼관리자 계정만 모두관리에 로그인할 수 있습니다.',
+                  : '관리자·공장·슈퍼관리자·마케팅관리자 계정만 모두관리에 로그인할 수 있습니다.',
               };
             }
 
