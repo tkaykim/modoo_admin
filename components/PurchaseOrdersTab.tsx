@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import useSWR from 'swr';
 import { OrderItem, Order } from '@/types/types';
 import {
@@ -42,7 +42,34 @@ const getStatusLabel = (status: string) => {
   return STATUS_OPTIONS.find((s) => s.value === status)?.label || status;
 };
 
-import { extractVariants, type VariantInfo } from '@/lib/orderUtils';
+import { extractVariants } from '@/lib/orderUtils';
+
+function purchaseOrderItemMatchesSearch(item: PurchaseOrderItemWithOrder, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+
+  const variants = extractVariants(item);
+  const searchableText = [
+    item.order_id,
+    item.orders?.id,
+    item.orders?.customer_name,
+    item.orders?.customer_email,
+    item.product_title,
+    item.design_title,
+    item.products?.product_code,
+    item.manufacturers?.name,
+    ...variants.flatMap((variant) => [
+      variant.color_name,
+      variant.color_code,
+      variant.size_name,
+    ]),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return searchableText.includes(q);
+}
 
 function ColorDot({ hex }: { hex?: string }) {
   if (!hex) return null;
@@ -83,13 +110,6 @@ function ImagePreviewModal({ src, alt, onClose }: { src: string; alt: string; on
 export default function PurchaseOrdersTab() {
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
-  // 검색어 디바운스: 입력창은 즉시 반응하되, 서버 조회(swrKey)는 타이핑이 멈춘 뒤에만
-  // 반영해 키 입력마다 재조회가 폭주(로딩 깜빡임·결과 뒤엉킴)하던 문제를 막는다.
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery), 300);
-    return () => clearTimeout(t);
-  }, [searchQuery]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [dateType, setDateType] = useState<'ordered' | 'created'>('created');
@@ -103,10 +123,6 @@ export default function PurchaseOrdersTab() {
 
   const swrKey = useMemo(() => {
     const params = new URLSearchParams();
-    if (selectedStatuses.size === 1) {
-      params.set('status', [...selectedStatuses][0]);
-    }
-    if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
     if (dateFrom) {
       params.set('dateFrom', dateFrom);
       params.set('dateType', dateType);
@@ -117,7 +133,7 @@ export default function PurchaseOrdersTab() {
     }
     const qs = params.toString();
     return `/api/admin/purchase-orders${qs ? `?${qs}` : ''}`;
-  }, [selectedStatuses, debouncedSearch, dateFrom, dateTo, dateType]);
+  }, [dateFrom, dateTo, dateType]);
 
   const {
     data: items = [],
@@ -126,9 +142,19 @@ export default function PurchaseOrdersTab() {
   } = useSWR<PurchaseOrderItemWithOrder[]>(swrKey);
 
   const filteredItems = useMemo(() => {
-    if (selectedStatuses.size <= 1) return items;
-    return items.filter((item) => selectedStatuses.has(item.purchase_order_status));
-  }, [items, selectedStatuses]);
+    let result = items;
+
+    if (selectedStatuses.size > 0) {
+      result = result.filter((item) => selectedStatuses.has(item.purchase_order_status));
+    }
+
+    const q = searchQuery.trim();
+    if (q) {
+      result = result.filter((item) => purchaseOrderItemMatchesSearch(item, q));
+    }
+
+    return result;
+  }, [items, selectedStatuses, searchQuery]);
 
   const groupedByOrder = useMemo(() => {
     const map = new Map<
@@ -338,7 +364,7 @@ export default function PurchaseOrdersTab() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="제품명, 주문 ID 검색..."
+              placeholder="제품명, 주문 ID, 고객명, 이메일 검색..."
               className="w-full pl-8 pr-8 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             />
             {searchQuery && (
