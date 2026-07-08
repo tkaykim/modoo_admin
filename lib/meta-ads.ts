@@ -248,6 +248,150 @@ export async function updateAdSetBudget(adSetId: string, dailyBudgetKrw: number)
   return metaPost<{ success?: boolean }>(`/${adSetId}`, { daily_budget: String(Math.round(dailyBudgetKrw)) });
 }
 
+export type MetaUploadedImage = {
+  hash: string;
+  url?: string;
+};
+
+export type MetaUploadedVideo = {
+  id: string;
+};
+
+export type MetaCreatedCreative = {
+  id: string;
+};
+
+export type MetaCreatedAd = {
+  id: string;
+};
+
+function modooPageId() {
+  return process.env.META_PAGE_ID || process.env.META_PAGE_ID_MODOO || '463978760454420';
+}
+
+function modooInstagramUserId() {
+  return process.env.META_INSTAGRAM_USER_ID || process.env.META_IG_USER_ID || process.env.META_INSTAGRAM_USER_ID_MODOO || '';
+}
+
+async function metaFormPost<T>(path: string, form: FormData): Promise<T> {
+  const { token } = getCreds();
+  form.set('access_token', token);
+
+  const res = await fetch(`${BASE()}${path}`, { method: 'POST', body: form });
+  const text = await res.text();
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error(`Meta API non-JSON response (${res.status}): ${text.slice(0, 200)}`);
+  }
+  if (!res.ok || (json as FbError)?.error) {
+    const err = (json as FbError).error;
+    const msg = err?.message || `HTTP ${res.status}`;
+    const code = err?.code ? ` [code ${err.code}]` : '';
+    const trace = err?.fbtrace_id ? ` (trace ${err.fbtrace_id})` : '';
+    throw new Error(`Meta API error${code}: ${msg}${trace}`);
+  }
+  return json as T;
+}
+
+export async function uploadAdImageBytes(fileName: string, bytes: Buffer): Promise<MetaUploadedImage> {
+  const { account } = getCreds();
+  const safeName = fileName.trim() || `marketing_image_${Date.now()}`;
+  const resp = await metaPost<{ images?: Record<string, MetaUploadedImage> }>(`/${account}/adimages`, {
+    bytes: bytes.toString('base64'),
+    name: safeName,
+  });
+  const image = resp.images?.[safeName] || Object.values(resp.images ?? {})[0];
+  if (!image?.hash) throw new Error('Meta 이미지 업로드 응답에 hash가 없습니다.');
+  return image;
+}
+
+export async function uploadAdVideoBytes(fileName: string, bytes: Buffer, mimeType: string): Promise<MetaUploadedVideo> {
+  const { account } = getCreds();
+  const form = new FormData();
+  form.set('title', fileName.trim() || `marketing_video_${Date.now()}`);
+  const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  form.set('source', new Blob([arrayBuffer], { type: mimeType || 'video/mp4' }), fileName);
+  const resp = await metaFormPost<{ id?: string; video_id?: string }>(`/${account}/advideos`, form);
+  const id = resp.id || resp.video_id;
+  if (!id) throw new Error('Meta 영상 업로드 응답에 video id가 없습니다.');
+  return { id };
+}
+
+export async function createImageAdCreative(input: {
+  name: string;
+  imageHash: string;
+  message: string;
+  headline?: string;
+  linkUrl: string;
+  ctaType?: string;
+  pageId?: string;
+}): Promise<MetaCreatedCreative> {
+  const { account } = getCreds();
+  const linkData: Record<string, unknown> = {
+    link: input.linkUrl,
+    message: input.message,
+    image_hash: input.imageHash,
+    call_to_action: { type: input.ctaType || 'SEE_DETAILS', value: { link: input.linkUrl } },
+  };
+  if (input.headline) linkData.name = input.headline;
+
+  const objectStorySpec: Record<string, unknown> = {
+    page_id: input.pageId || modooPageId(),
+    link_data: linkData,
+  };
+  const instagramUserId = modooInstagramUserId();
+  if (instagramUserId) objectStorySpec.instagram_user_id = instagramUserId;
+
+  return metaPost<MetaCreatedCreative>(`/${account}/adcreatives`, {
+    name: input.name,
+    object_story_spec: JSON.stringify(objectStorySpec),
+  });
+}
+
+export async function createVideoAdCreative(input: {
+  name: string;
+  videoId: string;
+  message: string;
+  title?: string;
+  linkUrl: string;
+  ctaType?: string;
+  pageId?: string;
+}): Promise<MetaCreatedCreative> {
+  const { account } = getCreds();
+  const objectStorySpec: Record<string, unknown> = {
+    page_id: input.pageId || modooPageId(),
+    video_data: {
+      video_id: input.videoId,
+      message: input.message,
+      title: input.title || input.name,
+      call_to_action: { type: input.ctaType || 'SEE_DETAILS', value: { link: input.linkUrl } },
+    },
+  };
+  const instagramUserId = modooInstagramUserId();
+  if (instagramUserId) objectStorySpec.instagram_user_id = instagramUserId;
+
+  return metaPost<MetaCreatedCreative>(`/${account}/adcreatives`, {
+    name: input.name,
+    object_story_spec: JSON.stringify(objectStorySpec),
+  });
+}
+
+export async function createPausedAd(input: {
+  name: string;
+  adSetId: string;
+  creativeId: string;
+}): Promise<MetaCreatedAd> {
+  const { account } = getCreds();
+  return metaPost<MetaCreatedAd>(`/${account}/ads`, {
+    name: input.name,
+    adset_id: input.adSetId,
+    status: 'PAUSED',
+    creative: JSON.stringify({ creative_id: input.creativeId }),
+  });
+}
+
 export type MetaInsightDaily = {
   date_start: string; // YYYY-MM-DD
   date_stop: string;

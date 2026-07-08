@@ -1,5 +1,7 @@
 'use client';
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import {
@@ -14,6 +16,7 @@ import {
   Target,
   TrendingDown,
   TrendingUp,
+  Upload,
   Video,
   X,
   ZoomIn,
@@ -133,6 +136,7 @@ const pct2 = (value: number) => `${(value || 0).toFixed(2)}%`;
 const tabs = [
   { id: 'tasks', label: '오늘 할 일' },
   { id: 'creatives', label: '소재 검수' },
+  { id: 'upload', label: '소재 업로드' },
   { id: 'campaigns', label: '캠페인' },
 ] as const;
 
@@ -317,6 +321,17 @@ export default function MarketingConsole() {
                     />
                   ))}
                 </div>
+              )}
+
+              {tab === 'upload' && (
+                <CreativeUploadPanel
+                  adSets={data.adSets}
+                  onCreated={async (result) => {
+                    setMessage(`${result.mediaType === 'video' ? '영상' : '이미지'} 소재가 PAUSED 광고로 생성됐습니다.`);
+                    setTab('creatives');
+                    await mutate();
+                  }}
+                />
               )}
 
               {tab === 'campaigns' && <CampaignTable campaigns={data.campaigns} adSets={data.adSets} onQuickAction={(recommendation) => setConfirm(recommendation)} />}
@@ -618,6 +633,231 @@ function CreativePreviewDialog({ creative, onClose }: { creative: Creative; onCl
         </div>
       </div>
     </div>
+  );
+}
+
+type UploadResult = {
+  mediaType: 'image' | 'video';
+  adId: string;
+  creativeId: string;
+  status: 'PAUSED';
+};
+
+function CreativeUploadPanel({
+  adSets,
+  onCreated,
+}: {
+  adSets: AdSet[];
+  onCreated: (result: UploadResult) => Promise<void>;
+}) {
+  const targetAdSets = useMemo(() => {
+    const active = adSets.filter((adSet) => adSet.effectiveStatus === 'ACTIVE' || adSet.status === 'ACTIVE');
+    return active.length > 0 ? active : adSets;
+  }, [adSets]);
+  const [adSetId, setAdSetId] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [headline, setHeadline] = useState('');
+  const [message, setMessage] = useState('');
+  const [linkUrl, setLinkUrl] = useState('https://www.modoouniform.com/');
+  const [ctaType, setCtaType] = useState('SEE_DETAILS');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!adSetId && targetAdSets[0]) setAdSetId(targetAdSets[0].id);
+  }, [adSetId, targetAdSets]);
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const nextUrl = URL.createObjectURL(file);
+    setPreviewUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [file]);
+
+  const mediaType = file?.type.startsWith('video/') ? 'video' : 'image';
+
+  const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const next = event.currentTarget.files?.[0] ?? null;
+    setFile(next);
+    setError(null);
+    if (next && !name) {
+      const baseName = next.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+      setName(baseName ? `[신규]${baseName}` : '[신규]소재');
+    }
+  };
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!file) {
+      setError('파일을 선택해주세요.');
+      return;
+    }
+    if (!adSetId) {
+      setError('대상 광고세트를 선택해주세요.');
+      return;
+    }
+    if (!message.trim()) {
+      setError('광고 카피를 입력해주세요.');
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.set('confirm', 'true');
+      form.set('file', file);
+      form.set('adSetId', adSetId);
+      form.set('name', name);
+      form.set('headline', headline);
+      form.set('message', message);
+      form.set('linkUrl', linkUrl);
+      form.set('ctaType', ctaType);
+
+      const res = await fetch('/api/admin/marketing-console/uploads', { method: 'POST', body: form });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || '소재 업로드 실패');
+      await onCreated(payload.data as UploadResult);
+      setFile(null);
+      setName('');
+      setHeadline('');
+      setMessage('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '소재 업로드 중 오류가 발생했습니다.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="grid gap-4 p-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+      <div className="space-y-3">
+        <label className="block">
+          <span className="text-xs font-semibold text-gray-700">소재 파일</span>
+          <span className="mt-2 flex min-h-[360px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-md border border-dashed border-gray-300 bg-gray-50 text-center hover:border-gray-400 hover:bg-gray-100">
+            {previewUrl && file ? (
+              mediaType === 'video' ? (
+                <video src={previewUrl} controls className="h-full max-h-[420px] w-full bg-black object-contain" />
+              ) : (
+                <img src={previewUrl} alt={file.name} className="max-h-[420px] w-full object-contain" />
+              )
+            ) : (
+              <span className="flex flex-col items-center gap-2 px-4 text-sm font-medium text-gray-500">
+                <Upload className="h-8 w-8 text-gray-400" />
+                이미지 또는 영상 선택
+              </span>
+            )}
+          </span>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm"
+            onChange={onFileChange}
+            className="sr-only"
+          />
+        </label>
+        {file && (
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+            <span className="rounded-full bg-gray-100 px-2 py-1 font-medium text-gray-700">{mediaType === 'video' ? 'video' : 'image'}</span>
+            <span className="truncate">{file.name}</span>
+            <span>{(file.size / 1024 / 1024).toFixed(1)}MB</span>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-700">대상 광고세트</span>
+            <select
+              value={adSetId}
+              onChange={(event) => setAdSetId(event.target.value)}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none"
+            >
+              {targetAdSets.map((adSet) => (
+                <option key={adSet.id} value={adSet.id}>
+                  {adSet.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-700">CTA</span>
+            <select
+              value={ctaType}
+              onChange={(event) => setCtaType(event.target.value)}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none"
+            >
+              <option value="SEE_DETAILS">자세히 보기</option>
+              <option value="LEARN_MORE">더 알아보기</option>
+              <option value="CONTACT_US">문의하기</option>
+              <option value="SHOP_NOW">구매하기</option>
+            </select>
+          </label>
+        </div>
+
+        <label className="block">
+          <span className="text-xs font-semibold text-gray-700">소재명</span>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="[신규]회사워크샵단체티_0708"
+            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-xs font-semibold text-gray-700">헤드라인</span>
+          <input
+            value={headline}
+            onChange={(event) => setHeadline(event.target.value)}
+            placeholder="회사 워크샵 단체티, 제작까지 한 번에"
+            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-xs font-semibold text-gray-700">광고 카피</span>
+          <textarea
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            rows={6}
+            placeholder={'단체복 제작, 아직 업체 못 정하셨나요?\n로고 시안부터 견적, 제작까지 모두의유니폼에서 빠르게 도와드립니다.'}
+            className="mt-1 w-full resize-none rounded-md border border-gray-300 px-3 py-2 text-sm leading-6 text-gray-900 focus:border-gray-900 focus:outline-none"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-xs font-semibold text-gray-700">랜딩 URL</span>
+          <input
+            value={linkUrl}
+            onChange={(event) => setLinkUrl(event.target.value)}
+            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none"
+          />
+        </label>
+
+        {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">{error}</div>}
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+          <div className="text-xs text-gray-600">
+            생성 상태 <span className="font-bold text-gray-900">PAUSED</span>
+          </div>
+          <button
+            type="submit"
+            disabled={submitting || targetAdSets.length === 0}
+            className="inline-flex items-center gap-1.5 rounded-md bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Upload className="h-4 w-4" />
+            {submitting ? '생성 중' : 'PAUSED 광고 생성'}
+          </button>
+        </div>
+      </div>
+    </form>
   );
 }
 
