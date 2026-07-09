@@ -67,6 +67,8 @@ interface UnifiedEditorProps {
   groupId?: string;
 }
 
+type UnknownRecord = Record<string, unknown>;
+
 export default function UnifiedEditor({
   productId,
   mode,
@@ -260,15 +262,19 @@ export default function UnifiedEditor({
         cobuyDataLoaded.current = true;
 
         // Store quantity
-        const qty = (req.quantity_expectations as any)?.estimatedQuantity;
-        if (qty) setCobuyQuantity(qty);
+        const quantityExpectations = req.quantity_expectations as { estimatedQuantity?: unknown } | null;
+        const qty = quantityExpectations?.estimatedQuantity;
+        if (typeof qty === 'number' && Number.isFinite(qty)) {
+          setCobuyQuantity(qty);
+        }
 
         // Apply colors to store
-        const colorSelections = req.freeform_color_selections as Record<string, any> | null;
+        const colorSelections = req.freeform_color_selections as UnknownRecord | null;
         if (colorSelections) {
           const store = useCanvasStore.getState();
-          if (colorSelections._productColor?.hex) {
-            store.setProductColor(colorSelections._productColor.hex);
+          const productColor = colorSelections._productColor;
+          if (isRecord(productColor) && typeof productColor.hex === 'string') {
+            store.setProductColor(productColor.hex);
           }
           for (const sideId of Object.keys(colorSelections)) {
             if (sideId === '_productColor') continue;
@@ -284,7 +290,7 @@ export default function UnifiedEditor({
 
         // When no admin design exists, use freeform canvas state as the starting design
         if (!designId) {
-          const freeformState = req.freeform_canvas_state as Record<string, any> | null;
+          const freeformState = req.freeform_canvas_state as UnknownRecord | null;
           if (freeformState) {
             const states: Record<string, string> = {};
             for (const [sideId, raw] of Object.entries(freeformState)) {
@@ -426,6 +432,7 @@ export default function UnifiedEditor({
     templateSideId,
     templateTransform,
     presetType,
+    customFonts: editorData.customFonts,
   });
 
   // Save side_id + transform — used by GroupPlacementPanel.
@@ -1104,4 +1111,8 @@ export default function UnifiedEditor({
       </div>
     </div>
   );
+}
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }

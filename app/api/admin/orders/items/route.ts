@@ -391,6 +391,7 @@ export async function PATCH(request: Request) {
     // --- Default mode: canvas_state update (factory/admin) ---
     const canvasState = payload?.canvasState;
     const thumbnailUrl = payload?.thumbnailUrl;
+    const customFonts = payload?.customFonts;
 
     if (!canvasState || typeof canvasState !== 'object') {
       return NextResponse.json({ error: 'canvas_state가 필요합니다.' }, { status: 400 });
@@ -423,6 +424,9 @@ export async function PATCH(request: Request) {
     };
     if (typeof thumbnailUrl === 'string') {
       updateData.thumbnail_url = thumbnailUrl;
+    }
+    if (Array.isArray(customFonts)) {
+      updateData.custom_fonts = customFonts;
     }
 
     // canvas_state 에 담긴 최신 productColor 를 color_selections / item_options 에도 동기화.

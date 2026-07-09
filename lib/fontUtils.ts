@@ -11,6 +11,8 @@ export interface FontMetadata {
   format: 'ttf' | 'otf' | 'woff' | 'woff2';
 }
 
+export type FontLoadMetadata = Pick<FontMetadata, 'fontFamily' | 'url'>;
+
 const SUPPORTED_FONT_EXTENSIONS = ['ttf', 'otf', 'woff', 'woff2'] as const;
 
 export function isValidFontFile(file: File): boolean {
@@ -70,7 +72,7 @@ export async function uploadFont(
   }
 }
 
-export async function loadCustomFont(fontMetadata: FontMetadata): Promise<void> {
+export async function loadCustomFont(fontMetadata: FontLoadMetadata): Promise<void> {
   try {
     const existingFonts = document.fonts;
     const alreadyLoaded = Array.from(existingFonts).some(
@@ -94,7 +96,7 @@ export async function loadCustomFont(fontMetadata: FontMetadata): Promise<void> 
   }
 }
 
-export async function loadCustomFonts(fonts: FontMetadata[]): Promise<void> {
+export async function loadCustomFonts(fonts: FontLoadMetadata[]): Promise<void> {
   const loadPromises = fonts.map((font) => loadCustomFont(font));
   await Promise.all(loadPromises);
 }

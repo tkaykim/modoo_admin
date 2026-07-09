@@ -133,20 +133,45 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({ selectedObject, onClose
   }, [isFontDropdownOpen]);
 
   // Update selected object properties
-  const updateTextProperty = (property: string, value: any) => {
+  const updateTextProperty = (property: string, value: unknown) => {
     if (selectedObject) {
-      selectedObject.set(property as keyof fabric.IText, value);
+      const textObject = selectedObject as { set: (property: string, value: unknown) => void };
+      textObject.set(property, value);
       selectedObject.canvas?.renderAll();
     }
   };
 
-  const handleFontFamilyChange = (value: string) => {
+  const handleFontFamilyChange = (value: string, fontUrl?: string) => {
     setFontFamily(value);
+    let url = fontUrl;
+    if (!url) {
+      const customFont = customFonts.find(f => f.fontFamily === value);
+      if (customFont) {
+        url = customFont.url;
+      }
+    }
+
     if (selectedObject && isCurvedText(selectedObject)) {
       // Use setFont for CurvedText to properly reload font and update bounds
       (selectedObject as CurvedText).setFont(value);
     } else {
       updateTextProperty('fontFamily', value);
+    }
+
+    if (selectedObject) {
+      const textObject = selectedObject as fabric.FabricObject & {
+        data?: Record<string, unknown>;
+        set: (property: string, value: unknown) => void;
+      };
+      const existingData = textObject.data || {};
+      const nextData = { ...existingData };
+      if (url) {
+        nextData.fontUrl = url;
+      } else {
+        delete nextData.fontUrl;
+      }
+      textObject.set('data', nextData);
+      textObject.set('dirty', true);
     }
   };
 
@@ -295,7 +320,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({ selectedObject, onClose
         await loadAllFonts();
 
         // Apply the font to selected text
-        handleFontFamilyChange(result.fontMetadata.fontFamily);
+        handleFontFamilyChange(result.fontMetadata.fontFamily, result.fontMetadata.url);
 
         // Show copyright notice modal
         setUploadedFontName(result.fontMetadata.fontFamily);

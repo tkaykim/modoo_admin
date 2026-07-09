@@ -14,6 +14,7 @@ import {
 } from '@/types/types';
 import { EditorMode } from './useEditorMode';
 import { parseCanvasState, coerceCustomFonts } from '@/lib/downloadUtils';
+import { useFontStore } from '@/store/useFontStore';
 
 interface UseEditorDataParams {
   productId: string;
@@ -58,6 +59,7 @@ export function useEditorData({
   const [canvasStates, setCanvasStates] = useState<Record<string, CanvasState | string | null>>({});
   const [productColor, setProductColor] = useState('#FFFFFF');
   const [customFonts, setCustomFonts] = useState<CustomFont[]>([]);
+  const setFontStoreCustomFonts = useFontStore((state) => state.setCustomFonts);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -172,7 +174,9 @@ export function useEditorData({
             setProduct((prev) => (prev ? { ...prev, configuration: frozenSides as typeof prev.configuration } : prev));
           }
           setCanvasStates(item.canvas_state || {});
-          setCustomFonts(coerceCustomFonts(item.custom_fonts));
+          const itemCustomFonts = coerceCustomFonts(item.custom_fonts);
+          setCustomFonts(itemCustomFonts);
+          setFontStoreCustomFonts(itemCustomFonts);
 
           // Extract product color: order data (color_selections / variants) takes
           // priority over canvas_state because a previous admin save may have
@@ -203,6 +207,8 @@ export function useEditorData({
           const t = await fetchTemplates(prod.id);
           if (cancelled) return;
           setTemplates(t);
+          setCustomFonts([]);
+          setFontStoreCustomFonts([]);
 
           if (templateId) {
             const selected = t.find((tmpl) => tmpl.id === templateId) || null;
@@ -217,7 +223,9 @@ export function useEditorData({
           if (cancelled) return;
           setSavedDesign(design);
           setCanvasStates(design.canvas_state || {});
-          setCustomFonts(coerceCustomFonts(design.custom_fonts));
+          const designCustomFonts = coerceCustomFonts(design.custom_fonts);
+          setCustomFonts(designCustomFonts);
+          setFontStoreCustomFonts(designCustomFonts);
 
           // Extract product color from canvas state or color_selections
           const colorSelections = design.color_selections as { productColor?: string } | undefined;
@@ -233,6 +241,9 @@ export function useEditorData({
               }
             }
           }
+        } else {
+          setCustomFonts([]);
+          setFontStoreCustomFonts([]);
         }
         // design mode without designId: no canvas state to load (fresh canvas)
       } catch (err) {
@@ -251,7 +262,7 @@ export function useEditorData({
     return () => {
       cancelled = true;
     };
-  }, [productId, mode, orderItemId, templateId, designId, fetchProduct, fetchProductColors, fetchOrderItem, fetchTemplates, fetchSavedDesign]);
+  }, [productId, mode, orderItemId, templateId, designId, fetchProduct, fetchProductColors, fetchOrderItem, fetchTemplates, fetchSavedDesign, setFontStoreCustomFonts]);
 
   const updateOrderItemCanvasState = useCallback((canvasState: Record<string, unknown>) => {
     setOrderItem((prev) => prev ? { ...prev, canvas_state: canvasState as Record<string, CanvasState> } : prev);

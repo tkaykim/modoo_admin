@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useMemo } from 'react';
 import { useCanvasStore } from '@/store/useCanvasStore';
-import { Product, OrderItem, DesignTemplate, SavedDesign, CanvasState } from '@/types/types';
+import { Product, OrderItem, DesignTemplate, SavedDesign, CustomFont } from '@/types/types';
+import { useFontStore } from '@/store/useFontStore';
 import { serializeCanvasState } from '@/lib/canvasUtils';
 import { saveDesign, updateDesign, SaveDesignData } from '@/lib/designService';
 import { parseCanvasState } from '@/lib/downloadUtils';
@@ -35,6 +36,7 @@ interface UseEditorSaveParams {
   /** Group transform on the product canvas (new model) */
   templateTransform?: import('@/types/types').GroupTransform | null;
   presetType?: string;
+  customFonts?: CustomFont[];
 }
 
 export interface SaveResult {
@@ -70,10 +72,16 @@ export function useEditorSave({
   templateSideId,
   templateTransform,
   presetType,
+  customFonts = [],
 }: UseEditorSaveParams): EditorSaveResult {
   const { canvasMap, productColor, layerColors } = useCanvasStore();
+  const uploadedCustomFonts = useFontStore((state) => state.customFonts);
+  const customFontsForSave = useMemo(
+    () => mergeCustomFonts(customFonts, uploadedCustomFonts),
+    [customFonts, uploadedCustomFonts]
+  );
 
-  const handleSave = useCallback(async (): Promise<SaveResult> => {
+  const handleSave = async (): Promise<SaveResult> => {
     if (!product) return { success: false, error: '제품 정보가 없습니다.' };
 
     const sides = product.configuration || [];
@@ -92,7 +100,7 @@ export function useEditorSave({
       console.error('Save error:', err);
       return { success: false, error: message };
     }
-  }, [mode, product, canvasMap, productColor, layerColors, orderItem, savedDesign, selectedTemplate, designTitle, templateTitle, templateDescription, templateSortOrder, templateIsActive, templateCategory, templateTags, templateIsFeatured, templateImageSlots, templateTextSlots, templateGroupId, templatePlacementMap, templateSideId, templateTransform, presetType]);
+  };
 
   async function saveDesignMode(sides: Product['configuration']): Promise<SaveResult> {
     // Serialize canvas state from all sides
@@ -131,6 +139,7 @@ export function useEditorSave({
         canvasState,
         previewImage,
         pricePerItem,
+        customFonts: customFontsForSave,
       };
 
       const updated = await updateDesign(savedDesign.id, updateData);
@@ -147,6 +156,7 @@ export function useEditorSave({
         canvasState,
         previewImage,
         pricePerItem,
+        customFonts: customFontsForSave,
       };
 
       const newDesign = await saveDesign(designData);
@@ -223,6 +233,7 @@ export function useEditorSave({
         orderItemId: orderItem.id,
         canvasState: updatedCanvasState,
         thumbnailUrl,
+        customFonts: customFontsForSave,
       }),
     });
 
@@ -321,6 +332,17 @@ export function useEditorSave({
   }
 
   return { handleSave };
+}
+
+function mergeCustomFonts(...fontLists: Array<CustomFont[] | undefined>): CustomFont[] {
+  const byFamily = new Map<string, CustomFont>();
+  for (const fonts of fontLists) {
+    for (const font of fonts || []) {
+      if (!font?.fontFamily || !font.url) continue;
+      byFamily.set(font.fontFamily, font);
+    }
+  }
+  return Array.from(byFamily.values());
 }
 
 function syncDesignToOrderItems(designId: string) {

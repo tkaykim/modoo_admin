@@ -1,6 +1,7 @@
 import { createClient } from './supabase-client';
 import { formatKstDateTimeFull } from '@/lib/kst';
 import { extractImageUrlsFromCanvasState } from './server-svg-export';
+import { CustomFont } from '@/types/types';
 
 export interface SaveDesignData {
   productId: string;
@@ -10,6 +11,7 @@ export interface SaveDesignData {
   userId?: string;
   previewImage?: string; // Base64 data URL for preview image
   pricePerItem: number;
+  customFonts?: CustomFont[];
 }
 
 export interface SavedDesign {
@@ -23,6 +25,7 @@ export interface SavedDesign {
   canvas_state: Record<string, string>;
   preview_url: string | null;
   image_urls?: Record<string, Array<{ url: string; path?: string; uploadedAt?: string }>>;
+  custom_fonts?: CustomFont[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -58,7 +61,8 @@ export async function saveDesign(data: SaveDesignData): Promise<SavedDesign | nu
       canvas_state: data.canvasState,
       preview_url: data.previewImage || null, // Save preview image as base64 data URL
       image_urls: imageUrls, // Save extracted image URLs for easy access
-      price_per_item: data.pricePerItem
+      price_per_item: data.pricePerItem,
+      custom_fonts: data.customFonts || []
     };
 
     // Insert into saved_designs table
@@ -153,7 +157,7 @@ export async function updateDesign(
   const supabase = createClient();
 
   try {
-    const updateData: any = {
+    const updateData: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     };
 
@@ -173,6 +177,9 @@ export async function updateDesign(
     }
     if (data.pricePerItem !== undefined) {
       updateData.price_per_item = data.pricePerItem;
+    }
+    if (data.customFonts !== undefined) {
+      updateData.custom_fonts = data.customFonts;
     }
 
     const { data: updatedDesign, error } = await supabase

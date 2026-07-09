@@ -1,12 +1,15 @@
 import { create } from 'zustand';
 import { FontMetadata, loadCustomFont } from '@/lib/fontUtils';
+import { CustomFont } from '@/types/types';
+
+type StoredFont = FontMetadata | CustomFont;
 
 interface FontState {
-  customFonts: FontMetadata[];
-  addFont: (font: FontMetadata) => void;
+  customFonts: StoredFont[];
+  addFont: (font: StoredFont) => void;
   removeFont: (fontFamily: string) => void;
   loadAllFonts: () => Promise<void>;
-  setCustomFonts: (fonts: FontMetadata[]) => void;
+  setCustomFonts: (fonts: StoredFont[]) => void;
   clearFonts: () => void;
   isFontLoaded: (fontFamily: string) => boolean;
 }
