@@ -21,6 +21,7 @@ type OrderItemSummary = {
   design_title?: string | null;
   thumbnail_url?: string | null;
   assigned_manufacturer_id?: string | null;
+  factory_assigned_at?: string | null;
   factory_status?: string | null;
   factory_amount?: number | null;
   deadline?: string | null;
@@ -28,6 +29,7 @@ type OrderItemSummary = {
   factory_payment_status?: string | null;
 };
 type OrderWithItemCount = Order & {
+  paid_at?: string | null;
   order_items?: { count: number }[] | OrderItemSummary[];
   partner_mall?: { id: string; name: string | null; slug: string | null } | null;
 };
@@ -328,6 +330,32 @@ export default function OrdersTab() {
     });
   }, []);
 
+  const getMyFactoryItems = useCallback((order: OrderWithItemCount): OrderItemSummary[] => {
+    const items = order.order_items as OrderItemSummary[] | undefined;
+    if (!items) return [];
+    if (!user?.manufacturer_id) return items;
+    return items.filter((i) => i.assigned_manufacturer_id === user.manufacturer_id);
+  }, [user?.manufacturer_id]);
+
+  const getMyFactorySummary = useCallback((order: OrderWithItemCount) => {
+    const myItems = getMyFactoryItems(order);
+    if (myItems.length === 0) {
+      return { status: 'assigned' as string, deadline: null as string | null, amount: null as number | null, payDate: null as string | null, payStatus: null as string | null, assignedAt: null as string | null };
+    }
+    const statuses = myItems.map((i) => i.factory_status).filter(Boolean) as string[];
+    const status = statuses.length === 0 ? 'assigned' : (statuses.every((s) => s === statuses[0]) ? statuses[0] : 'mixed');
+    const deadlines = myItems.map((i) => i.deadline).filter(Boolean) as string[];
+    const deadline = deadlines.length > 0 ? deadlines.sort()[0] : null;
+    const amount = myItems.reduce((sum, i) => sum + (i.factory_amount ?? 0), 0) || null;
+    const payDates = myItems.map((i) => i.factory_payment_date).filter(Boolean) as string[];
+    const payDate = payDates.length > 0 ? payDates.sort()[0] : null;
+    const payStatuses = myItems.map((i) => i.factory_payment_status).filter(Boolean) as string[];
+    const payStatus = payStatuses.length === 0 ? null : (payStatuses.every((s) => s === payStatuses[0]) ? payStatuses[0] : 'mixed');
+    const assignedDates = myItems.map((i) => i.factory_assigned_at).filter(Boolean) as string[];
+    const assignedAt = assignedDates.length > 0 ? assignedDates.sort()[0] : null;
+    return { status, deadline, amount, payDate, payStatus, assignedAt };
+  }, [getMyFactoryItems]);
+
   const getSortValue = useCallback((order: OrderWithItemCount, key: string): string | number | null => {
     switch (key) {
       case 'design':
@@ -371,6 +399,12 @@ export default function OrdersTab() {
       }
       case 'created_at':
         return new Date(order.created_at).getTime();
+      case 'paid_at':
+        return order.paid_at ? new Date(order.paid_at).getTime() : null;
+      case 'factory_assigned_at': {
+        const fa = getMyFactorySummary(order).assignedAt;
+        return fa ? new Date(fa).getTime() : null;
+      }
       case 'total_amount':
         return order.total_amount ?? 0;
       case 'order_status':
@@ -453,10 +487,16 @@ export default function OrdersTab() {
         }
         return sortDir === 'asc' ? cmp : -cmp;
       });
+    } else {
+      // 기본 정렬 — 관리자: 결제일(미결제는 주문 생성일) 최신순. 결제되면 결제 시점 기준으로 위로 올라온다.
+      // 공장 계정: 배정일(없으면 주문 생성일) 최신순. 배정받은 순서대로 위에서부터 보인다.
+      const defaultSortTime = (o: OrderWithItemCount) =>
+        new Date((isFactoryUser ? getMyFactorySummary(o).assignedAt : o.paid_at) || o.created_at).getTime();
+      result = [...result].sort((a, b) => defaultSortTime(b) - defaultSortTime(a));
     }
 
     return result;
-  }, [orders, selectedStatuses, selectedPaymentStatuses, selectedSources, searchQuery, isFactoryUser, sortKey, sortDir, getSortValue]);
+  }, [orders, selectedStatuses, selectedPaymentStatuses, selectedSources, searchQuery, isFactoryUser, sortKey, sortDir, getSortValue, getMyFactorySummary]);
 
   // Get order item count from the API response
   const getOrderItemCount = (order: OrderWithItemCount) => {
@@ -529,30 +569,6 @@ export default function OrdersTab() {
     if (statuses.every((s) => s === statuses[0])) return statuses[0];
     return 'mixed';
   };
-
-  const getMyFactoryItems = useCallback((order: OrderWithItemCount): OrderItemSummary[] => {
-    const items = order.order_items as OrderItemSummary[] | undefined;
-    if (!items) return [];
-    if (!user?.manufacturer_id) return items;
-    return items.filter((i) => i.assigned_manufacturer_id === user.manufacturer_id);
-  }, [user?.manufacturer_id]);
-
-  const getMyFactorySummary = useCallback((order: OrderWithItemCount) => {
-    const myItems = getMyFactoryItems(order);
-    if (myItems.length === 0) {
-      return { status: 'assigned' as string, deadline: null as string | null, amount: null as number | null, payDate: null as string | null, payStatus: null as string | null };
-    }
-    const statuses = myItems.map((i) => i.factory_status).filter(Boolean) as string[];
-    const status = statuses.length === 0 ? 'assigned' : (statuses.every((s) => s === statuses[0]) ? statuses[0] : 'mixed');
-    const deadlines = myItems.map((i) => i.deadline).filter(Boolean) as string[];
-    const deadline = deadlines.length > 0 ? deadlines.sort()[0] : null;
-    const amount = myItems.reduce((sum, i) => sum + (i.factory_amount ?? 0), 0) || null;
-    const payDates = myItems.map((i) => i.factory_payment_date).filter(Boolean) as string[];
-    const payDate = payDates.length > 0 ? payDates.sort()[0] : null;
-    const payStatuses = myItems.map((i) => i.factory_payment_status).filter(Boolean) as string[];
-    const payStatus = payStatuses.length === 0 ? null : (payStatuses.every((s) => s === payStatuses[0]) ? payStatuses[0] : 'mixed');
-    return { status, deadline, amount, payDate, payStatus };
-  }, [getMyFactoryItems]);
 
   const fieldSalesOpsSummary = useMemo(() => {
     const fieldOrders = orders.filter((order) => getOrderSourceKey(order) === 'partner_mall');
@@ -835,6 +851,7 @@ export default function OrdersTab() {
                     { key: 'order_category', label: '주문 구분' },
                     { key: 'item_count', label: '수량' },
                     { key: 'factory_status', label: '공장 배정 상태' },
+                    { key: 'factory_assigned_at', label: '배정일' },
                     { key: 'deadline', label: '마감일' },
                     { key: 'factory_amount', label: '공장배정금액' },
                     { key: 'factory_payment_date', label: '결제 예정일' },
@@ -866,11 +883,13 @@ export default function OrdersTab() {
                     { key: 'assignee', label: '영업담당자' },
                     { key: 'customer_name', label: '고객 정보' },
                     { key: 'created_at', label: '주문 일시' },
+                    { key: 'paid_at', label: '결제일' },
                     { key: 'total_amount', label: '금액' },
                     { key: 'order_status', label: '주문 상태' },
                     { key: 'payment_status', label: '결제상태' },
                     { key: 'factory', label: '공장 배정' },
                     { key: 'factory_status', label: '배정 상태' },
+                    { key: 'factory_assigned_at', label: '공장배정일' },
                   ] as const).map((col) => (
                     <th
                       key={col.key}
@@ -960,6 +979,7 @@ export default function OrdersTab() {
                         const fAmount = fSummary.amount;
                         const fPayDate = fSummary.payDate;
                         const fPayStatus = fSummary.payStatus;
+                        const fAssignedAt = fSummary.assignedAt;
                         return (
                           <>
                             <td className="px-4 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
@@ -980,6 +1000,9 @@ export default function OrdersTab() {
                                   <option value="shipped">출고완료</option>
                                 </select>
                               )}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className="text-sm text-gray-900">{formatKstDateShort(fAssignedAt)}</span>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap">
                               <div className="flex items-center gap-1 text-sm text-gray-900">
@@ -1104,6 +1127,11 @@ export default function OrdersTab() {
                         </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`text-xs ${order.paid_at ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
+                          {formatKstMonthDay(order.paid_at)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <span className="text-sm font-semibold text-gray-900">
                           {order.total_amount.toLocaleString()}원
                         </span>
@@ -1169,6 +1197,11 @@ export default function OrdersTab() {
                               ) : (
                                 <span className="text-xs text-gray-400">-</span>
                               )}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className={`text-xs ${hasFactory ? 'text-gray-900' : 'text-gray-400'}`}>
+                                {hasFactory ? formatKstMonthDay(getMyFactorySummary(order).assignedAt) : '-'}
+                              </span>
                             </td>
                           </>
                         );
@@ -1414,6 +1447,9 @@ export default function OrdersTab() {
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400">
                     <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{formatKstDateLong(order.created_at)}</span>
+                    {order.paid_at && (
+                      <span className="text-gray-600">결제 {formatKstMonthDay(order.paid_at)}</span>
+                    )}
                     {(() => {
                       const fl = getOrderFactoryLabel(order);
                       const fs = getOrderFactoryStatus(order);
