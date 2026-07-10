@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import useSWR from 'swr';
 import { OrderItem, Order } from '@/types/types';
+import OrderItemCanvas from '@/components/OrderItemCanvas';
 import {
   ClipboardList,
   Search,
@@ -81,27 +82,85 @@ function ColorDot({ hex }: { hex?: string }) {
   );
 }
 
-function ImagePreviewModal({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+/**
+ * 발주 썸네일 클릭 시 뜨는 시안 확인 모달.
+ * 발주 목록 payload 는 경량(canvas_state 없음)이라, 클릭 시 해당 주문의 전체 order_items 를
+ * 지연 로드해 해당 item 을 찾은 뒤, 관리자용 라이브 렌더러(OrderItemCanvas)로
+ * 앞/뒤/양옆 등 모든 면을 고객 시안확인과 동일하게 보여준다.
+ */
+function DesignProofModal({
+  orderId,
+  orderItemId,
+  title,
+  onClose,
+}: {
+  orderId: string;
+  orderItemId: string;
+  title: string;
+  onClose: () => void;
+}) {
+  const [item, setItem] = useState<OrderItem | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetch(`/api/admin/orders/items?orderId=${encodeURIComponent(orderId)}`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          throw new Error(payload?.error || '시안 정보를 불러오지 못했습니다.');
+        }
+        const payload = await res.json();
+        const found = (payload.data || []).find((i: OrderItem) => i.id === orderItemId) || null;
+        if (cancelled) return;
+        if (!found) throw new Error('해당 상품의 시안 정보를 찾을 수 없습니다.');
+        setItem(found);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : '불러오기 실패');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, orderItemId]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
       onClick={onClose}
     >
-      <div className="relative max-w-3xl max-h-[90vh] w-full" onClick={(e) => e.stopPropagation()}>
-        <button
-          onClick={onClose}
-          className="absolute -top-3 -right-3 z-10 w-8 h-8 flex items-center justify-center bg-white rounded-full shadow-lg text-gray-600 hover:text-gray-900 transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
-        <img
-          src={src}
-          alt={alt}
-          className="w-full h-auto max-h-[85vh] object-contain rounded-lg shadow-2xl bg-white"
-        />
-        {alt && (
-          <p className="text-center text-sm text-white/80 mt-3">{alt}</p>
-        )}
+      <div
+        className="relative bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-900 truncate pr-2">시안 확인 — {title}</h3>
+          <button
+            onClick={onClose}
+            className="shrink-0 w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="p-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : error ? (
+            <div className="text-center py-12 text-sm text-red-600">{error}</div>
+          ) : item ? (
+            <OrderItemCanvas orderItem={item} onBack={onClose} />
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -118,7 +177,7 @@ export default function PurchaseOrdersTab() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('orders');
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
-  const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null);
+  const [proofItem, setProofItem] = useState<{ orderId: string; orderItemId: string; title: string } | null>(null);
   const [confirmItems, setConfirmItems] = useState<{ id: string; product_title: string; quantity: number }[] | null>(null);
 
   const swrKey = useMemo(() => {
@@ -488,7 +547,13 @@ export default function PurchaseOrdersTab() {
             formatDate={formatDate}
             formatDateTime={formatDateTime}
             filteredItems={filteredItems}
-            onImageClick={(src, alt) => setPreviewImage({ src, alt })}
+            onThumbnailClick={(item) =>
+              setProofItem({
+                orderId: item.order_id,
+                orderItemId: item.id,
+                title: item.design_title || item.product_title,
+              })
+            }
           />
         ) : (
           <SummaryView summaryData={summaryData} />
@@ -507,11 +572,12 @@ export default function PurchaseOrdersTab() {
         )}
       </div>
 
-      {previewImage && (
-        <ImagePreviewModal
-          src={previewImage.src}
-          alt={previewImage.alt}
-          onClose={() => setPreviewImage(null)}
+      {proofItem && (
+        <DesignProofModal
+          orderId={proofItem.orderId}
+          orderItemId={proofItem.orderItemId}
+          title={proofItem.title}
+          onClose={() => setProofItem(null)}
         />
       )}
 
@@ -542,7 +608,7 @@ function OrdersView({
   formatDate,
   formatDateTime,
   filteredItems,
-  onImageClick,
+  onThumbnailClick,
 }: {
   groupedByOrder: Map<string, { order: PurchaseOrderItemWithOrder['orders']; items: PurchaseOrderItemWithOrder[] }>;
   expandedOrders: Set<string>;
@@ -555,7 +621,7 @@ function OrdersView({
   formatDate: (d: string | null) => string;
   formatDateTime: (d: string) => string;
   filteredItems: PurchaseOrderItemWithOrder[];
-  onImageClick: (src: string, alt: string) => void;
+  onThumbnailClick: (item: PurchaseOrderItemWithOrder) => void;
 }) {
   if (groupedByOrder.size === 0) return null;
 
@@ -659,9 +725,10 @@ function OrdersView({
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            onImageClick(item.thumbnail_url!, item.design_title || item.product_title);
+                            onThumbnailClick(item);
                           }}
-                          className="shrink-0 rounded overflow-hidden border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all cursor-zoom-in"
+                          title="시안 확인 (앞/뒤/양옆 등 전체 면 보기)"
+                          className="shrink-0 rounded overflow-hidden border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
                         >
                           <img
                             src={item.thumbnail_url}
@@ -686,7 +753,7 @@ function OrdersView({
                             {item.design_title}
                           </div>
                         )}
-                        <div className="flex flex-wrap gap-1.5 mt-1">
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           {variants.filter(v => (v.quantity ?? 0) > 0).map((v, vi) => (
                             <span
                               key={vi}
@@ -698,6 +765,16 @@ function OrdersView({
                               <span className="font-medium">x{v.quantity ?? item.quantity}</span>
                             </span>
                           ))}
+                          {(() => {
+                            const total = variants
+                              .filter((v) => (v.quantity ?? 0) > 0)
+                              .reduce((sum, v) => sum + (v.quantity ?? 0), 0) || item.quantity;
+                            return (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[11px] font-semibold">
+                                총 {total}개
+                              </span>
+                            );
+                          })()}
                         </div>
                       </div>
 
