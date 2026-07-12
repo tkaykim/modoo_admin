@@ -22,6 +22,7 @@ import {
   ZoomIn,
 } from 'lucide-react';
 import { fetcher } from '@/lib/fetcher';
+import DecisionsPanel from './DecisionsPanel';
 
 type Overview = {
   spend: number;
@@ -134,6 +135,7 @@ const pct = (value: number) => `${(value || 0).toFixed(0)}%`;
 const pct2 = (value: number) => `${(value || 0).toFixed(2)}%`;
 
 const tabs = [
+  { id: 'decisions', label: '오늘의 결정' },
   { id: 'tasks', label: '오늘 할 일' },
   { id: 'creatives', label: '소재 검수' },
   { id: 'upload', label: '소재 업로드' },
@@ -144,7 +146,7 @@ type TabId = (typeof tabs)[number]['id'];
 
 export default function MarketingConsole() {
   const [days, setDays] = useState(14);
-  const [tab, setTab] = useState<TabId>('tasks');
+  const [tab, setTab] = useState<TabId>('decisions');
   const [confirm, setConfirm] = useState<Recommendation | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -292,6 +294,8 @@ export default function MarketingConsole() {
                   ))}
                 </div>
               </div>
+
+              {tab === 'decisions' && <DecisionsPanel onChanged={() => mutate()} />}
 
               {tab === 'tasks' && (
                 <div className="divide-y divide-gray-100">
