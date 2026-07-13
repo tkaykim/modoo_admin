@@ -10,6 +10,7 @@ import AdminOrderCreator from '@/components/orders/AdminOrderCreator';
 import FactoryAllocationModal from '@/components/orders/FactoryAllocationModal';
 import RefundModal from '@/components/orders/RefundModal';
 import DeleteOrderModal from '@/components/orders/DeleteOrderModal';
+import FactoryPriceConfirmModal, { type FactoryPriceResult } from '@/components/factory/FactoryPriceConfirmModal';
 import { formatKstDateLong, formatKstDateShort, formatKstMonthDay } from '@/lib/kst';
 import { orderCategoryLabel } from '@/lib/order-category';
 import { isAdminLike } from '@/lib/auth-helpers';
@@ -18,12 +19,17 @@ import { isAdminLike } from '@/lib/auth-helpers';
 type OrderItemSummary = {
   id: string;
   purchase_order_status?: string;
+  product_title?: string | null;
   design_title?: string | null;
   thumbnail_url?: string | null;
+  quantity?: number | null;
   assigned_manufacturer_id?: string | null;
   factory_assigned_at?: string | null;
   factory_status?: string | null;
   factory_amount?: number | null;
+  factory_unit_price?: number | null;
+  factory_price_confirmed_at?: string | null;
+  factory_price_locked?: boolean | null;
   deadline?: string | null;
   factory_payment_date?: string | null;
   factory_payment_status?: string | null;
@@ -234,6 +240,10 @@ export default function OrdersTab() {
   const [editingAmountId, setEditingAmountId] = useState<string | null>(null);
   const [editingAmountValue, setEditingAmountValue] = useState<string>('');
   const [savingAmountId, setSavingAmountId] = useState<string | null>(null);
+  const [pendingFactoryStart, setPendingFactoryStart] = useState<{
+    orderId: string;
+    item: OrderItemSummary;
+  } | null>(null);
 
   const handleFactoryAmountSave = useCallback(async (orderId: string) => {
     const numValue = editingAmountValue.trim() === '' ? null : Number(editingAmountValue.replace(/,/g, ''));
@@ -263,12 +273,36 @@ export default function OrdersTab() {
   }, [editingAmountValue, mutateOrders]);
 
   const handleFactoryStatusChange = useCallback(async (orderId: string, newStatus: string) => {
+    const order = orders.find((o) => o.id === orderId);
+    const orderItems = (order?.order_items || []) as OrderItemSummary[];
+    const factoryItems =
+      user?.role === 'factory' && user.manufacturer_id
+        ? orderItems.filter((item) => item.assigned_manufacturer_id === user.manufacturer_id)
+        : orderItems;
+
+    if (isFactoryUser && newStatus === 'in_progress') {
+      if (factoryItems.length !== 1) {
+        router.push(`/orders/${orderId}`);
+        return;
+      }
+
+      const [item] = factoryItems;
+      if (!item.factory_price_locked) {
+        setPendingFactoryStart({ orderId, item });
+        return;
+      }
+    }
+
     setUpdatingFactoryStatusId(orderId);
     try {
+      const body: Record<string, unknown> = { orderId, factoryStatus: newStatus };
+      if (isFactoryUser && factoryItems.length === 1) {
+        body.orderItemId = factoryItems[0].id;
+      }
       const response = await fetch('/api/admin/orders', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, factoryStatus: newStatus }),
+        body: JSON.stringify(body),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -281,7 +315,39 @@ export default function OrdersTab() {
     } finally {
       setUpdatingFactoryStatusId(null);
     }
-  }, [mutateOrders]);
+  }, [isFactoryUser, mutateOrders, orders, router, user?.manufacturer_id, user?.role]);
+
+  const handleConfirmFactoryStart = useCallback(async (result: FactoryPriceResult) => {
+    if (!pendingFactoryStart) return;
+    const { orderId, item } = pendingFactoryStart;
+    setUpdatingFactoryStatusId(orderId);
+    try {
+      const response = await fetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId,
+          orderItemId: item.id,
+          factoryStatus: 'in_progress',
+          confirmFactoryPrice: true,
+          factoryAmount: result.amount,
+          factoryUnitPrice: result.unitPrice,
+          factoryPriceMode: result.mode,
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error || '상태 변경에 실패했습니다.');
+      }
+      setPendingFactoryStart(null);
+      mutateOrders();
+    } catch (error) {
+      console.error('Error starting factory work:', error);
+      setErrorMessage(error instanceof Error ? error.message : '상태 변경에 실패했습니다.');
+    } finally {
+      setUpdatingFactoryStatusId(null);
+    }
+  }, [mutateOrders, pendingFactoryStart]);
 
   const factoryMap = useMemo(() => {
     const map = new Map<string, Factory>();
@@ -631,6 +697,26 @@ export default function OrdersTab() {
 
   return (
     <div className="space-y-4">
+      <FactoryPriceConfirmModal
+        open={!!pendingFactoryStart}
+        itemTitle={
+          pendingFactoryStart?.item.design_title ||
+          pendingFactoryStart?.item.product_title ||
+          '배정 작업'
+        }
+        quantity={pendingFactoryStart?.item.quantity ?? null}
+        initialAmount={pendingFactoryStart?.item.factory_amount ?? 0}
+        defaultUnitPrice={
+          pendingFactoryStart?.item.factory_unit_price ??
+          (pendingFactoryStart?.item.factory_amount && pendingFactoryStart.item.quantity
+            ? Math.round(Number(pendingFactoryStart.item.factory_amount) / Number(pendingFactoryStart.item.quantity))
+            : null)
+        }
+        submitting={!!pendingFactoryStart && updatingFactoryStatusId === pendingFactoryStart.orderId}
+        onConfirm={handleConfirmFactoryStart}
+        onClose={() => setPendingFactoryStart(null)}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
