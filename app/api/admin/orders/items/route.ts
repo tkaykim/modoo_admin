@@ -435,9 +435,13 @@ export async function PATCH(request: Request) {
     if (newProductColor) {
       const { data: existing } = await adminClient
         .from('order_items')
-        .select('color_selections, item_options')
+        .select('product_id, color_selections, item_options')
         .eq('id', orderItemId)
         .single();
+
+      // hex만 갱신하면 발주관리(색상명 color_name/color_code 표시)에 옛 색이 남는다.
+      // 색상 정본(product_colors→manufacturer_colors)에서 이름/코드도 함께 갱신.
+      const resolvedColor = await resolveColorByHex(adminClient, existing?.product_id, newProductColor);
 
       const prevColorSelections = normalizeJson<Record<string, unknown>>(
         existing?.color_selections ?? null,
@@ -457,12 +461,20 @@ export async function PATCH(request: Request) {
         // (색 혼합 주문이 시안수정 저장 한 번에 한 색으로 뭉개지던 사고 방지 — ORD-20260630-S3H58R)
         nextItemOptions.variants = (prevItemOptions.variants as Array<Record<string, unknown>>).map((v) => {
           const vhex = typeof v.color_hex === 'string' ? v.color_hex : '';
-          if (!vhex || (prevColor && vhex === prevColor)) return { ...v, color_hex: newProductColor };
+          if (!vhex || (prevColor && vhex === prevColor)) {
+            const next: Record<string, unknown> = { ...v, color_hex: newProductColor };
+            // 색상명 미해석(팔레트 밖 hex) 시 기존 이름 유지 — 잘못 지우는 것보다 안전.
+            if (resolvedColor?.color_name) next.color_name = resolvedColor.color_name;
+            if (resolvedColor?.color_code) next.color_code = resolvedColor.color_code;
+            return next;
+          }
           return v;
         });
       }
       if (typeof prevItemOptions.color_hex === 'string') {
         nextItemOptions.color_hex = newProductColor;
+        if (resolvedColor?.color_name) nextItemOptions.color_name = resolvedColor.color_name;
+        if (resolvedColor?.color_code) nextItemOptions.color_code = resolvedColor.color_code;
       }
       updateData.item_options = nextItemOptions;
     }
