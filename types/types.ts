@@ -383,6 +383,8 @@ export interface Order {
 
   // 파트너몰 경유 주문 (실적 자동 귀속의 근거)
   partner_mall_id?: string | null;
+  /** Joined: partner_malls row */
+  partner_mall?: { id: string; name: string | null; slug: string | null } | null;
 
   // 비로그인 게스트 주문(예: /mall/[slug] 원클릭)
   guest_email?: string | null;
