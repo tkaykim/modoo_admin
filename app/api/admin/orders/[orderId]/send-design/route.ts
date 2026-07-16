@@ -3,6 +3,7 @@ import { isAdminLike } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { sendDesignProofEmailBulk } from '@/lib/notifications/design-proof';
+import { buildManualProofMessage, resolveProofRecipient } from '@/lib/notifications/proof-alimtalk';
 import { createHmac } from 'crypto';
 
 function generateDesignToken(orderId: string, orderItemId: string): string {
@@ -54,7 +55,7 @@ export async function POST(
 
     const { data: order, error: orderError } = await adminClient
       .from('orders')
-      .select('id, customer_name, customer_email, user_id')
+      .select('id, customer_name, customer_email, user_id, guest_name, customer_phone, guest_phone')
       .eq('id', orderId)
       .single();
 
@@ -143,15 +144,24 @@ export async function POST(
       confirmToken: token,
     });
 
+    // 링크 하나로 이 주문의 전 시안을 함께 보여주므로 문구도 주문 단위로 1건만 만든다.
+    const { customerName, phone } = resolveProofRecipient(order);
+    const manualMessage = {
+      customerName,
+      phone,
+      label: `${ready.length}개 상품 (주문 전체)`,
+      text: buildManualProofMessage({ customerName, orderId, token }),
+    };
+
     if (!sent) {
       // 상태는 design_shared 로 전환됨(고객 페이지에서 확인 가능) — 메일만 실패
       return NextResponse.json(
-        { error: '시안 상태는 전환했으나 안내 메일 발송에 실패했습니다.', shared: sharedIds, skipped },
+        { error: '시안 상태는 전환했으나 안내 메일 발송에 실패했습니다.', shared: sharedIds, skipped, manualMessage },
         { status: 502 }
       );
     }
 
-    return NextResponse.json({ success: true, shared: sharedIds, skipped });
+    return NextResponse.json({ success: true, shared: sharedIds, skipped, manualMessage });
   } catch (error) {
     console.error('Error sending bulk design proof:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

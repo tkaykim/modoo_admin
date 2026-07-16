@@ -47,6 +47,25 @@ interface OrderDetailProps {
   initialAddItemDesignId?: string | null;
 }
 
+function getOrderSourceInfo(order: Pick<Order, 'id' | 'order_category' | 'partner_mall_id'>) {
+  if (order.order_category === 'surcharge') {
+    return { label: '차액주문', className: 'bg-orange-100 text-orange-800' };
+  }
+  if (order.order_category === 'quick') {
+    return { label: '간이주문', className: 'bg-amber-100 text-amber-800' };
+  }
+  if (order.id.startsWith('ORDER-')) {
+    return { label: '관리자생성주문', className: 'bg-purple-100 text-purple-800' };
+  }
+  if (order.order_category === 'salesman_direct') {
+    return { label: '영업직접주문', className: 'bg-emerald-100 text-emerald-800' };
+  }
+  if (order.partner_mall_id) {
+    return { label: '영업몰고객주문', className: 'bg-teal-100 text-teal-800' };
+  }
+  return { label: '고객직접주문', className: 'bg-sky-100 text-sky-800' };
+}
+
 export default function OrderDetail({
   order,
   onBack,
@@ -98,6 +117,12 @@ export default function OrderDetail({
   const [copiedShareLink, setCopiedShareLink] = useState(false);
   const [sendingDesignItemId, setSendingDesignItemId] = useState<string | null>(null);
   const [sendingAllDesigns, setSendingAllDesigns] = useState(false);
+
+  // 시안확인 수동발송 — 카카오 채널 장애로 알림톡 자동발송이 막혔을 때 운영자가 문구를 복사해 직접 보낸다.
+  type ManualProof = { customerName: string; phone: string | null; label: string; text: string };
+  const [manualProof, setManualProof] = useState<ManualProof | null>(null);
+  const [manualProofBusyId, setManualProofBusyId] = useState<string | null>(null);
+  const [manualProofCopied, setManualProofCopied] = useState(false);
 
   // Logen shipping state
   const [showLogenModal, setShowLogenModal] = useState(false);
@@ -179,6 +204,94 @@ export default function OrderDetail({
       setSendingDesignItemId(null);
     }
   }, [order.id]);
+
+  const openManualProof = useCallback((message: ManualProof) => {
+    setManualProof(message);
+    setManualProofCopied(false);
+  }, []);
+
+  // 이미 시안확인요청을 보낸 품목의 문구를 다시 꺼내온다 (상태 변화 없음).
+  const handleCopyManualProof = useCallback(async (itemId: string) => {
+    setManualProofBusyId(itemId);
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/items/${itemId}/send-design`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.manualMessage) {
+        openManualProof(data.manualMessage);
+      } else {
+        alert(data.error || '문구를 불러오지 못했습니다.');
+      }
+    } catch {
+      alert('문구를 불러오는 중 오류가 발생했습니다.');
+    } finally {
+      setManualProofBusyId(null);
+    }
+  }, [order.id, openManualProof]);
+
+  // 수동발송: 자동발송과 똑같이 상태 전환 + 안내 메일을 태우고, 카톡에 붙여넣을 문구를 띄운다.
+  const handleManualSendDesign = useCallback(async (itemId: string) => {
+    if (!confirm('시안확인요청을 보내고, 카카오톡에 붙여넣을 문구를 띄웁니다.\n(고객 확정 링크가 살아나려면 이 전환이 필요합니다)')) return;
+    setManualProofBusyId(itemId);
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/items/${itemId}/send-design`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (data.manualMessage) {
+        setOrderItems((prev) =>
+          prev.map((item) =>
+            item.id === itemId
+              ? { ...item, design_status: 'design_shared', design_shared_at: new Date().toISOString() }
+              : item
+          )
+        );
+        openManualProof(data.manualMessage);
+        // 메일만 실패한 경우에도 문구는 내려온다 — 상태는 이미 전환됐으니 카톡 발송으로 이어가면 된다.
+        if (!res.ok) alert(`${data.error}\n\n시안 상태는 전환됐습니다. 아래 문구로 카톡 발송을 진행해 주세요.`);
+      } else {
+        alert(data.error || '수동발송 준비에 실패했습니다.');
+      }
+    } catch {
+      alert('수동발송 준비 중 오류가 발생했습니다.');
+    } finally {
+      setManualProofBusyId(null);
+    }
+  }, [order.id, openManualProof]);
+
+  const handleManualSendAllDesigns = useCallback(async () => {
+    if (!confirm('이 주문의 모든 준비된 시안을 확인요청하고, 카카오톡에 붙여넣을 문구를 띄웁니다.')) return;
+    setManualProofBusyId('__all__');
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/send-design`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (data.manualMessage) {
+        const sharedSet = new Set<string>(Array.isArray(data.shared) ? data.shared : []);
+        const now = new Date().toISOString();
+        setOrderItems((prev) =>
+          prev.map((item) =>
+            sharedSet.has(item.id) ? { ...item, design_status: 'design_shared', design_shared_at: now } : item
+          )
+        );
+        openManualProof(data.manualMessage);
+        if (!res.ok) alert(`${data.error}\n\n시안 상태는 전환됐습니다. 아래 문구로 카톡 발송을 진행해 주세요.`);
+      } else {
+        alert(data.error || '수동발송 준비에 실패했습니다.');
+      }
+    } catch {
+      alert('수동발송 준비 중 오류가 발생했습니다.');
+    } finally {
+      setManualProofBusyId(null);
+    }
+  }, [order.id, openManualProof]);
+
+  const handleCopyManualProofText = useCallback(async () => {
+    if (!manualProof) return;
+    try {
+      await navigator.clipboard.writeText(manualProof.text);
+      setManualProofCopied(true);
+      setTimeout(() => setManualProofCopied(false), 2000);
+    } catch {
+      alert('복사에 실패했습니다. 문구를 직접 선택해 복사해 주세요.');
+    }
+  }, [manualProof]);
 
   useEffect(() => {
     fetchOrderItems();
@@ -496,6 +609,7 @@ export default function OrderDetail({
     (sum, item) => sum + (item.price_per_item ?? 0) * (item.quantity ?? 0),
     0
   );
+  const orderSourceInfo = getOrderSourceInfo(order);
 
   // 배경제거 기능을 쓴 주문 아이템의 고객 원본 이미지(kind === 'original').
   // 디자인 에셋(order_items.image_urls)에만 저장되므로, 고객이 결제 시 올린
@@ -1126,6 +1240,12 @@ export default function OrderDetail({
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">경로</span>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${orderSourceInfo.className}`}>
+              {orderSourceInfo.label}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">영업담당자</span>
             <AssigneePicker
               value={order.attributed_salesman ? { id: order.attributed_salesman.id, label: order.attributed_salesman.display_name || '영업사원', sub: order.attributed_salesman.salesman_code } : null}
@@ -1134,6 +1254,46 @@ export default function OrderDetail({
           </div>
           <div className="ml-auto text-xs text-gray-400">
             {formatKstDateLong(order.created_at)}
+          </div>
+        </div>
+      )}
+
+      {!isFactoryUser && order.partner_mall_id && (
+        <div className="rounded-md border border-teal-200 bg-teal-50/70 px-4 py-3">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-teal-900 flex items-center gap-2">
+                <Link2 className="w-4 h-4" />
+                영업몰 고객 주문입니다
+              </p>
+              <p className="mt-1 text-xs text-teal-800 leading-relaxed">
+                {order.partner_mall?.name || '연결된 파트너몰'}에서 고객이 직접 주문한 건입니다.
+                영업담당자와 매출 귀속을 바꾸기 전에는 파트너몰과 주문 경로를 함께 확인하세요.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-teal-800">
+                <span className="rounded bg-white/80 border border-teal-100 px-2 py-1">
+                  파트너몰: {order.partner_mall?.name || order.partner_mall_id}
+                </span>
+                {order.partner_mall?.slug && (
+                  <span className="rounded bg-white/80 border border-teal-100 px-2 py-1 font-mono">
+                    /mall/{order.partner_mall.slug}
+                  </span>
+                )}
+                {order.attributed_salesman && (
+                  <span className="rounded bg-white/80 border border-teal-100 px-2 py-1">
+                    담당: {order.attributed_salesman.display_name || order.attributed_salesman.salesman_code || '영업사원'}
+                  </span>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push(`/partner_malls/${order.partner_mall_id}`)}
+              className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-md bg-white px-3 py-2 text-xs font-bold text-teal-800 border border-teal-200 hover:bg-teal-100 transition-colors"
+            >
+              <Link2 className="w-3.5 h-3.5" />
+              파트너몰 보기
+            </button>
           </div>
         </div>
       )}
@@ -1159,6 +1319,17 @@ export default function OrderDetail({
                 >
                   {sendingAllDesigns ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                   전체 시안 확인요청
+                </button>
+              )}
+              {!isFactoryUser && !loading && orderItems.length > 1 && (
+                <button
+                  onClick={handleManualSendAllDesigns}
+                  disabled={manualProofBusyId === '__all__'}
+                  title="전체 시안 확인요청을 보내고, 카카오톡에 붙여넣을 문구를 띄웁니다. (알림톡 장애 시 사용)"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-md hover:bg-indigo-50 transition-colors disabled:opacity-60"
+                >
+                  {manualProofBusyId === '__all__' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MessageSquare className="w-3.5 h-3.5" />}
+                  전체 수동발송
                 </button>
               )}
               {!isFactoryUser && order.order_category !== 'cobuy' && (
@@ -1288,7 +1459,7 @@ export default function OrderDetail({
                           return variants.length > 1 ? (
                             <div className="flex flex-wrap gap-1 mt-2">
                               {variants.filter(v => (v.quantity ?? 0) > 0).map((v, vi) => (
-                                <span key={vi} title={[v.color_name, v.size_name].filter(Boolean).join(" / ") || undefined} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
+                                <span key={vi} title={[v.color_name, v.size_name].filter(Boolean).join(' / ') || undefined} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
                                   {v.color_hex && <span title={v.color_name || undefined} className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: v.color_hex }} />}
                                   {v.size_name && <span>{v.size_name}</span>}
                                   <span className="font-medium">x{v.quantity}</span>
@@ -1321,6 +1492,21 @@ export default function OrderDetail({
                                 {item.design_status === 'design_shared' ? '시안 재요청'
                                   : item.design_status === 'revision_requested' ? '시안 재발송'
                                   : '시안확인요청'}
+                              </button>
+                            )}
+                            {!isFactoryUser && item.design_status !== 'confirmed' && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (item.design_status === 'design_shared') handleCopyManualProof(item.id);
+                                  else handleManualSendDesign(item.id);
+                                }}
+                                disabled={manualProofBusyId === item.id}
+                                title="카카오톡에 그대로 붙여넣을 문구와 시안 링크를 띄웁니다. (알림톡 장애 시 사용)"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors disabled:opacity-50 whitespace-nowrap"
+                              >
+                                {manualProofBusyId === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MessageSquare className="w-3.5 h-3.5" />}
+                                {item.design_status === 'design_shared' ? '문구 복사' : '수동발송'}
                               </button>
                             )}
                             {!isFactoryUser && item.design_status === 'confirmed' && (
@@ -2722,6 +2908,61 @@ export default function OrderDetail({
             onUpdate();
           }}
         />
+      )}
+
+      {/* 시안확인 수동발송 문구 — 알림톡 자동발송이 막혔을 때 카카오톡으로 그대로 복붙 */}
+      {manualProof && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setManualProof(null)}>
+          <div className="w-full max-w-lg rounded-lg bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+              <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-gray-900">
+                <MessageSquare className="w-4 h-4 text-purple-600" />
+                카카오톡 수동발송 문구
+              </h3>
+              <button onClick={() => setManualProof(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 px-4 py-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs text-gray-600">
+                <div>고객명: <span className="font-medium text-gray-900">{manualProof.customerName}</span></div>
+                <div>
+                  연락처: <span className="font-medium text-gray-900">{manualProof.phone || '등록된 번호 없음'}</span>
+                </div>
+                <div className="sm:col-span-2">대상: <span className="font-medium text-gray-900">{manualProof.label}</span></div>
+              </div>
+
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                <p className="whitespace-pre-wrap break-all text-[13px] leading-relaxed text-gray-800">{manualProof.text}</p>
+              </div>
+
+              <p className="text-[11px] leading-relaxed text-gray-500">
+                시안 상태는 이미 &apos;고객 확인대기&apos;로 전환됐고 안내 메일도 나갔습니다.
+                <br />
+                이 문구만 고객 카카오톡에 붙여넣으면 됩니다.
+                <br />
+                링크는 발급 시점부터 7일간 유효합니다.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-gray-100 px-4 py-3">
+              <button
+                onClick={() => setManualProof(null)}
+                className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900"
+              >
+                닫기
+              </button>
+              <button
+                onClick={handleCopyManualProofText}
+                className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-purple-700"
+              >
+                {manualProofCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {manualProofCopied ? '복사됨' : '문구 전체 복사'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <AddOrderItemModal
