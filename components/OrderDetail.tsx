@@ -117,6 +117,8 @@ export default function OrderDetail({
   const [copiedShareLink, setCopiedShareLink] = useState(false);
   const [sendingDesignItemId, setSendingDesignItemId] = useState<string | null>(null);
   const [sendingAllDesigns, setSendingAllDesigns] = useState(false);
+  // 확정본을 고객 '내 디자인'으로 수동 반영 (자동 반영은 고객 시안확정 시점에 수행됨)
+  const [syncingDesignItemId, setSyncingDesignItemId] = useState<string | null>(null);
 
   // 시안확인 수동발송 — 카카오 채널 장애로 알림톡 자동발송이 막혔을 때 운영자가 문구를 복사해 직접 보낸다.
   type ManualProof = { customerName: string; phone: string | null; label: string; text: string };
@@ -202,6 +204,27 @@ export default function OrderDetail({
       alert('발송 중 오류가 발생했습니다.');
     } finally {
       setSendingDesignItemId(null);
+    }
+  }, [order.id]);
+
+  // 주문 상품의 현재 아트워크를 고객 '내 디자인'에 수동 반영 (전화 확정 대행·과거 확정 건 소급용)
+  const handleSyncDesignToCustomer = useCallback(async (itemId: string) => {
+    if (!confirm('이 상품의 현재 디자인(확정본)을 고객의 [내 디자인]에 반영하시겠습니까?')) return;
+    setSyncingDesignItemId(itemId);
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/items/${itemId}/sync-design`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message || '고객 디자인에 반영했습니다.');
+      } else {
+        alert(data.error || '반영에 실패했습니다.');
+      }
+    } catch {
+      alert('반영 중 오류가 발생했습니다.');
+    } finally {
+      setSyncingDesignItemId(null);
     }
   }, [order.id]);
 
@@ -1511,6 +1534,17 @@ export default function OrderDetail({
                             )}
                             {!isFactoryUser && item.design_status === 'confirmed' && (
                               <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 whitespace-nowrap">✓ 고객 확정완료</span>
+                            )}
+                            {!isFactoryUser && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleSyncDesignToCustomer(item.id); }}
+                                disabled={syncingDesignItemId === item.id}
+                                title="이 상품의 현재 디자인(확정본)을 고객의 [내 디자인]에 반영합니다. 고객이 시안확정하면 자동 반영되며, 이 버튼은 전화 확정·과거 주문 소급용입니다."
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors disabled:opacity-50 whitespace-nowrap"
+                              >
+                                {syncingDesignItemId === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                                고객 디자인에 반영
+                              </button>
                             )}
                             <button
                               onClick={(e) => {
