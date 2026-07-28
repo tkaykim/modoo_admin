@@ -178,6 +178,11 @@ export default function OrderModePanel({
         calibrationNativeMmPerPx?: number;
         scaledImageWidth?: number;
         originalImageWidth?: number;
+        getObjects?: () => Array<{
+          data?: { objectId?: string };
+          objectId?: string;
+          getBoundingRect?: () => { width: number; height: number };
+        }>;
       } | undefined;
       if (liveCanvas) {
         const native = liveCanvas.calibrationNativeMmPerPx ?? 0;
@@ -209,13 +214,20 @@ export default function OrderModePanel({
         addColor(obj.fill);
         addColor(obj.stroke);
 
-        const objWidth = (obj.width || 0) * (obj.scaleX || 1);
-        const objHeight = (obj.height || 0) * (obj.scaleY || 1);
+        const serializedWidth = (obj.width || 0) * (obj.scaleX || 1);
+        const serializedHeight = (obj.height || 0) * (obj.scaleY || 1);
+        const liveObject = objectId && liveCanvas?.getObjects
+          ? liveCanvas.getObjects().find((candidate) => (
+              candidate.data?.objectId === objectId || candidate.objectId === objectId
+            ))
+          : undefined;
+        const liveBounds = liveObject?.getBoundingRect?.();
+        const objectWidthPx = liveBounds?.width ?? serializedWidth;
+        const objectHeightPx = liveBounds?.height ?? serializedHeight;
 
-        // Unify on the customer's alpha-box standard: trust the stored
-        // (alpha-measured) widthMm/heightMm only when the alpha marker is
-        // present (new orders); otherwise fall back to a geometric recompute
-        // from the serialized canvas_state (legacy orders).
+        // The selected-object tooltip uses the live Fabric bounding rect.
+        // Use the exact same source here so the panel cannot disagree with it.
+        // Serialized/stored values remain fallback-only while the canvas loads.
         const sizeBasis = obj.data?.sizeBasis ?? obj.sizeBasis;
         const storedWidthMm = typeof obj.data?.widthMm === 'number'
           ? obj.data.widthMm
@@ -233,8 +245,8 @@ export default function OrderModePanel({
           storedHeightMm,
           // 환산비를 모르면(0) live 값을 주지 않는다 → 박제값도 없으면 0으로
           // 떨어지고 UI가 "측정 불가"를 표시 (틀린 숫자 표시 금지).
-          liveWidthMm: pixelToMmRatio > 0 ? objWidth * pixelToMmRatio : undefined,
-          liveHeightMm: pixelToMmRatio > 0 ? objHeight * pixelToMmRatio : undefined,
+          liveWidthMm: pixelToMmRatio > 0 ? objectWidthPx * pixelToMmRatio : undefined,
+          liveHeightMm: pixelToMmRatio > 0 ? objectHeightPx * pixelToMmRatio : undefined,
         });
 
         let objectType = obj.type || 'Object';

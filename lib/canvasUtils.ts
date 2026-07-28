@@ -226,20 +226,21 @@ const isPositiveFinite = (v: number | null | undefined): v is number =>
  * Resolve an object's display size in mm on the customer's alpha-box standard.
  *
  * Priority:
- * 1. `sizeBasis === 'alpha'` and stored W/H present → trust stored (new orders).
- * 2. else → live geometric recompute (legacy fallback).
- * 3. if live is unavailable (e.g. ratio missing) → fall back to any stored value.
+ * 1. Live geometric size when the canvas and conversion ratio are available.
+ * 2. Stored W/H only when live measurement is unavailable.
+ *
+ * Stored dimensions are a persistence fallback, not display authority.
+ * A product calibration or canvas scale can legitimately change after an order
+ * was saved, so preferring stored values would make the side panel disagree
+ * with the selected object's on-canvas size tooltip.
  */
 export function resolveObjectSizeMm(
   input: ResolveSizeMmInput
 ): { widthMm: number; heightMm: number } {
-  const { sizeBasis, storedWidthMm, storedHeightMm, liveWidthMm, liveHeightMm } = input;
+  const { storedWidthMm, storedHeightMm, liveWidthMm, liveHeightMm } = input;
   const hasStored = isPositiveFinite(storedWidthMm) && isPositiveFinite(storedHeightMm);
   const hasLive = isPositiveFinite(liveWidthMm) && isPositiveFinite(liveHeightMm);
 
-  if (sizeBasis === ALPHA_SIZE_BASIS && hasStored) {
-    return { widthMm: storedWidthMm as number, heightMm: storedHeightMm as number };
-  }
   if (hasLive) {
     return { widthMm: liveWidthMm as number, heightMm: liveHeightMm as number };
   }
