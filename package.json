@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "ga4": "tsx scripts/ga4/cli.ts"
+    "ga4": "tsx scripts/ga4/cli.ts",
+    "test:regression": "tsx --test lib/canvasUtils.regression-1.test.ts"
   },
   "dependencies": {
     "@fontsource/noto-sans-kr": "^5.2.9",
