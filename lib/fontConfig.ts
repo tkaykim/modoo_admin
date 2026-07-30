@@ -13,6 +13,7 @@ export interface SystemFontConfig {
 }
 
 export const SYSTEM_FONTS: SystemFontConfig[] = [
+  { fontFamily: 'Pretendard', localFontPath: '/fonts/Pretendard-Regular.ttf' },
   { fontFamily: 'Freshman', localFontPath: '/fonts/Freshman.ttf' },
   { fontFamily: 'Arial', localFontPath: '/fonts/Arimo-Regular.ttf' },
   { fontFamily: 'Times New Roman', localFontPath: '/fonts/Tinos-Regular.ttf' },

@@ -14,30 +14,41 @@ export async function exportOrderTextAssets(
   const results: Record<string, string> = {};
 
   for (const [sideId, rawState] of Object.entries(canvasStateMap)) {
-    const state = parseCanvasState(rawState);
-    const outlined = await buildOutlinedTextSvg(state, sideId, { customFonts });
-    if (!outlined.svg || outlined.textCount === 0) continue;
+    try {
+      const state = parseCanvasState(rawState);
+      const outlined = await buildOutlinedTextSvg(state, sideId, { customFonts });
+      if (!outlined.svg || outlined.textCount === 0) continue;
 
-    // Never replace a production asset with an SVG that still depends on a
-    // locally installed font.
-    if (outlined.outlinedCount !== outlined.textCount) {
-      throw new Error(
-        `텍스트를 벡터 경로로 확정할 수 없습니다: ${sideId} ` +
-        `(${outlined.fallbackFonts.join(', ') || 'font unavailable'})`
+      if (outlined.outlinedCount !== outlined.textCount) {
+        console.warn(
+          `[order-text-export] ${sideId}: path 변환 불가 폰트는 원본 <text> SVG로 저장합니다.`,
+          outlined.fallbackFonts
+        );
+      }
+
+      const upload = await uploadSVGToStorage(
+        supabase,
+        outlined.svg,
+        STORAGE_BUCKETS.TEXT_EXPORTS,
+        STORAGE_FOLDERS.SVG,
+        `admin-order-${orderItemId}-${sideId}-${Date.now()}.svg`
+      );
+      if (!upload.success || !upload.url) {
+        console.warn(
+          `[order-text-export] ${sideId}: SVG 업로드 실패로 기존 생산 자산을 유지합니다.`,
+          upload.error
+        );
+        continue;
+      }
+      results[sideId] = upload.url;
+    } catch (error) {
+      // Canvas JSON + immutable font metadata are the save source of truth.
+      // Asset generation is best-effort and must not block an order edit.
+      console.warn(
+        `[order-text-export] ${sideId}: SVG 생성 실패로 기존 생산 자산을 유지합니다.`,
+        error
       );
     }
-
-    const upload = await uploadSVGToStorage(
-      supabase,
-      outlined.svg,
-      STORAGE_BUCKETS.TEXT_EXPORTS,
-      STORAGE_FOLDERS.SVG,
-      `admin-order-${orderItemId}-${sideId}-${Date.now()}.svg`
-    );
-    if (!upload.success || !upload.url) {
-      throw new Error(`관리자 텍스트 SVG 저장 실패: ${sideId}`);
-    }
-    results[sideId] = upload.url;
   }
 
   return results;
