@@ -54,6 +54,10 @@ const printMethodColorClass = (method?: string | null): string => {
   return (method && colorMap[method]) || 'bg-gray-100 text-gray-600';
 };
 
+const detailRowClass = 'flex items-start gap-1 min-w-0';
+const detailLabelClass = 'text-gray-400 shrink-0 w-10 whitespace-nowrap';
+const detailValueClass = 'min-w-0 text-gray-700';
+
 export type PublicOrderPanelData = {
   orderId: string;
   customerNote: string | null;
@@ -808,16 +812,16 @@ export default function OrderModePanel({
                               </button>
                             </div>
                             <div className="space-y-0.5 text-[10px]">
-                              <div className="flex gap-1">
-                                <span className="text-gray-400 shrink-0 w-7">방식</span>
+                              <div className={detailRowClass}>
+                                <span className={detailLabelClass}>방식</span>
                                 <span className={`font-medium px-1 rounded ${printMethodColorClass(dim.printMethod)}`}>
                                   {getPrintMethodDisplayName(dim.printMethod || 'dtf')}
                                 </span>
                               </div>
-                              <div className="flex gap-1">
-                                <span className="text-gray-400 shrink-0 w-7">크기</span>
+                              <div className={detailRowClass}>
+                                <span className={detailLabelClass}>크기</span>
                                 {dim.widthMm > 0 && dim.heightMm > 0 ? (
-                                  <span className="text-gray-700">
+                                  <span className={detailValueClass}>
                                     {formatSizeCm(dim.widthMm, dim.heightMm)}
                                   </span>
                                 ) : (
@@ -827,8 +831,8 @@ export default function OrderModePanel({
                                 )}
                               </div>
                               {dim.colors && dim.colors.length > 0 && (
-                                <div className="flex gap-1 items-center">
-                                  <span className="text-gray-400 shrink-0 w-7">색상</span>
+                                <div className="flex items-start gap-1 min-w-0">
+                                  <span className={detailLabelClass}>색상</span>
                                   <div className="flex flex-wrap gap-1">
                                     {dim.colors.map((c) => (
                                       <span key={c} className="inline-flex items-center gap-0.5">
@@ -840,34 +844,36 @@ export default function OrderModePanel({
                                 </div>
                               )}
                               {dim.fontFamily && (
-                                <div className="flex gap-1">
-                                  <span className="text-gray-400 shrink-0 w-7">폰트</span>
-                                  <span className="text-gray-700 truncate">{dim.fontDisplayName || dim.fontFamily}</span>
+                                <div className={detailRowClass}>
+                                  <span className={detailLabelClass}>폰트</span>
+                                  <span className={`${detailValueClass} truncate`}>{dim.fontDisplayName || dim.fontFamily}</span>
                                 </div>
                               )}
                               {dim.fontFamily && (
-                                <div className="flex gap-1">
-                                  <span className="text-gray-400 shrink-0 w-7">스타일</span>
-                                  <span className="text-gray-700">
+                                <div className={detailRowClass}>
+                                  <span className={detailLabelClass}>스타일</span>
+                                  <span className={detailValueClass}>
                                     {String(dim.fontWeight || 'normal')} · {dim.fontStyle || 'normal'}
                                   </span>
                                 </div>
                               )}
                               {dim.fontFileStyle && (
-                                <div className="flex gap-1">
-                                  <span className="text-gray-400 shrink-0 w-7">파일</span>
-                                  <span className="text-gray-700">{dim.fontFileStyle}</span>
+                                <div className={detailRowClass}>
+                                  <span className={detailLabelClass}>파일</span>
+                                  <span className={detailValueClass}>{dim.fontFileStyle}</span>
                                 </div>
                               )}
                               {dim.fontFamily && (
-                                <div className="flex gap-1 items-center">
-                                  <span className="text-gray-400 shrink-0 w-7">외곽선</span>
-                                  <span
-                                    className="w-2.5 h-2.5 rounded-sm border border-gray-300"
-                                    style={{ backgroundColor: dim.stroke || 'transparent' }}
-                                  />
-                                  <span className="text-gray-700">
-                                    {dim.strokeWidth || 0}px{dim.stroke ? ` · ${dim.stroke}` : ''}
+                                <div className={detailRowClass}>
+                                  <span className={detailLabelClass}>외곽선</span>
+                                  <span className="inline-flex min-w-0 items-center gap-1">
+                                    <span
+                                      className="w-2.5 h-2.5 shrink-0 rounded-sm border border-gray-300"
+                                      style={{ backgroundColor: dim.stroke || 'transparent' }}
+                                    />
+                                    <span className={detailValueClass}>
+                                      {dim.strokeWidth || 0}px{dim.stroke ? ` · ${dim.stroke}` : ''}
+                                    </span>
                                   </span>
                                 </div>
                               )}
