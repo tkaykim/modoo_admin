@@ -15,6 +15,10 @@ import {
 import { EditorMode } from './useEditorMode';
 import { parseCanvasState, coerceCustomFonts } from '@/lib/downloadUtils';
 import { useFontStore } from '@/store/useFontStore';
+import {
+  extractCustomFontsFromCanvasState,
+  mergeCustomFonts,
+} from '@/lib/font-contract';
 
 interface UseEditorDataParams {
   productId: string;
@@ -174,7 +178,10 @@ export function useEditorData({
             setProduct((prev) => (prev ? { ...prev, configuration: frozenSides as typeof prev.configuration } : prev));
           }
           setCanvasStates(item.canvas_state || {});
-          const itemCustomFonts = coerceCustomFonts(item.custom_fonts);
+          const itemCustomFonts = mergeCustomFonts(
+            coerceCustomFonts(item.custom_fonts),
+            extractCustomFontsFromCanvasState(item.canvas_state || {})
+          );
           setCustomFonts(itemCustomFonts);
           setFontStoreCustomFonts(itemCustomFonts);
 
@@ -223,7 +230,10 @@ export function useEditorData({
           if (cancelled) return;
           setSavedDesign(design);
           setCanvasStates(design.canvas_state || {});
-          const designCustomFonts = coerceCustomFonts(design.custom_fonts);
+          const designCustomFonts = mergeCustomFonts(
+            coerceCustomFonts(design.custom_fonts),
+            extractCustomFontsFromCanvasState(design.canvas_state || {})
+          );
           setCustomFonts(designCustomFonts);
           setFontStoreCustomFonts(designCustomFonts);
 

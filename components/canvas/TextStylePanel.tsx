@@ -23,7 +23,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { useFontStore } from '@/store/useFontStore';
-import { uploadFont, isValidFontFile } from '@/lib/fontUtils';
+import { uploadFont, isValidFontFile, type FontMetadata } from '@/lib/fontUtils';
 import { createClient } from '@/lib/supabase-client';
 import {
   CurvedText,
@@ -31,6 +31,7 @@ import {
   convertToCurvedText,
 } from '@/lib/curvedText';
 import { SYSTEM_FONT_NAMES } from '@/lib/fontConfig';
+import type { CustomFont } from '@/types/types';
 
 interface TextStylePanelProps {
   selectedObject: fabric.IText | fabric.Text;
@@ -141,15 +142,14 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({ selectedObject, onClose
     }
   };
 
-  const handleFontFamilyChange = (value: string, fontUrl?: string) => {
+  const handleFontFamilyChange = (
+    value: string,
+    selectedFont?: FontMetadata | CustomFont
+  ) => {
     setFontFamily(value);
-    let url = fontUrl;
-    if (!url) {
-      const customFont = customFonts.find(f => f.fontFamily === value);
-      if (customFont) {
-        url = customFont.url;
-      }
-    }
+    const customFont =
+      selectedFont ||
+      customFonts.find((font) => font.fontFamily === value);
 
     if (selectedObject && isCurvedText(selectedObject)) {
       // Use setFont for CurvedText to properly reload font and update bounds
@@ -165,10 +165,14 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({ selectedObject, onClose
       };
       const existingData = textObject.data || {};
       const nextData = { ...existingData };
-      if (url) {
-        nextData.fontUrl = url;
+      if (customFont?.url) {
+        nextData.fontUrl = customFont.url;
+        nextData.fontMetadata = customFont;
+        nextData.fontDisplayName = customFont.displayName || customFont.fontFamily;
       } else {
         delete nextData.fontUrl;
+        delete nextData.fontMetadata;
+        delete nextData.fontDisplayName;
       }
       textObject.set('data', nextData);
       textObject.set('dirty', true);
@@ -320,10 +324,10 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({ selectedObject, onClose
         await loadAllFonts();
 
         // Apply the font to selected text
-        handleFontFamilyChange(result.fontMetadata.fontFamily, result.fontMetadata.url);
+        handleFontFamilyChange(result.fontMetadata.fontFamily, result.fontMetadata);
 
         // Show copyright notice modal
-        setUploadedFontName(result.fontMetadata.fontFamily);
+        setUploadedFontName(result.fontMetadata.displayName || result.fontMetadata.fontFamily);
         setShowCopyrightNotice(true);
       } else {
         alert(`폰트 업로드 실패: ${result.error}`);
@@ -629,7 +633,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({ selectedObject, onClose
                                 role="option"
                                 aria-selected={isSelected}
                                 onClick={() => {
-                                  handleFontFamilyChange(customFont.fontFamily);
+                                  handleFontFamilyChange(customFont.fontFamily, customFont);
                                   setIsFontDropdownOpen(false);
                                 }}
                                 className={`w-full px-3 py-2 flex items-center gap-3 text-left hover:bg-gray-50 ${
@@ -640,7 +644,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({ selectedObject, onClose
                                   {isSelected ? <Check className="size-4" /> : null}
                                 </span>
                                 <span className="flex-1 min-w-0 truncate" style={{ fontFamily: customFont.fontFamily }}>
-                                  {customFont.fontFamily}
+                                  {customFont.displayName || customFont.fontFamily}
                                 </span>
                                 <span className="shrink-0 text-sm text-gray-500" style={{ fontFamily: customFont.fontFamily }}>
                                   Aa 가나다

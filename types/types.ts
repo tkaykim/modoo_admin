@@ -286,6 +286,12 @@ export interface PrintPricingConfig {
 
 export interface CustomFont {
   fontFamily: string;
+  displayName?: string;
+  fontSubfamily?: string;
+  postscriptName?: string;
+  fingerprint?: string;
+  intrinsicWeight?: number;
+  intrinsicStyle?: 'normal' | 'italic';
   fileName: string;
   url: string;
   path?: string;
@@ -506,6 +512,7 @@ export interface CanvasObject {
   text?: string;
   fontSize?: number;
   fontFamily?: string;
+  fontDisplayName?: string;
   fontWeight?: string;
 
   // Image specific
@@ -533,9 +540,13 @@ export interface ObjectDimensions {
   colors?: string[];
   preview?: string;
   fontFamily?: string;
+  fontDisplayName?: string;
+  fontFileStyle?: string;
   fontSize?: number;
   fontWeight?: string | number;
   fontStyle?: string;
+  stroke?: string;
+  strokeWidth?: number;
   textAlign?: string;
   lineHeight?: number;
   // CurvedText specific

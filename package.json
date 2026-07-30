@@ -7,8 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:e2e:font": "tsx e2e/font-vector-fidelity.ts",
     "ga4": "tsx scripts/ga4/cli.ts",
-    "test:regression": "tsx --test lib/canvasUtils.regression-1.test.ts"
+    "test:regression": "tsx --test lib/canvasUtils.regression-1.test.ts lib/font-contract.test.ts lib/text-outline-export.test.ts"
   },
   "dependencies": {
     "@fontsource/noto-sans-kr": "^5.2.9",

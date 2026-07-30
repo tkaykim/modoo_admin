@@ -10,6 +10,9 @@ import { parseCanvasState } from '@/lib/downloadUtils';
 import { calculateAllSidesPricing } from '@/app/utils/canvasPricing';
 import { EditorMode } from './useEditorMode';
 import { formatKstDateTimeFull } from '@/lib/kst';
+import { bindCustomFontsToCanvasState, mergeCustomFonts } from '@/lib/font-contract';
+import { exportOrderTextAssets } from '@/lib/order-text-asset-export';
+import { coerceTextSvgExports } from '@/lib/downloadUtils';
 
 interface UseEditorSaveParams {
   mode: EditorMode;
@@ -226,14 +229,30 @@ export function useEditorSave({
       }
     }
 
+    const boundOrderFonts = bindCustomFontsToCanvasState(
+      updatedCanvasState,
+      customFontsForSave
+    );
+    const finalizedCanvasState = boundOrderFonts.canvasState;
+    const generatedTextSvgExports = await exportOrderTextAssets(
+      finalizedCanvasState,
+      boundOrderFonts.customFonts,
+      orderItem.id
+    );
+    const textSvgExports = {
+      ...coerceTextSvgExports(orderItem.text_svg_exports),
+      ...generatedTextSvgExports,
+    };
+
     const response = await fetch('/api/admin/orders/items', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         orderItemId: orderItem.id,
-        canvasState: updatedCanvasState,
+        canvasState: finalizedCanvasState,
         thumbnailUrl,
-        customFonts: customFontsForSave,
+        customFonts: boundOrderFonts.customFonts,
+        textSvgExports,
       }),
     });
 
@@ -242,7 +261,7 @@ export function useEditorSave({
       throw new Error(payload?.error || '저장에 실패했습니다.');
     }
 
-    return { success: true, id: orderItem.id, canvasState: updatedCanvasState };
+    return { success: true, id: orderItem.id, canvasState: finalizedCanvasState };
   }
 
   async function saveTemplateMode(sides: Product['configuration']): Promise<SaveResult> {
@@ -332,17 +351,6 @@ export function useEditorSave({
   }
 
   return { handleSave };
-}
-
-function mergeCustomFonts(...fontLists: Array<CustomFont[] | undefined>): CustomFont[] {
-  const byFamily = new Map<string, CustomFont>();
-  for (const fonts of fontLists) {
-    for (const font of fonts || []) {
-      if (!font?.fontFamily || !font.url) continue;
-      byFamily.set(font.fontFamily, font);
-    }
-  }
-  return Array.from(byFamily.values());
 }
 
 function syncDesignToOrderItems(designId: string) {

@@ -1,9 +1,16 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { uploadFileToStorage, deleteFileFromStorage, UploadResult } from './supabase-storage';
 import { STORAGE_BUCKETS, STORAGE_FOLDERS } from './storage-config';
+import opentype from 'opentype.js';
 
 export interface FontMetadata {
   fontFamily: string;
+  displayName?: string;
+  fontSubfamily?: string;
+  postscriptName?: string;
+  fingerprint?: string;
+  intrinsicWeight?: number;
+  intrinsicStyle?: 'normal' | 'italic';
   fileName: string;
   url: string;
   path: string;
@@ -14,6 +21,64 @@ export interface FontMetadata {
 export type FontLoadMetadata = Pick<FontMetadata, 'fontFamily' | 'url'>;
 
 const SUPPORTED_FONT_EXTENSIONS = ['ttf', 'otf', 'woff', 'woff2'] as const;
+
+function getLocalizedFontName(
+  value: Record<string, string> | string | undefined
+): string | undefined {
+  if (!value) return undefined;
+  if (typeof value === 'string') return value.trim() || undefined;
+  return value.en || value.ko || Object.values(value).find(Boolean);
+}
+
+async function inspectFontFile(file: File): Promise<{
+  displayName: string;
+  fontSubfamily?: string;
+  postscriptName?: string;
+  fingerprint: string;
+  intrinsicWeight?: number;
+  intrinsicStyle?: 'normal' | 'italic';
+}> {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  const fingerprint = Array.from(new Uint8Array(digest))
+    .slice(0, 8)
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
+  const fileBaseName = file.name.replace(/\.(ttf|otf|woff|woff2)$/i, '').trim();
+
+  try {
+    const font = opentype.parse(await file.arrayBuffer()) as unknown as {
+      names: Record<string, Record<string, string> | string | undefined>;
+      tables: {
+        os2?: { usWeightClass?: number; fsSelection?: number };
+        post?: { italicAngle?: number };
+      };
+    };
+    const names = font.names;
+    const tables = font.tables;
+    const italic =
+      Boolean((tables.os2?.fsSelection ?? 0) & 0x01) ||
+      Math.abs(tables.post?.italicAngle ?? 0) > 0.01;
+    return {
+      displayName:
+        getLocalizedFontName(names.preferredFamily) ||
+        getLocalizedFontName(names.fontFamily) ||
+        fileBaseName ||
+        'Custom Font',
+      fontSubfamily:
+        getLocalizedFontName(names.preferredSubfamily) ||
+        getLocalizedFontName(names.fontSubfamily),
+      postscriptName: getLocalizedFontName(names.postScriptName),
+      fingerprint,
+      intrinsicWeight: tables.os2?.usWeightClass,
+      intrinsicStyle: italic ? 'italic' : 'normal',
+    };
+  } catch {
+    return {
+      displayName: fileBaseName || 'Custom Font',
+      fingerprint,
+    };
+  }
+}
 
 export function isValidFontFile(file: File): boolean {
   const ext = file.name.split('.').pop()?.toLowerCase();
@@ -33,7 +98,9 @@ export async function uploadFont(
       };
     }
 
-    const fontFamily = fontFile.name.replace(/\.(ttf|otf|woff|woff2)$/i, '');
+    const inspected = await inspectFontFile(fontFile);
+    const safeDisplayName = inspected.displayName.replace(/["']/g, '').trim() || 'Custom Font';
+    const fontFamily = `Modoo Custom ${safeDisplayName} ${inspected.fingerprint.slice(0, 8)}`;
     const format = fontFile.name.split('.').pop()?.toLowerCase() as FontMetadata['format'];
 
     const uploadResult: UploadResult = await uploadFileToStorage(
@@ -52,6 +119,12 @@ export async function uploadFont(
 
     const fontMetadata: FontMetadata = {
       fontFamily,
+      displayName: inspected.displayName,
+      fontSubfamily: inspected.fontSubfamily,
+      postscriptName: inspected.postscriptName,
+      fingerprint: inspected.fingerprint,
+      intrinsicWeight: inspected.intrinsicWeight,
+      intrinsicStyle: inspected.intrinsicStyle,
       fileName: fontFile.name,
       url: uploadResult.url,
       path: uploadResult.path,

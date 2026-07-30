@@ -47,6 +47,7 @@ export interface OutlineTextObject {
   scaleY?: number;
   originX?: string;
   originY?: string;
+  opacity?: number;
 }
 
 export interface OutlineSvgResult {
@@ -66,7 +67,18 @@ export interface OutlineSvgResult {
 const TEXT_TYPES = new Set(['i-text', 'itext', 'text', 'textbox', 'curvedtext']);
 
 /** 브라우저 canvas 가 합성(faux) italic 을 그릴 때의 근사 기울기(도). */
-const SYNTHETIC_ITALIC_DEG = 14;
+const SYNTHETIC_ITALIC_DEG = 12;
+const SYNTHETIC_BOLD_EM = 0.035;
+
+function formatNumber(value: number): string {
+  return Number(value.toFixed(4)).toString();
+}
+
+function isBoldWeight(value: unknown): boolean {
+  if (typeof value === 'string' && value.toLowerCase() === 'bold') return true;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 600;
+}
 
 function isTextType(type?: string): boolean {
   return TEXT_TYPES.has((type || '').toLowerCase());
@@ -316,10 +328,9 @@ async function outlineOneObject(
   const midBaseline = (asc + desc) / 2; // baseline=middle 보정(SVG y-down)
   const spacing = ((obj.charSpacing ?? 0) / 1000) * fontSize;
 
-  // 합성 italic: 시스템 번들 폰트(모두 Regular)에서만 skew 로 흉내(캔버스 동작과 일치).
-  // 커스텀 폰트는 파일 자체가 스타일을 담고 있다고 보고 skew 하지 않는다.
-  const isSystemFont = fontFamily in SYSTEM_FONT_PATH_MAP && !customFonts.some((f) => f.fontFamily === fontFamily);
-  const needsSyntheticItalic = (obj.fontStyle ?? '').toLowerCase() === 'italic' && isSystemFont;
+  // 고객 캔버스의 CSS/Canvas 합성 italic 상태도 생산용 path에 굽는다.
+  // 업로드 폰트라고 무시하면 관리자 SVG에서 기울임이 사라진다.
+  const needsSyntheticItalic = (obj.fontStyle ?? '').toLowerCase() === 'italic';
   const italicSkew = needsSyntheticItalic ? ` skewX(${-SYNTHETIC_ITALIC_DEG})` : '';
 
   const isCurved = (obj.type || '').toLowerCase() === 'curvedtext' && Math.abs(obj.curveIntensity ?? 0) >= 1;
@@ -341,19 +352,34 @@ async function outlineOneObject(
   const fill = obj.fill ?? '#000000';
   const stroke = obj.stroke ?? '';
   const strokeWidth = typeof obj.strokeWidth === 'number' ? obj.strokeWidth : 0;
-  const hasStroke = !!stroke && strokeWidth > 0;
-  const strokeAttrs = hasStroke
-    ? ` stroke="${escapeXml(stroke)}" stroke-width="${strokeWidth}" ` +
-      `paint-order="${obj.paintFirst === 'stroke' ? 'stroke fill' : 'fill stroke'}" stroke-linejoin="round"`
-    : '';
-
   const paths = glyphs
     .map((g) => `    <path d="${g.d}" transform="${g.transform}" />`)
     .join('\n');
+  const boldWidth = isBoldWeight(obj.fontWeight) ? fontSize * SYNTHETIC_BOLD_EM : 0;
+  const hasStroke = !!stroke && strokeWidth > 0;
+  const layers: string[] = [];
 
+  if (hasStroke && boldWidth > 0) {
+    layers.push(
+      `    <g fill="none" stroke="${escapeXml(stroke)}" ` +
+      `stroke-width="${formatNumber(strokeWidth + boldWidth)}" stroke-linejoin="round">\n${paths}\n    </g>`
+    );
+  }
+
+  const effectiveStroke = boldWidth > 0 ? fill : stroke;
+  const effectiveStrokeWidth = boldWidth > 0 ? boldWidth : strokeWidth;
+  const strokeAttrs = effectiveStroke && effectiveStrokeWidth > 0
+    ? ` stroke="${escapeXml(effectiveStroke)}" stroke-width="${formatNumber(effectiveStrokeWidth)}" ` +
+      `paint-order="stroke fill" stroke-linejoin="round"`
+    : '';
+  layers.push(
+    `    <g fill="${escapeXml(fill)}"${strokeAttrs}>\n${paths}\n    </g>`
+  );
+
+  const opacity = typeof obj.opacity === 'number' ? obj.opacity : 1;
   const markup =
-    `  <g transform="${objectTransform(obj)}" fill="${escapeXml(fill)}"${strokeAttrs}>\n` +
-    `${paths}\n` +
+    `  <g transform="${objectTransform(obj)}" opacity="${opacity}">\n` +
+    `${layers.join('\n')}\n` +
     `  </g>\n`;
 
   return { markup, outlined: true };

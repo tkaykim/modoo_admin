@@ -272,9 +272,35 @@ export default function OrderModePanel({
           const text = obj.text || '';
           dimension.text = text.substring(0, 30) + (text.length > 30 ? '...' : '');
           dimension.fontFamily = obj.fontFamily;
+          dimension.fontDisplayName =
+            typeof obj.data?.fontDisplayName === 'string'
+              ? obj.data.fontDisplayName
+              : obj.fontFamily;
+          const fontMetadata =
+            obj.data?.fontMetadata && typeof obj.data.fontMetadata === 'object'
+              ? obj.data.fontMetadata as Record<string, unknown>
+              : null;
+          if (fontMetadata) {
+            const subfamily =
+              typeof fontMetadata.fontSubfamily === 'string'
+                ? fontMetadata.fontSubfamily
+                : '';
+            const intrinsicWeight =
+              typeof fontMetadata.intrinsicWeight === 'number'
+                ? String(fontMetadata.intrinsicWeight)
+                : '';
+            const intrinsicStyle =
+              fontMetadata.intrinsicStyle === 'italic' ? 'italic' : '';
+            dimension.fontFileStyle =
+              [subfamily || intrinsicWeight, intrinsicStyle]
+                .filter(Boolean)
+                .join(' · ') || undefined;
+          }
           dimension.fontSize = obj.fontSize;
           dimension.fontWeight = obj.fontWeight;
           dimension.fontStyle = obj.fontStyle;
+          dimension.stroke = typeof obj.stroke === 'string' ? obj.stroke : undefined;
+          dimension.strokeWidth = typeof obj.strokeWidth === 'number' ? obj.strokeWidth : 0;
           dimension.textAlign = obj.textAlign;
           dimension.lineHeight = obj.lineHeight;
           if (typeLower === 'curvedtext' && typeof obj.curveIntensity === 'number') {
@@ -816,7 +842,33 @@ export default function OrderModePanel({
                               {dim.fontFamily && (
                                 <div className="flex gap-1">
                                   <span className="text-gray-400 shrink-0 w-7">폰트</span>
-                                  <span className="text-gray-700 truncate">{dim.fontFamily}</span>
+                                  <span className="text-gray-700 truncate">{dim.fontDisplayName || dim.fontFamily}</span>
+                                </div>
+                              )}
+                              {dim.fontFamily && (
+                                <div className="flex gap-1">
+                                  <span className="text-gray-400 shrink-0 w-7">스타일</span>
+                                  <span className="text-gray-700">
+                                    {String(dim.fontWeight || 'normal')} · {dim.fontStyle || 'normal'}
+                                  </span>
+                                </div>
+                              )}
+                              {dim.fontFileStyle && (
+                                <div className="flex gap-1">
+                                  <span className="text-gray-400 shrink-0 w-7">파일</span>
+                                  <span className="text-gray-700">{dim.fontFileStyle}</span>
+                                </div>
+                              )}
+                              {dim.fontFamily && (
+                                <div className="flex gap-1 items-center">
+                                  <span className="text-gray-400 shrink-0 w-7">외곽선</span>
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-sm border border-gray-300"
+                                    style={{ backgroundColor: dim.stroke || 'transparent' }}
+                                  />
+                                  <span className="text-gray-700">
+                                    {dim.strokeWidth || 0}px{dim.stroke ? ` · ${dim.stroke}` : ''}
+                                  </span>
                                 </div>
                               )}
                               {dim.backgroundRemovalRequested && (
@@ -859,7 +911,7 @@ export default function OrderModePanel({
             {customFonts.map((font, i) => (
               <div key={i} className="flex items-center justify-between p-1.5 border border-gray-200 rounded bg-gray-50/50">
                 <div className="min-w-0">
-                  <p className="text-[11px] font-medium text-gray-800 truncate">{font.fontFamily}</p>
+                  <p className="text-[11px] font-medium text-gray-800 truncate">{font.displayName || font.fontFamily}</p>
                   <p className="text-[10px] text-gray-400 truncate">{font.fileName}</p>
                 </div>
                 <button
