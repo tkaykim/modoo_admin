@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Truck, Package, CheckCircle, RefreshCw, Printer, ImageIcon, X, Loader2, AlertTriangle } from 'lucide-react';
+import { Truck, Package, CheckCircle, RefreshCw, Printer, ImageIcon, X, Loader2, AlertTriangle, Plus, Minus } from 'lucide-react';
 import useSWR from 'swr';
 import { fetcher } from '@/lib/fetcher';
 import { formatKstDateOnly, getKstYYYYMMDD } from '@/lib/kst';
@@ -71,6 +71,9 @@ function getItemsSummary(order: Order): { totalQty: number; goodsNm: string } {
   return { totalQty, goodsNm };
 }
 
+// 택배 박스 수량 상한 (register API의 MAX_BOX_QTY와 동일하게 유지)
+const MAX_BOX_QTY = 99;
+
 function isIncomplete(order: Order): boolean {
   return !order.address_line_1 || !order.customer_phone;
 }
@@ -90,6 +93,8 @@ export default function ShippingPage() {
   const [confirmOrders, setConfirmOrders] = useState<Order[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // 주문별 택배 박스 수량(문자열 = 입력 중 상태 보존). 기본 1박스, 상품 수량과 별개.
+  const [boxQtyById, setBoxQtyById] = useState<Record<string, string>>({});
 
   const { data: allOrders, mutate } = useSWR<Order[]>('/api/admin/orders?status=all&withMedia=1', fetcher, {
     revalidateOnFocus: false,
@@ -138,7 +143,24 @@ export default function ShippingPage() {
   const openConfirm = useCallback((orders: Order[]) => {
     if (orders.length === 0) return;
     setSubmitError(null);
+    setBoxQtyById(Object.fromEntries(orders.map((o) => [o.id, '1'])));
     setConfirmOrders(orders);
+  }, []);
+
+  const readBoxQty = useCallback((id: string) => boxQtyById[id] ?? '1', [boxQtyById]);
+  const isBoxQtyValid = useCallback((raw: string) => {
+    const t = raw.trim();
+    return /^\d+$/.test(t) && Number(t) >= 1 && Number(t) <= MAX_BOX_QTY;
+  }, []);
+  const setBoxQty = useCallback((id: string, raw: string) => {
+    setBoxQtyById((prev) => ({ ...prev, [id]: raw }));
+  }, []);
+  const stepBoxQty = useCallback((id: string, delta: number) => {
+    setBoxQtyById((prev) => {
+      const cur = Number(prev[id] ?? '1');
+      const base = Number.isInteger(cur) && cur >= 1 ? cur : 1;
+      return { ...prev, [id]: String(Math.min(MAX_BOX_QTY, Math.max(1, base + delta))) };
+    });
   }, []);
 
   const handleBulkRegister = useCallback(() => {
@@ -149,13 +171,23 @@ export default function ShippingPage() {
   // 모달 "접수 실행" — 실제로 로젠에 접수 요청
   const confirmRegister = useCallback(async () => {
     if (!confirmOrders || confirmOrders.length === 0) return;
+    const invalid = confirmOrders.find((o) => !isBoxQtyValid(boxQtyById[o.id] ?? '1'));
+    if (invalid) {
+      setSubmitError(`박스 수량은 1~${MAX_BOX_QTY} 사이의 숫자로 입력해 주세요.`);
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
     try {
       const res = await fetch('/api/admin/shipping/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderIds: confirmOrders.map((o) => o.id) }),
+        body: JSON.stringify({
+          orderIds: confirmOrders.map((o) => o.id),
+          boxQuantities: Object.fromEntries(
+            confirmOrders.map((o) => [o.id, Number(boxQtyById[o.id] ?? '1')])
+          ),
+        }),
       });
       const json = await res.json();
       if (res.ok) {
@@ -171,7 +203,7 @@ export default function ShippingPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [confirmOrders, mutate]);
+  }, [confirmOrders, boxQtyById, isBoxQtyValid, mutate]);
 
   const handlePrintPopup = useCallback(async () => {
     const takeDt = getKstYYYYMMDD();
@@ -503,6 +535,42 @@ export default function ShippingPage() {
                           {!isBulk && (
                             <p className="text-xs text-gray-500 mt-1 truncate">물품: {goodsNm} · 운임타입 본사신용</p>
                           )}
+                          {/* 택배 박스 수량 — 상품 수량과 별개(실제 포장 결과) */}
+                          <div className="flex items-center gap-2 mt-2">
+                            <span className="text-xs text-gray-600">택배 박스</span>
+                            <button
+                              type="button"
+                              onClick={() => stepBoxQty(order.id, -1)}
+                              disabled={submitting || Number(readBoxQty(order.id)) <= 1}
+                              className="w-7 h-7 flex items-center justify-center border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                              aria-label="박스 수량 감소"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <input
+                              type="number"
+                              min={1}
+                              max={MAX_BOX_QTY}
+                              step={1}
+                              value={readBoxQty(order.id)}
+                              onChange={(e) => setBoxQty(order.id, e.target.value)}
+                              disabled={submitting}
+                              className={`w-16 px-2 py-1 border rounded text-sm text-center font-medium bg-white ${
+                                isBoxQtyValid(readBoxQty(order.id)) ? 'border-gray-300' : 'border-red-300 bg-red-50'
+                              }`}
+                              aria-label="박스 수량"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => stepBoxQty(order.id, 1)}
+                              disabled={submitting || Number(readBoxQty(order.id)) >= MAX_BOX_QTY}
+                              className="w-7 h-7 flex items-center justify-center border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                              aria-label="박스 수량 증가"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="text-[11px] text-gray-500">박스 (상품 {totalQty}개와 별개)</span>
+                          </div>
                           {bad && (
                             <p className="flex items-center gap-1 text-xs text-amber-700 mt-1">
                               <AlertTriangle className="w-3.5 h-3.5" />
@@ -517,12 +585,23 @@ export default function ShippingPage() {
 
                 {/* 일괄 요약 */}
                 {isBulk && (
-                  <div className="bg-gray-50 rounded-lg p-3 text-sm flex justify-between">
-                    <span className="text-gray-600">총 접수 건수</span>
-                    <span className="font-medium text-gray-900">
-                      {confirmOrders.length}건
-                      {incompleteCount > 0 && <span className="text-amber-600"> (정보 누락 {incompleteCount}건)</span>}
-                    </span>
+                  <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">총 접수 건수</span>
+                      <span className="font-medium text-gray-900">
+                        {confirmOrders.length}건
+                        {incompleteCount > 0 && <span className="text-amber-600"> (정보 누락 {incompleteCount}건)</span>}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">총 박스 수</span>
+                      <span className="font-medium text-gray-900">
+                        {confirmOrders.reduce((s, o) => {
+                          const raw = readBoxQty(o.id);
+                          return s + (isBoxQtyValid(raw) ? Number(raw) : 0);
+                        }, 0)}박스
+                      </span>
+                    </div>
                   </div>
                 )}
 
@@ -548,7 +627,7 @@ export default function ShippingPage() {
                 </button>
                 <button
                   onClick={confirmRegister}
-                  disabled={submitting || allIncomplete}
+                  disabled={submitting || allIncomplete || confirmOrders.some((o) => !isBoxQtyValid(readBoxQty(o.id)))}
                   className="flex-1 px-4 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {submitting ? (<><Loader2 className="w-4 h-4 animate-spin" /> 접수 중...</>) : `${confirmOrders.length}건 접수하기`}

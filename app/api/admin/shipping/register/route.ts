@@ -17,6 +17,16 @@ interface PartyOverride {
   tel?: string;
 }
 
+// 박스 수량 — 실제 발송 박스 수(상품 수량과 별개). 미지정/이상값이면 1박스.
+// 로젠 qty = 박스 수이므로 여기 값이 곧 운임 청구 단위가 된다.
+const MAX_BOX_QTY = 99;
+function parseBoxQty(raw: unknown): number | null {
+  if (raw === undefined || raw === null || raw === '') return 1;
+  const n = typeof raw === 'number' ? raw : Number(String(raw).trim());
+  if (!Number.isInteger(n) || n < 1 || n > MAX_BOX_QTY) return null;
+  return n;
+}
+
 // 송장 품목명(goodsNm) 생성 — "디자인명 제품명" 형식.
 // 색상/사이즈 나열은 송장을 보는 고객에게 혼선을 줘 제외한다(2026-07-07 운영 요청).
 function buildGoodsNm(orderItems: any[], fallback: string): string {
@@ -62,6 +72,24 @@ export async function POST(request: Request) {
     if (!Array.isArray(orderIds) || orderIds.length === 0) {
       return NextResponse.json({ error: '주문 ID가 필요합니다.' }, { status: 400 });
     }
+
+    // 박스 수량: 전체 공통(boxQty) 또는 주문별(boxQuantities). 둘 다 있으면 주문별이 우선.
+    const defaultBoxQty = parseBoxQty(body?.boxQty);
+    if (defaultBoxQty === null) {
+      return NextResponse.json({ error: `박스 수량은 1~${MAX_BOX_QTY} 사이의 정수여야 합니다.` }, { status: 400 });
+    }
+    const boxQtyByOrder = new Map<string, number>();
+    const rawBoxQuantities = body?.boxQuantities;
+    if (rawBoxQuantities && typeof rawBoxQuantities === 'object') {
+      for (const [oid, raw] of Object.entries(rawBoxQuantities as Record<string, unknown>)) {
+        const parsed = parseBoxQty(raw);
+        if (parsed === null) {
+          return NextResponse.json({ error: `박스 수량은 1~${MAX_BOX_QTY} 사이의 정수여야 합니다. (${oid})` }, { status: 400 });
+        }
+        boxQtyByOrder.set(oid, parsed);
+      }
+    }
+    const boxQtyFor = (orderId: string): number => boxQtyByOrder.get(orderId) ?? defaultBoxQty;
 
     const adminClient = createAdminClient();
     const { data: orders, error: ordersError } = await adminClient
@@ -121,6 +149,8 @@ export async function POST(request: Request) {
           (Array.isArray(it.data1) ? it.data1 : []).some((r: any) => r && r.delYn !== 'Y')
       );
 
+      const internalBoxQty = boxQtyFor(order.id);
+
       if (!alreadyAtLogen) {
         const goodsNm = buildGoodsNm(order.order_items as any[], '내부 이동');
         const fareTy = (fareTyOverride && /^0[1234]0$/.test(fareTyOverride)) ? fareTyOverride : LOGEN_FARE_TY;
@@ -136,7 +166,8 @@ export async function POST(request: Request) {
           rcvCellNo: (receiverOverride.tel || '').replace(/[^0-9]/g, ''),
           fareTy,
           boxTyCd: LOGEN_BOX_TY_CD,
-          qty: 1,
+          // 로젠 qty = 박스 수(상품 수량 아님). 관리자가 입력한 실제 발송 박스 수.
+          qty: internalBoxQty,
           dlvFare: LOGEN_CONTRACT_FARE,
           goodsNm,
         }]);
@@ -149,18 +180,18 @@ export async function POST(request: Request) {
         }
       }
 
-      // leg(원가) 기록 — 주문 레벨 필드는 건드리지 않음
+      // leg(원가) 기록 — 주문 레벨 필드는 건드리지 않음. 운임은 박스 수만큼 청구된다.
       await adminClient.from('order_shipping_legs').insert({
         order_id: order.id,
         leg_type: legType,
-        amount: LOGEN_CONTRACT_FARE,
+        amount: LOGEN_CONTRACT_FARE * internalBoxQty,
         carrier: 'logen',
-        note: `로젠 내부 이동 접수 자동 기록 (${shippingCase})`,
+        note: `로젠 내부 이동 접수 자동 기록 (${shippingCase}, ${internalBoxQty}박스)`,
         created_by: user.id,
       });
 
       return NextResponse.json({
-        data: { internal: true, shippingCase, registered: 1, total: 1, takeDt, alreadyAtLogen },
+        data: { internal: true, shippingCase, registered: 1, total: 1, takeDt, alreadyAtLogen, boxQty: internalBoxQty },
       });
     }
     // ──────────────────────────────────────────────────────────────
@@ -260,8 +291,9 @@ export async function POST(request: Request) {
         rcvCellNo: receiver.tel,
         fareTy,
         boxTyCd: LOGEN_BOX_TY_CD,
-        // 로젠 qty = 박스 수. 상품 수량 합계를 넣으면 박스 수만큼 운임이 청구되므로 기본 1박스.
-        qty: 1,
+        // 로젠 qty = 박스 수(상품 수량 아님 — 상품 수량을 넣으면 그만큼 운임이 청구된다).
+        // 기본 1박스이되 관리자가 실제 포장 결과에 맞춰 접수 화면에서 조절할 수 있다.
+        qty: boxQtyFor(order.id),
         // 로젠 계약운임(선불 단가). 고객에게 받은 배송비(order.delivery_fee)와는 별개의 값이다.
         dlvFare: LOGEN_CONTRACT_FARE,
         goodsNm,
@@ -291,13 +323,23 @@ export async function POST(request: Request) {
     }
 
     if (successIds.length > 0) {
-      await adminClient
-        .from('orders')
-        .update({
-          logen_registered_at: new Date().toISOString(),
-          tracking_carrier: 'logen',
-        })
-        .in('id', successIds);
+      // 박스 수가 주문마다 다를 수 있어 같은 값끼리 묶어 갱신한다(대개 1그룹).
+      const idsByBoxQty = new Map<number, string[]>();
+      for (const id of successIds) {
+        const q = boxQtyFor(id);
+        if (!idsByBoxQty.has(q)) idsByBoxQty.set(q, []);
+        idsByBoxQty.get(q)!.push(id);
+      }
+      for (const [qty, ids] of idsByBoxQty) {
+        await adminClient
+          .from('orders')
+          .update({
+            logen_registered_at: new Date().toISOString(),
+            tracking_carrier: 'logen',
+            shipping_box_qty: qty,
+          })
+          .in('id', ids);
+      }
     }
 
     // 택배비 원가 자동 기록 — 접수된 주문에 배송 leg(계약운임)를 1회 기록해
@@ -313,14 +355,21 @@ export async function POST(request: Request) {
         .in('order_id', costTargets)
         .eq('leg_type', legType);
       const hasLeg = new Set((existingLegs || []).map((l: any) => l.order_id));
-      const newLegs = costTargets.filter((id) => !hasLeg.has(id)).map((id) => ({
-        order_id: id,
-        leg_type: legType,
-        amount: LOGEN_CONTRACT_FARE,
-        carrier: 'logen',
-        note: '로젠 접수 시 자동 기록 (계약운임)',
-        created_by: user.id,
-      }));
+      const registeredNow = new Set(successIds);
+      const newLegs = costTargets.filter((id) => !hasLeg.has(id)).map((id) => {
+        // 이번에 접수한 건만 입력 박스 수를 반영한다.
+        // 이미 로젠에 있던 건(도장 동기화)은 당시 박스 수를 알 수 없어 기존대로 1박스로 기록.
+        const qty = registeredNow.has(id) ? boxQtyFor(id) : 1;
+        return {
+          order_id: id,
+          leg_type: legType,
+          // 계약운임은 박스 단가라 박스 수만큼 청구된다.
+          amount: LOGEN_CONTRACT_FARE * qty,
+          carrier: 'logen',
+          note: `로젠 접수 시 자동 기록 (계약운임${qty > 1 ? ` × ${qty}박스` : ''})`,
+          created_by: user.id,
+        };
+      });
       if (newLegs.length > 0) {
         await adminClient.from('order_shipping_legs').insert(newLegs);
       }

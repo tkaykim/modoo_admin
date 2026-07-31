@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { CoBuyParticipant, Factory, Order, OrderItem } from '@/types/types';
-import { ChevronLeft, ChevronDown, CreditCard, Package, Factory as FactoryIcon, Download, Share2, Copy, Check, Link2Off, RotateCcw, MessageSquare, User, Receipt, Truck, Link2, Pencil, X, Loader2, Send, Plus, Trash2, Coins } from 'lucide-react';
+import { ChevronLeft, ChevronDown, CreditCard, Package, Factory as FactoryIcon, Download, Share2, Copy, Check, Link2Off, RotateCcw, MessageSquare, User, Receipt, Truck, Link2, Pencil, X, Loader2, Send, Plus, Minus, Trash2, Coins } from 'lucide-react';
 import RefundModal from '@/components/orders/RefundModal';
 import SurchargeModal from '@/components/orders/SurchargeModal';
 import DesignChatPanel from '@/components/orders/DesignChatPanel';
@@ -137,6 +137,8 @@ export default function OrderDetail({
   const [senderForm, setSenderForm] = useState({ name: '', addr: '', tel: '' });
   const [receiverForm, setReceiverForm] = useState({ name: '', addr: '', tel: '' });
   const [fareTyForm, setFareTyForm] = useState<'010' | '020' | '030' | '040'>('010');
+  // 실제 발송 박스 수 — 상품 수량과 별개. 기본 1박스, 포장 결과에 맞춰 관리자가 조절한다.
+  const [boxQtyForm, setBoxQtyForm] = useState<string>('1');
   // 송장번호 수동 입력 (SmartLogen 등 API 외 경로로 접수한 건용)
   const [showManualTracking, setShowManualTracking] = useState(false);
   const [manualTrackingNo, setManualTrackingNo] = useState('');
@@ -908,7 +910,17 @@ export default function OrderDetail({
     if (!showLogenModal) return;
     setShippingCase('us_to_customer');
     setShippingFactoryId(assignedFactoryIds[0] || '');
+    setBoxQtyForm('1');
   }, [showLogenModal, assignedFactoryIds]);
+
+  const MAX_BOX_QTY = 99;
+  const parsedBoxQty = Number(boxQtyForm);
+  const boxQtyValid = /^\d+$/.test(boxQtyForm.trim()) && Number.isInteger(parsedBoxQty)
+    && parsedBoxQty >= 1 && parsedBoxQty <= MAX_BOX_QTY;
+  const stepBoxQty = (delta: number) => {
+    const base = boxQtyValid ? parsedBoxQty : 1;
+    setBoxQtyForm(String(Math.min(MAX_BOX_QTY, Math.max(1, base + delta))));
+  };
 
   const totalQty = (orderItems || []).reduce((sum, item) => sum + (item.quantity || 1), 0);
   const goodsNm = (orderItems || []).map((item) => item.product_title).join(', ').slice(0, 80) || '상품';
@@ -925,6 +937,10 @@ export default function OrderDetail({
       setLogenError('발송자/수신자의 이름·주소·연락처를 모두 입력해 주세요.');
       return;
     }
+    if (!boxQtyValid) {
+      setLogenError(`박스 수량은 1~${MAX_BOX_QTY} 사이의 숫자로 입력해 주세요.`);
+      return;
+    }
     setLogenLoading(true);
     setLogenError(null);
     try {
@@ -937,6 +953,7 @@ export default function OrderDetail({
           sender: senderForm,
           receiver: receiverForm,
           fareTy: fareTyForm,
+          boxQty: parsedBoxQty,
         }),
       });
       const json = await res.json();
@@ -951,6 +968,7 @@ export default function OrderDetail({
             ...order,
             logen_registered_at: new Date().toISOString(),
             tracking_carrier: 'logen',
+            shipping_box_qty: parsedBoxQty,
           } as Order);
         }
       } else {
@@ -1084,6 +1102,50 @@ export default function OrderDetail({
                 </div>
               </div>
 
+              {/* 택배 박스 수량 — 상품 수량과 별개(실제 포장 결과) */}
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1.5">택배 박스 수량</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => stepBoxQty(-1)}
+                    disabled={boxQtyValid && parsedBoxQty <= 1}
+                    className="w-9 h-9 flex items-center justify-center border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    aria-label="박스 수량 감소"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={MAX_BOX_QTY}
+                    step={1}
+                    value={boxQtyForm}
+                    onChange={(e) => setBoxQtyForm(e.target.value)}
+                    className={`w-20 px-2.5 py-1.5 border rounded text-sm text-center font-medium ${
+                      boxQtyValid ? 'border-gray-300' : 'border-red-300 bg-red-50'
+                    }`}
+                    aria-label="박스 수량"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => stepBoxQty(1)}
+                    disabled={boxQtyValid && parsedBoxQty >= MAX_BOX_QTY}
+                    className="w-9 h-9 flex items-center justify-center border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    aria-label="박스 수량 증가"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs text-gray-500">박스</span>
+                </div>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  실제로 발송하는 박스 개수입니다. 상품 수량({totalQty}개)과는 별개이며, 박스 수만큼 송장이 발행되고 운임도 박스당 청구됩니다.
+                </p>
+                {!boxQtyValid && (
+                  <p className="text-[11px] text-red-600 mt-1">1~{MAX_BOX_QTY} 사이의 숫자를 입력해 주세요.</p>
+                )}
+              </div>
+
               {/* 운임타입 + 물품 요약 */}
               <div>
                 <p className="text-xs font-medium text-gray-500 mb-1.5">운임타입 / 물품</p>
@@ -1102,7 +1164,8 @@ export default function OrderDetail({
                     </select>
                   </div>
                   <div className="flex justify-between"><span className="text-gray-600">물품명</span><span className="font-medium text-gray-900 text-right max-w-[60%] truncate">{goodsNm}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-600">수량</span><span className="font-medium text-gray-900">{totalQty}개</span></div>
+                  <div className="flex justify-between"><span className="text-gray-600">상품 수량</span><span className="font-medium text-gray-900">{totalQty}개</span></div>
+                  <div className="flex justify-between"><span className="text-gray-600">박스 수량</span><span className="font-medium text-gray-900">{boxQtyValid ? `${parsedBoxQty}박스` : '-'}</span></div>
                   <div className="flex justify-between"><span className="text-gray-600">운임</span><span className="font-medium text-gray-900">{(order.delivery_fee || 0).toLocaleString()}원 · {fareTyLabel(fareTyForm)}</span></div>
                 </div>
               </div>
@@ -1121,7 +1184,7 @@ export default function OrderDetail({
               </button>
               <button
                 onClick={handleLogenRegister}
-                disabled={logenLoading || !senderForm.name || !senderForm.addr || !senderForm.tel || !receiverForm.name || !receiverForm.addr || !receiverForm.tel}
+                disabled={logenLoading || !boxQtyValid || !senderForm.name || !senderForm.addr || !senderForm.tel || !receiverForm.name || !receiverForm.addr || !receiverForm.tel}
                 className="flex-1 px-4 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
                 {logenLoading ? (
@@ -2270,6 +2333,13 @@ export default function OrderDetail({
                         </div>
                       ))}
                     </div>
+
+                    {order.logen_registered_at && (
+                      <p className="text-[11px] text-gray-500">
+                        접수 박스 수 <span className="font-medium text-gray-700">{order.shipping_box_qty || 1}박스</span>
+                        <span className="text-gray-400"> · 상품 수량과 별개</span>
+                      </p>
+                    )}
 
                     {/* Action Buttons */}
                     {!order.logen_registered_at && (

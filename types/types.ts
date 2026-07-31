@@ -375,6 +375,8 @@ export interface Order {
   // Logen integration
   logen_registered_at: string | null;
   logen_slip_printed: boolean;
+  // 실제 발송 박스 수(기본 1) — 상품 수량과 별개. 접수 시 관리자가 입력.
+  shipping_box_qty?: number | null;
 
   // Shareable link token (generated on demand)
   share_token: string | null;
