@@ -4,6 +4,32 @@
 
 import * as fabric from 'fabric';
 
+/** 사용자가 올린 오브젝트만 센다 (배경 목업·가이드·스냅라인 제외). */
+export function countUserObjects(canvas: fabric.Canvas): number {
+  return canvas.getObjects().filter((obj) => {
+    if (obj.excludeFromExport) return false;
+    // @ts-expect-error - Checking custom data property
+    if (obj.data?.id === 'background-product-image') return false;
+    return true;
+  }).length;
+}
+
+/**
+ * 썸네일/미리보기를 캡처할 면의 캔버스를 고른다.
+ *
+ * 무조건 첫 면(앞면)을 찍으면 뒷면·소매에만 디자인한 주문의 썸네일이
+ * "아무것도 없는 티셔츠"로 저장된다. 그래서 실제 디자인이 있는 첫 면을 우선
+ * 고르고, 어느 면에도 디자인이 없을 때만 첫 면으로 되돌아간다.
+ */
+export function pickPreviewCanvas(
+  sideIds: string[],
+  canvasMap: Record<string, fabric.Canvas>
+): fabric.Canvas | null {
+  const canvases = sideIds.map((id) => canvasMap[id]).filter(Boolean);
+  if (canvases.length === 0) return null;
+  return canvases.find((canvas) => countUserObjects(canvas) > 0) ?? canvases[0];
+}
+
 /**
  * Serialize canvas state to JSON string, excluding background images and guides
  * @param canvas - The fabric canvas to serialize

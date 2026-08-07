@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { useCanvasStore } from '@/store/useCanvasStore';
 import { Product, OrderItem, DesignTemplate, SavedDesign, CustomFont } from '@/types/types';
 import { useFontStore } from '@/store/useFontStore';
-import { serializeCanvasState } from '@/lib/canvasUtils';
+import { serializeCanvasState, pickPreviewCanvas } from '@/lib/canvasUtils';
 import { saveDesign, updateDesign, SaveDesignData } from '@/lib/designService';
 import { parseCanvasState } from '@/lib/downloadUtils';
 import { calculateAllSidesPricing } from '@/app/utils/canvasPricing';
@@ -115,12 +115,12 @@ export function useEditorSave({
       }
     }
 
-    // Generate preview image from first side
+    // Generate preview image from the first side that actually has a design
     let previewImage: string | undefined;
-    const firstCanvas = canvasMap[sides[0]?.id];
-    if (firstCanvas) {
+    const previewCanvas = pickPreviewCanvas(sides.map((s) => s.id), canvasMap);
+    if (previewCanvas) {
       try {
-        previewImage = firstCanvas.toDataURL({
+        previewImage = previewCanvas.toDataURL({
           format: 'png',
           quality: 0.8,
           multiplier: 0.5,
@@ -212,14 +212,14 @@ export function useEditorSave({
       };
     }
 
-    // Generate preview thumbnail from first side
+    // Generate preview thumbnail from the first side that actually has a design
     let thumbnailUrl: string | undefined;
-    const firstCanvas = canvasMap[sides[0]?.id];
-    if (firstCanvas) {
+    const previewCanvas = pickPreviewCanvas(sides.map((s) => s.id), canvasMap);
+    if (previewCanvas) {
       try {
-        firstCanvas.discardActiveObject();
-        firstCanvas.renderAll();
-        thumbnailUrl = firstCanvas.toDataURL({
+        previewCanvas.discardActiveObject();
+        previewCanvas.renderAll();
+        thumbnailUrl = previewCanvas.toDataURL({
           format: 'png',
           quality: 0.8,
           multiplier: 0.5,
@@ -292,12 +292,12 @@ export function useEditorSave({
       };
     }
 
-    // Generate preview
+    // Generate preview from the first side that actually has a design
     let previewUrl: string | undefined;
-    const firstCanvas = canvasMap[sides[0]?.id];
-    if (firstCanvas) {
+    const previewCanvas = pickPreviewCanvas(sides.map((s) => s.id), canvasMap);
+    if (previewCanvas) {
       try {
-        previewUrl = firstCanvas.toDataURL({
+        previewUrl = previewCanvas.toDataURL({
           format: 'png',
           quality: 0.8,
           multiplier: 0.5,

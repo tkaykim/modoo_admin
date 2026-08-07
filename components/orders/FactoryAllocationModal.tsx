@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { Factory, FactoryPrintMethodPricing, Order, OrderItem } from '@/types/types';
-import { X, Factory as FactoryIcon, Package, Copy, Info, DollarSign } from 'lucide-react';
+import { X, Factory as FactoryIcon, Copy, Info, DollarSign } from 'lucide-react';
 import { extractVariants } from '@/lib/orderUtils';
 import OrderItemArtworksModal from '@/components/orders/OrderItemArtworksModal';
+import OrderItemThumbnail from '@/components/orders/OrderItemThumbnail';
 
 interface ItemAllocationState {
   orderItemId: string;
@@ -195,15 +196,13 @@ export default function FactoryAllocationModal({
                   <div key={item.id} className="border border-gray-200 rounded-lg overflow-hidden">
                     {/* Item Header */}
                     <div className="flex items-center gap-3 p-3 bg-gray-50 border-b border-gray-100">
-                      <div className="w-10 h-10 bg-white rounded shrink-0 overflow-hidden border border-gray-200">
-                        {item.thumbnail_url ? (
-                          <img src={item.thumbnail_url} alt={item.product_title} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Package className="w-4 h-4 text-gray-400" />
-                          </div>
-                        )}
-                      </div>
+                      <OrderItemThumbnail
+                        item={item}
+                        alt={item.product_title}
+                        className="w-10 h-10 rounded border border-gray-200"
+                        iconClassName="w-4 h-4"
+                        showSideBadge={false}
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium text-gray-900 truncate">{item.product_title}</div>
                         {item.design_title && (

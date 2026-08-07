@@ -13,6 +13,7 @@ import OrderProfitSection from '@/components/orders/OrderProfitSection';
 import WorkPhotoModal from '@/components/orders/WorkPhotoModal';
 import OrderItemArtworksModal from '@/components/orders/OrderItemArtworksModal';
 import OrderItemPrintRowsInline from '@/components/orders/OrderItemPrintRowsInline';
+import OrderItemThumbnail from '@/components/orders/OrderItemThumbnail';
 import ProofAlimtalkLogPanel from '@/components/orders/ProofAlimtalkLogPanel';
 import { extractVariants } from '@/lib/orderUtils';
 import FactoryPriceConfirmModal from '@/components/factory/FactoryPriceConfirmModal';
@@ -1458,19 +1459,11 @@ export default function OrderDetail({
                           : 'border border-gray-200 hover:border-blue-400 hover:bg-blue-50/50'
                       }`}
                     >
-                      <div className="w-20 h-20 bg-gray-100 rounded shrink-0 overflow-hidden">
-                        {item.thumbnail_url ? (
-                          <img
-                            src={item.thumbnail_url}
-                            alt={item.product_title}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Package className="w-8 h-8 text-gray-400" />
-                          </div>
-                        )}
-                      </div>
+                      <OrderItemThumbnail
+                        item={item}
+                        alt={item.product_title}
+                        className="w-20 h-20 rounded"
+                      />
                       <div className="flex-1">
                         {/* 디자인 이름 — 공장·관리자·고객이 모두 같이 보는 라벨. 빈 칸이면 빨강 강조. */}
                         <div className="mb-1.5" onClick={(e) => e.stopPropagation()}>
@@ -2069,15 +2062,12 @@ export default function OrderDetail({
                         onClick={() => canAssign ? toggleItemAlloc(item) : undefined}
                         className={`w-full flex items-center gap-2 p-2 text-left transition-colors ${canAssign ? 'hover:bg-gray-50 cursor-pointer' : ''} ${isExpanded ? 'bg-blue-50/50' : 'bg-gray-50/50'}`}
                       >
-                        <div className="w-8 h-8 bg-white rounded shrink-0 overflow-hidden border border-gray-200">
-                          {item.thumbnail_url ? (
-                            <img src={item.thumbnail_url} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <Package className="w-3 h-3 text-gray-400" />
-                            </div>
-                          )}
-                        </div>
+                        <OrderItemThumbnail
+                          item={item}
+                          className="w-8 h-8 rounded border border-gray-200"
+                          iconClassName="w-3 h-3"
+                          showSideBadge={false}
+                        />
                         <div className="flex-1 min-w-0">
                           {item.design_title?.trim() ? (
                             <div className="text-xs font-semibold text-gray-900 truncate">{item.design_title}</div>

@@ -12,6 +12,7 @@ import { formatKstDateShort } from '@/lib/kst';
 import { orderCategoryLabel } from '@/lib/order-category';
 import { isAdminLike } from '@/lib/auth-helpers';
 import FactoryPriceConfirmModal, { type FactoryPriceResult } from '@/components/factory/FactoryPriceConfirmModal';
+import OrderItemThumbnail from '@/components/orders/OrderItemThumbnail';
 
 interface FactoryOrderInfoPanelProps {
   orderId: string;
@@ -309,19 +310,13 @@ export default function FactoryOrderInfoPanel({
                       : 'border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'
                   }`}
                 >
-                  <div className="w-10 h-10 bg-gray-100 rounded shrink-0 overflow-hidden">
-                    {item.thumbnail_url ? (
-                      <img
-                        src={item.thumbnail_url}
-                        alt={item.product_title}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <Package className="w-4 h-4 text-gray-400" />
-                      </div>
-                    )}
-                  </div>
+                  <OrderItemThumbnail
+                    item={item}
+                    alt={item.product_title}
+                    className="w-10 h-10 rounded"
+                    iconClassName="w-4 h-4"
+                    showSideBadge={false}
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1">
                       <span className={`text-[11px] font-medium truncate ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>
