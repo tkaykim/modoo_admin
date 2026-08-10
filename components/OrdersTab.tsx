@@ -53,6 +53,7 @@ type AssignmentPayload = {
   can_claim: boolean;
   can_assign_others: boolean;
   viewer_id: string;
+  viewer_name: string | null;
   assignments: AssignmentRow[];
 };
 type AssigneeOption = { id: string; name: string | null; email: string | null };
@@ -180,7 +181,7 @@ export default function OrdersTab() {
   const { data: assigneePayload } = useSWR<{ assignees: AssigneeOption[] }>(
     assignmentFeatureOn && canAssignOthers ? '/api/admin/order-assignees' : null,
   );
-  const assigneeOptions = assigneePayload?.assignees ?? [];
+  const assigneeOptions = useMemo(() => assigneePayload?.assignees ?? [], [assigneePayload]);
 
   const runAssignmentAction = useCallback(
     async (orderId: string, body: Record<string, unknown>) => {
@@ -225,6 +226,50 @@ export default function OrdersTab() {
         expected_version: version,
       }),
     [runAssignmentAction],
+  );
+
+  const viewerId = assignmentPayload?.viewer_id ?? user?.id ?? null;
+
+  /**
+   * 담당자 칩(select)에 넣을 항목.
+   * 일반 관리자는 본인에게만 배정할 수 있으므로 본인만, super_admin 은 배정 후보 전원.
+   * 현재 담당자가 목록 밖(예: 관리자가 보는 타인 담당)이면 표시가 비지 않도록 끼워 넣는다.
+   */
+  const getAssigneeChoices = useCallback(
+    (current: AssignmentRow | null) => {
+      const choices: { id: string; label: string }[] = [];
+      if (canAssignOthers) {
+        assigneeOptions.forEach((o) => choices.push({ id: o.id, label: o.name || o.email || '이름 없음' }));
+      } else if (canClaim && viewerId) {
+        choices.push({ id: viewerId, label: assignmentPayload?.viewer_name || user?.name || '나' });
+      }
+      const currentId = current?.assignee_profile_id;
+      if (currentId && !choices.some((c) => c.id === currentId)) {
+        choices.push({ id: currentId, label: current?.assignee_name || '현재 담당자' });
+      }
+      return choices;
+    },
+    [canAssignOthers, canClaim, assigneeOptions, viewerId, assignmentPayload?.viewer_name, user?.name],
+  );
+
+  /** 칩에서 고른 값에 따라 claim · release · assign 중 알맞은 전이를 부른다. */
+  const handleAssigneeSelect = useCallback(
+    (order: OrderWithItemCount, nextId: string) => {
+      const current = getAssignment(order);
+      const currentId = current?.assignee_profile_id ?? '';
+      const version = current?.version ?? 0;
+      if (nextId === currentId) return;
+      if (!nextId) {
+        void handleRelease(order.id, version);
+        return;
+      }
+      if (nextId === viewerId && !currentId) {
+        void handleClaim(order.id);
+        return;
+      }
+      void handleAssignTo(order.id, nextId, version);
+    },
+    [getAssignment, handleRelease, handleClaim, handleAssignTo, viewerId],
   );
 
   const sourceCounts = useMemo(() => {
@@ -1378,72 +1423,46 @@ export default function OrdersTab() {
                             }
                             const assignment = getAssignment(order);
                             const assigneeId = assignment?.assignee_profile_id ?? null;
-                            const version = assignment?.version ?? 0;
                             const isChild = order.parent_order_id != null;
-                            const isMine = !!user?.id && assigneeId === user.id;
+                            const isMine = !!viewerId && assigneeId === viewerId;
                             const busy = assigningOrderId === order.id;
 
-                            if (assigneeId) {
+                            // 자식(차액) 주문은 원주문 담당을 따르므로 여기서 바꾸지 않는다.
+                            if (isChild) {
                               return (
-                                <div className="flex items-center gap-1.5">
-                                  <span
-                                    className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${
-                                      isMine ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-700'
-                                    }`}
-                                  >
-                                    {assignment?.assignee_name || '담당자'}
-                                    {isChild && <span className="ml-1 text-[10px] text-gray-500">(원주문)</span>}
-                                  </span>
-                                  {!isChild && (isMine || canAssignOthers) && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRelease(order.id, version)}
-                                      disabled={busy}
-                                      className="text-[11px] text-gray-500 hover:text-red-600 disabled:opacity-50"
-                                      title="담당 해제"
-                                    >
-                                      해제
-                                    </button>
-                                  )}
-                                </div>
+                                <span className="text-[11px] text-gray-400">
+                                  {assignment?.assignee_name ? `${assignment.assignee_name} (원주문)` : '원주문 따름'}
+                                </span>
                               );
                             }
 
-                            if (isChild) {
-                              return <span className="text-[11px] text-gray-400">원주문 따름</span>;
-                            }
+                            const choices = getAssigneeChoices(assignment);
+                            // 일반 관리자는 타인 담당을 건드릴 수 없다. 표시는 하되 잠근다.
+                            const locked =
+                              (!canClaim && !canAssignOthers) ||
+                              (!canAssignOthers && !!assigneeId && !isMine);
 
                             return (
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[11px] text-gray-400">미배정</span>
-                                {canClaim && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleClaim(order.id)}
-                                    disabled={busy}
-                                    className="px-2 py-0.5 rounded border border-indigo-200 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-                                  >
-                                    {busy ? '처리 중' : '내가 맡기'}
-                                  </button>
-                                )}
-                                {canAssignOthers && assigneeOptions.length > 0 && (
-                                  <select
-                                    value=""
-                                    onChange={(e) => {
-                                      if (e.target.value) handleAssignTo(order.id, e.target.value, version);
-                                    }}
-                                    disabled={busy}
-                                    className="px-1 py-0.5 rounded border border-gray-200 text-[11px] text-gray-600 disabled:opacity-50"
-                                  >
-                                    <option value="">지정…</option>
-                                    {assigneeOptions.map((option) => (
-                                      <option key={option.id} value={option.id}>
-                                        {option.name || option.email}
-                                      </option>
-                                    ))}
-                                  </select>
-                                )}
-                              </div>
+                              <select
+                                value={assigneeId ?? ''}
+                                onChange={(e) => handleAssigneeSelect(order, e.target.value)}
+                                disabled={busy || locked}
+                                title={locked ? '본인 담당 주문만 변경할 수 있습니다.' : '담당자 변경'}
+                                className={`px-2 py-1 rounded-md text-xs font-medium border-0 cursor-pointer focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60 disabled:cursor-not-allowed ${
+                                  assigneeId
+                                    ? isMine
+                                      ? 'bg-indigo-100 text-indigo-800'
+                                      : 'bg-gray-100 text-gray-700'
+                                    : 'bg-gray-50 text-gray-500'
+                                }`}
+                              >
+                                <option value="">미배정</option>
+                                {choices.map((choice) => (
+                                  <option key={choice.id} value={choice.id}>
+                                    {choice.label}
+                                  </option>
+                                ))}
+                              </select>
                             );
                           })()}
                         </td>
@@ -1752,34 +1771,39 @@ export default function OrdersTab() {
                         if (assignmentLoading) return <div className="text-[11px] text-gray-400">담당 확인 중…</div>;
                         const assignment = getAssignment(order);
                         const assigneeId = assignment?.assignee_profile_id ?? null;
-                        const isMine = !!user?.id && assigneeId === user.id;
-                        if (assigneeId) {
+                        const isMine = !!viewerId && assigneeId === viewerId;
+                        if (order.parent_order_id != null) {
                           return (
-                            <div className={`text-[11px] truncate ${isMine ? 'text-indigo-700 font-medium' : 'text-gray-600'}`}>
-                              담당 {assignment?.assignee_name || '지정됨'}
-                              {order.parent_order_id != null ? ' (원주문)' : ''}
+                            <div className="text-[11px] text-gray-400 truncate">
+                              담당 {assignment?.assignee_name ? `${assignment.assignee_name} (원주문)` : '원주문 따름'}
                             </div>
                           );
                         }
-                        if (order.parent_order_id != null) {
-                          return <div className="text-[11px] text-gray-400">담당 원주문 따름</div>;
-                        }
+                        const choices = getAssigneeChoices(assignment);
+                        const locked =
+                          (!canClaim && !canAssignOthers) || (!canAssignOthers && !!assigneeId && !isMine);
                         return (
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[11px] text-gray-400">담당 미배정</span>
-                            {canClaim && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleClaim(order.id);
-                                }}
-                                disabled={assigningOrderId === order.id}
-                                className="px-1.5 py-0.5 rounded border border-indigo-200 text-[10px] font-medium text-indigo-700 disabled:opacity-50"
-                              >
-                                내가 맡기
-                              </button>
-                            )}
+                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <span className="text-[11px] text-gray-400">담당</span>
+                            <select
+                              value={assigneeId ?? ''}
+                              onChange={(e) => handleAssigneeSelect(order, e.target.value)}
+                              disabled={assigningOrderId === order.id || locked}
+                              className={`px-1.5 py-0.5 rounded text-[11px] font-medium border-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                                assigneeId
+                                  ? isMine
+                                    ? 'bg-indigo-100 text-indigo-800'
+                                    : 'bg-gray-100 text-gray-700'
+                                  : 'bg-gray-50 text-gray-500'
+                              }`}
+                            >
+                              <option value="">미배정</option>
+                              {choices.map((choice) => (
+                                <option key={choice.id} value={choice.id}>
+                                  {choice.label}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         );
                       })()}

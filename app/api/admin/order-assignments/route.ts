@@ -31,6 +31,7 @@ export async function GET() {
         can_claim: auth.actor.canReceiveOrders,
         can_assign_others: auth.actor.isSuper,
         viewer_id: auth.actor.id,
+        viewer_name: auth.actor.name,
         assignments,
       },
     });
