@@ -94,7 +94,7 @@ export async function POST(request: Request) {
     const adminClient = createAdminClient();
     const { data: orders, error: ordersError } = await adminClient
       .from('orders')
-      .select('id, customer_name, customer_phone, postal_code, address_line_1, address_line_2, shipping_method, order_status, logen_registered_at, delivery_fee, order_items(id, product_title, design_title, quantity, item_options)')
+      .select('id, customer_name, customer_phone, recipient_name, recipient_phone, postal_code, address_line_1, address_line_2, shipping_method, order_status, logen_registered_at, delivery_fee, order_items(id, product_title, design_title, quantity, item_options)')
       .in('id', orderIds);
 
     if (ordersError) {
@@ -262,10 +262,13 @@ export async function POST(request: Request) {
 
       // 기본값(우리→고객) 산정
       const defaultSender = { name: COMPANY_NAME, addr: COMPANY_ADDR, tel: COMPANY_TEL };
+      // 송장 수령인은 받는 분(recipient_*)이 정본이다. 주문자 = 금액·결제 안내 채널이라
+      // 리셀러 주문에서 둘이 다르면 주문자 번호를 송장에 찍어선 안 된다.
+      // recipient_* 는 마이그레이션으로 전량 백필됐지만, 혹시 비어 있으면 주문자로 폴백한다.
       const defaultReceiver = {
-        name: order.customer_name || '고객',
+        name: order.recipient_name || order.customer_name || '고객',
         addr: fullAddr || '주소 미입력',
-        tel: (order.customer_phone || '').replace(/[^0-9]/g, ''),
+        tel: (order.recipient_phone || order.customer_phone || '').replace(/[^0-9]/g, ''),
       };
       // 단건 + override가 있으면 우선 적용 (4-케이스용)
       const sender = (allowOverride && senderOverride)

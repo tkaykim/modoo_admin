@@ -46,6 +46,11 @@ export default function OrderDetailsForm({ items, customerEditableFields, onCust
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 받는 분 — 송장·배송 안내 전용. 금액·결제 안내는 주문자에게만 나간다.
+  const [recipientSameAsOrderer, setRecipientSameAsOrderer] = useState(true);
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
+
   const [shippingMethod, setShippingMethod] = useState<ShippingMethod>('pickup');
   const [showAddressSearch, setShowAddressSearch] = useState(false);
   const [shippingAddress, setShippingAddress] = useState<ShippingAddress>({
@@ -172,6 +177,11 @@ export default function OrderDetailsForm({ items, customerEditableFields, onCust
       setError('배송 주소를 입력해주세요.');
       return;
     }
+    if (!ceShip && shippingMethod === 'domestic' && !recipientSameAsOrderer
+        && (!recipientName.trim() || !recipientPhone.trim())) {
+      setError('받는 분 성함과 연락처를 입력해주세요.');
+      return;
+    }
 
     setIsSubmitting(true);
 
@@ -199,6 +209,14 @@ export default function OrderDetailsForm({ items, customerEditableFields, onCust
           notes: notes.trim() || undefined,
           shippingMethod,
           deliveryFee,
+          // 받는 분 — 고객이 직접 입력하는 주문서면 결제 페이지에서 받는다.
+          ...(!ceShip && {
+            recipientSameAsOrderer: shippingMethod === 'domestic' ? recipientSameAsOrderer : true,
+            ...(shippingMethod === 'domestic' && !recipientSameAsOrderer && {
+              recipientName: recipientName.trim(),
+              recipientPhone: recipientPhone.trim(),
+            }),
+          }),
           ...(shippingMethod === 'domestic' && {
             postalCode: shippingAddress.postalCode,
             state: shippingAddress.state,
@@ -275,8 +293,8 @@ export default function OrderDetailsForm({ items, customerEditableFields, onCust
 
       {/* Customer Info */}
       <div className="mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">고객 정보</h3>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-lg font-semibold">주문자 정보</h3>
           <button
             type="button"
             onClick={() => onCustomerEditableFieldsChange?.({ ...customerEditableFields, customerInfo: !customerEditableFields?.customerInfo })}
@@ -289,6 +307,9 @@ export default function OrderDetailsForm({ items, customerEditableFields, onCust
             고객이 직접 입력
           </button>
         </div>
+        <p className="text-sm text-gray-500 mb-4">
+          결제·입금 안내와 결제 금액이 이 연락처·이메일로 발송됩니다. 받는 분이 다르면 배송 정보에서 따로 지정하세요.
+        </p>
         {customerEditableFields?.customerInfo ? (
           <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
             <p className="text-sm text-gray-400 text-center">고객이 결제 페이지에서 직접 입력합니다</p>
@@ -345,6 +366,42 @@ export default function OrderDetailsForm({ items, customerEditableFields, onCust
             </div>
             {shippingMethod === 'domestic' && (
               <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
+                {/* 받는 분 — 송장에 찍히는 정보. 금액 안내는 이쪽으로 나가지 않는다. */}
+                <div className="pb-4 border-b border-gray-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700">받는 분</label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={recipientSameAsOrderer}
+                        onChange={(e) => setRecipientSameAsOrderer(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-700">주문자와 동일</span>
+                    </label>
+                  </div>
+                  {recipientSameAsOrderer ? (
+                    <p className="text-xs text-gray-400">주문자 정보로 송장을 발행합니다.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        value={recipientName}
+                        onChange={(e) => setRecipientName(e.target.value)}
+                        placeholder="받는 분 성함"
+                        className="w-full p-3 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <input
+                        type="tel"
+                        value={recipientPhone}
+                        onChange={(e) => setRecipientPhone(e.target.value)}
+                        placeholder="받는 분 연락처 (010-0000-0000)"
+                        className="w-full p-3 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p className="text-xs text-gray-500">송장·배송 안내에만 사용됩니다. 결제 금액 안내는 주문자에게만 발송됩니다.</p>
+                    </div>
+                  )}
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">주소 <span className="text-red-500">*</span></label>
                   <button type="button" onClick={() => setShowAddressSearch(true)} className="w-full p-3 border border-gray-300 rounded-lg bg-white text-left flex items-center gap-2 hover:border-blue-500 transition-colors">

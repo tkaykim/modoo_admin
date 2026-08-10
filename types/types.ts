@@ -312,6 +312,12 @@ export interface Order {
   customer_email: string;
   customer_phone: string | null;
 
+  // 받는 분 — 송장·배송 안내 전용 채널.
+  // 금액·계좌·영수증은 절대 이쪽으로 보내지 않는다(리셀러 주문에서 원가 노출됨).
+  recipient_name?: string | null;
+  recipient_phone?: string | null;
+  recipient_same_as_orderer?: boolean;
+
   order_category?: 'cobuy' | 'regular' | 'salesman_direct' | 'quick' | 'surcharge' | null;
   cobuy_session_id?: string | null;
   // 간이주문(문의 연결) / 차액주문(원주문 연결)

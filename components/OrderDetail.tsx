@@ -875,12 +875,19 @@ export default function OrderDetail({
 
   // 우리 회사 정보 (4-케이스에서 발/수에 모두 쓰임)
   const COMPANY_INFO = { name: '모두의 유니폼', addr: '서울특별시 마포구 성지3길 55 3층', tel: '010-8140-0621' };
-  // 주문 고객 정보 → 발/수 폼 채움용
+  // 송장 수령인 = 받는 분(recipient_*)이 정본. 주문자는 결제·금액 안내 채널이라
+  // 리셀러 주문에서 둘이 다르면 주문자 번호를 송장에 찍으면 안 된다.
   const customerInfo = useMemo(() => ({
-    name: order.customer_name || '',
+    name: order.recipient_name || order.customer_name || '',
     addr: `${order.postal_code ? `[${order.postal_code}] ` : ''}${order.address_line_1 || ''}${order.address_line_2 ? ` ${order.address_line_2}` : ''}`.trim(),
-    tel: order.customer_phone || '',
-  }), [order.customer_name, order.customer_phone, order.postal_code, order.address_line_1, order.address_line_2]);
+    tel: order.recipient_phone || order.customer_phone || '',
+  }), [order.recipient_name, order.recipient_phone, order.customer_name, order.customer_phone, order.postal_code, order.address_line_1, order.address_line_2]);
+
+  // 주문자 ≠ 받는 분이면 운영자가 수동 안내를 보낼 때 번호를 헷갈리지 않게 강조한다.
+  const recipientDiffers = useMemo(() => (
+    order.recipient_same_as_orderer === false ||
+    (!!order.recipient_phone && order.recipient_phone !== order.customer_phone)
+  ), [order.recipient_same_as_orderer, order.recipient_phone, order.customer_phone]);
 
   // 그 주문에 배정된 공장 후보
   const assignedFactoryIds = useMemo(
@@ -2237,7 +2244,8 @@ export default function OrderDetail({
             <div className="bg-white border border-gray-200/60 rounded-md shadow-sm overflow-hidden">
               <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/50">
                 <User className="w-4 h-4 text-gray-500" />
-                <h3 className="text-sm font-semibold text-gray-900">고객 정보</h3>
+                <h3 className="text-sm font-semibold text-gray-900">주문자 정보</h3>
+                <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">결제·금액 안내 수신</span>
               </div>
               <div className="p-4 space-y-3">
                 <div>
@@ -2254,6 +2262,13 @@ export default function OrderDetail({
                     <p className="text-sm font-medium text-gray-900">{order.customer_phone}</p>
                   </div>
                 )}
+                {recipientDiffers && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 leading-relaxed">
+                    받는 분이 주문자와 다릅니다.
+                    <br />
+                    입금 안내·금액이 담긴 안내는 <strong>반드시 위 주문자 연락처</strong>로만 보내세요.
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -2266,6 +2281,21 @@ export default function OrderDetail({
                 <h3 className="text-sm font-semibold text-gray-900">배송 정보</h3>
               </div>
               <div className="p-4 space-y-3">
+                {order.shipping_method !== 'pickup' && (
+                  <div className={recipientDiffers ? 'p-2 -mx-1 rounded bg-amber-50 border border-amber-200' : ''}>
+                    <p className="text-xs text-gray-500">
+                      받는 분
+                      {recipientDiffers && <span className="ml-1 text-amber-700 font-medium">· 주문자와 다름</span>}
+                    </p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {order.recipient_name || order.customer_name || '-'}
+                      {(order.recipient_phone || order.customer_phone) && (
+                        <span className="text-gray-600 font-normal"> · {order.recipient_phone || order.customer_phone}</span>
+                      )}
+                    </p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">송장·배송 안내에만 사용</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-xs text-gray-500">배송 방법</p>
                   <p className="text-sm font-medium text-gray-900">

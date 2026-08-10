@@ -38,6 +38,10 @@ interface CreateOrderRequest {
   customerName: string;
   customerEmail: string;
   customerPhone?: string;
+  // 받는 분 — 송장·배송 안내 전용. 금액 안내는 주문자에게만 나간다.
+  recipientSameAsOrderer?: boolean;
+  recipientName?: string;
+  recipientPhone?: string;
   notes?: string;
   inquiryId?: string;           // 문의에서 만든 간이주문이면 연결
   parentOrderId?: string;       // 차액(추가결제) 주문이면 원주문 id 연결 → order_category='surcharge'
@@ -476,6 +480,15 @@ export async function POST(request: Request) {
       customer_name: customerName,
       customer_email: customerEmail,
       customer_phone: customerPhone || null,
+      // 받는 분 — "주문자와 동일"이어도 실값을 복사해 둔다. 소비처(로젠·배송목록)는
+      // recipient_* 만 읽으면 되도록 항상 채워진 상태를 유지한다.
+      recipient_same_as_orderer: payload.recipientSameAsOrderer !== false,
+      recipient_name: payload.recipientSameAsOrderer === false
+        ? (payload.recipientName || null)
+        : customerName,
+      recipient_phone: payload.recipientSameAsOrderer === false
+        ? (payload.recipientPhone || null)
+        : (customerPhone || null),
       shipping_method: payload.shippingMethod || 'pickup',
       country_code: payload.shippingMethod === 'domestic' ? 'KR' : null,
       state: payload.state || null,

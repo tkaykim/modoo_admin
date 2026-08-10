@@ -74,8 +74,18 @@ function getItemsSummary(order: Order): { totalQty: number; goodsNm: string } {
 // 택배 박스 수량 상한 (register API의 MAX_BOX_QTY와 동일하게 유지)
 const MAX_BOX_QTY = 99;
 
+// 송장에 실제로 찍히는 수령인. 주문자(결제·금액 안내 채널)와 다를 수 있다.
+function receiverOf(order: Order): { name: string; tel: string; differs: boolean } {
+  const name = order.recipient_name || order.customer_name || '';
+  const tel = order.recipient_phone || order.customer_phone || '';
+  const differs =
+    order.recipient_same_as_orderer === false ||
+    (!!order.recipient_phone && order.recipient_phone !== order.customer_phone);
+  return { name, tel, differs };
+}
+
 function isIncomplete(order: Order): boolean {
-  return !order.address_line_1 || !order.customer_phone;
+  return !order.address_line_1 || !receiverOf(order).tel;
 }
 
 function fullAddress(order: Order): string {
@@ -438,10 +448,29 @@ export default function ShippingPage() {
                         </div>
                       </td>
                       <td className="px-3 py-3">
-                        <div className="font-medium text-gray-900 whitespace-nowrap">{order.customer_name}</div>
-                        {order.customer_phone && (
-                          <div className="text-xs text-gray-500 whitespace-nowrap">{order.customer_phone}</div>
-                        )}
+                        {(() => {
+                          const rcv = receiverOf(order);
+                          return (
+                            <>
+                              <div className="font-medium text-gray-900 whitespace-nowrap">
+                                {rcv.name || '-'}
+                                {rcv.differs && (
+                                  <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 align-middle">
+                                    주문자와 다름
+                                  </span>
+                                )}
+                              </div>
+                              {rcv.tel && (
+                                <div className="text-xs text-gray-500 whitespace-nowrap">{rcv.tel}</div>
+                              )}
+                              {rcv.differs && (
+                                <div className="text-[10px] text-gray-400 whitespace-nowrap">
+                                  주문자: {order.customer_name || '-'}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-3 text-gray-600 max-w-xs truncate">
                         {order.postal_code && `[${order.postal_code}] `}
@@ -524,14 +553,20 @@ export default function ShippingPage() {
                     {confirmOrders.map((order) => {
                       const { totalQty, goodsNm } = getItemsSummary(order);
                       const bad = isIncomplete(order);
+                      const rcv = receiverOf(order);
                       return (
                         <div key={order.id} className={`rounded-lg p-3 text-sm border ${bad ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-100'}`}>
                           <div className="flex items-center justify-between">
-                            <p className="font-medium text-gray-900">{order.customer_name || '-'}</p>
+                            <p className="font-medium text-gray-900">{rcv.name || '-'}</p>
                             <span className="text-xs text-gray-500">{totalQty}개 · {(order.delivery_fee || 0).toLocaleString()}원</span>
                           </div>
                           <p className="text-gray-700">{fullAddress(order)}</p>
-                          <p className="text-gray-600">{order.customer_phone || '연락처 없음'}</p>
+                          <p className="text-gray-600">{rcv.tel || '연락처 없음'}</p>
+                          {rcv.differs && (
+                            <p className="text-xs text-amber-700 mt-1">
+                              주문자({order.customer_name || '-'})와 받는 분이 다릅니다 · 송장은 받는 분 기준
+                            </p>
+                          )}
                           {!isBulk && (
                             <p className="text-xs text-gray-500 mt-1 truncate">물품: {goodsNm} · 운임타입 본사신용</p>
                           )}
@@ -574,7 +609,7 @@ export default function ShippingPage() {
                           {bad && (
                             <p className="flex items-center gap-1 text-xs text-amber-700 mt-1">
                               <AlertTriangle className="w-3.5 h-3.5" />
-                              {!order.address_line_1 ? '주소 누락' : ''}{!order.address_line_1 && !order.customer_phone ? ' · ' : ''}{!order.customer_phone ? '연락처 누락' : ''}
+                              {!order.address_line_1 ? '주소 누락' : ''}{!order.address_line_1 && !rcv.tel ? ' · ' : ''}{!rcv.tel ? '연락처 누락' : ''}
                             </p>
                           )}
                         </div>
