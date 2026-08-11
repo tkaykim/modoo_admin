@@ -20,6 +20,8 @@ import FactoryPriceConfirmModal from '@/components/factory/FactoryPriceConfirmMo
 import { coerceImageUrlsBySide, isPreviewableImageEntry, fileExtensionLabel } from '@/lib/downloadUtils';
 import { formatKstDateLong, formatKstDateTimeMedium, getKstYYYYMMDD } from '@/lib/kst';
 import { orderCategoryBadgeClass, orderCategoryLabel } from '@/lib/order-category';
+import ContactEditModal from '@/components/order/ContactEditModal';
+import { checkPhone, formatPhone } from '@/lib/phone';
 import AssigneePicker from '@/components/common/AssigneePicker';
 
 type CoBuyParticipantSummary = Pick<
@@ -81,6 +83,7 @@ export default function OrderDetail({
   const router = useRouter();
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showContactEdit, setShowContactEdit] = useState(false);
   const [showAddItemModal, setShowAddItemModal] = useState(!!initialAddItemDesignId);
   const [expandedFactoryItemId, setExpandedFactoryItemId] = useState<string | null>(null);
   // 작업사진 모달 (카메라 촬영·업로드 + Drive 폴더 열기 통합)
@@ -2246,6 +2249,14 @@ export default function OrderDetail({
                 <User className="w-4 h-4 text-gray-500" />
                 <h3 className="text-sm font-semibold text-gray-900">주문자 정보</h3>
                 <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">결제·금액 안내 수신</span>
+                <button
+                  onClick={() => setShowContactEdit(true)}
+                  className="text-gray-400 hover:text-gray-700 p-0.5"
+                  title="연락처·성함 정정"
+                  aria-label="연락처·성함 정정"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
               </div>
               <div className="p-4 space-y-3">
                 <div>
@@ -2259,7 +2270,14 @@ export default function OrderDetail({
                 {order.customer_phone && (
                   <div>
                     <p className="text-xs text-gray-500">전화번호</p>
-                    <p className="text-sm font-medium text-gray-900">{order.customer_phone}</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {formatPhone(order.customer_phone)}
+                      {checkPhone(order.customer_phone).blocking && (
+                        <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-normal align-middle">
+                          형식 이상
+                        </span>
+                      )}
+                    </p>
                   </div>
                 )}
                 {recipientDiffers && (
@@ -2290,10 +2308,26 @@ export default function OrderDetail({
                     <p className="text-sm font-medium text-gray-900">
                       {order.recipient_name || order.customer_name || '-'}
                       {(order.recipient_phone || order.customer_phone) && (
-                        <span className="text-gray-600 font-normal"> · {order.recipient_phone || order.customer_phone}</span>
+                        <span className="text-gray-600 font-normal">
+                          {' · '}
+                          {formatPhone(order.recipient_phone || order.customer_phone || '')}
+                        </span>
+                      )}
+                      {checkPhone(order.recipient_phone || order.customer_phone || '').blocking && (
+                        <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-normal align-middle">
+                          형식 이상
+                        </span>
                       )}
                     </p>
-                    <p className="text-[11px] text-gray-400 mt-0.5">송장·배송 안내에만 사용</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-[11px] text-gray-400">송장·배송 안내에만 사용</p>
+                      <button
+                        onClick={() => setShowContactEdit(true)}
+                        className="text-[11px] text-gray-500 hover:text-gray-900 underline underline-offset-2"
+                      >
+                        연락처 정정
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div>
@@ -3009,6 +3043,15 @@ export default function OrderDetail({
 
         </div>
       </div>
+
+      {/* 연락처 정정 — 고객 오타로 연락이 닿지 않는 주문을 운영자가 고친다 */}
+      {showContactEdit && (
+        <ContactEditModal
+          order={order}
+          onClose={() => setShowContactEdit(false)}
+          onSaved={() => onUpdate()}
+        />
+      )}
 
       {/* Refund Modal */}
       {showRefundModal && (

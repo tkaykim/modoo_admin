@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase-admin';
 import { sendFactoryAssignmentEmail } from '@/lib/gmail';
 import { sendOrderStatusNotification, type OrderStatus } from '@/lib/notifications/order-status';
 import { LOGEN_CONTRACT_FARE } from '@/lib/logen';
+import { assertPhoneOrMessage, sanitizePhoneInput } from '@/lib/phone';
 import { randomBytes } from 'crypto';
 
 export async function GET(request: Request) {
@@ -376,7 +377,7 @@ export async function PATCH(request: Request) {
 
     const { data: existingOrder } = await adminClient
       .from('orders')
-      .select('customer_note, share_token, order_status, payment_status, customer_name, customer_email, tracking_number, shipping_method')
+      .select('customer_note, share_token, order_status, payment_status, customer_name, customer_email, customer_phone, recipient_name, recipient_phone, recipient_same_as_orderer, tracking_number, shipping_method, logen_registered_at')
       .eq('id', orderId)
       .single();
 
@@ -403,6 +404,66 @@ export async function PATCH(request: Request) {
     const updateData: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     };
+
+    // 연락처·성함 정정 — 고객이 오타로 입력한 번호를 운영자가 고친다.
+    // 개인정보 덮어쓰기라 사유를 필수로 받고 원본을 order_contact_changes 에 남긴다.
+    // 공장 계정은 여기 닿지 않는다(위 isFactoryUser 분기에서 먼저 반환된다).
+    const contactUpdateInput = payload?.contactUpdate ?? null;
+    const contactChanges: { field: string; old_value: string | null; new_value: string | null }[] = [];
+    let contactUpdateReason = '';
+
+    if (contactUpdateInput !== null) {
+      if (!isAdminLike(profile.role)) {
+        return NextResponse.json({ error: '연락처 수정 권한이 없습니다.' }, { status: 403 });
+      }
+      if (typeof contactUpdateInput !== 'object') {
+        return NextResponse.json({ error: '연락처 수정 형식이 올바르지 않습니다.' }, { status: 400 });
+      }
+      if (!existingOrder) {
+        return NextResponse.json({ error: '주문을 찾을 수 없습니다.' }, { status: 404 });
+      }
+
+      const reason = typeof contactUpdateInput.reason === 'string' ? contactUpdateInput.reason.trim() : '';
+      if (!reason) {
+        return NextResponse.json({ error: '수정 사유를 입력해주세요.' }, { status: 400 });
+      }
+
+      const existing = existingOrder as unknown as Record<string, unknown>;
+
+      for (const field of ['customer_phone', 'recipient_phone'] as const) {
+        if (!Object.prototype.hasOwnProperty.call(contactUpdateInput, field)) continue;
+        const next = sanitizePhoneInput(String(contactUpdateInput[field] ?? ''));
+        const label = field === 'customer_phone' ? '주문자 연락처' : '받는 분 연락처';
+        const message = assertPhoneOrMessage(next, label);
+        if (message) {
+          return NextResponse.json({ error: message }, { status: 400 });
+        }
+        const prev = (existing[field] as string | null) ?? null;
+        if (prev !== next) {
+          updateData[field] = next;
+          contactChanges.push({ field, old_value: prev, new_value: next });
+        }
+      }
+
+      for (const field of ['customer_name', 'recipient_name'] as const) {
+        if (!Object.prototype.hasOwnProperty.call(contactUpdateInput, field)) continue;
+        const next = String(contactUpdateInput[field] ?? '').trim();
+        if (!next) {
+          return NextResponse.json({ error: '성함은 비워둘 수 없습니다.' }, { status: 400 });
+        }
+        const prev = (existing[field] as string | null) ?? null;
+        if (prev !== next) {
+          updateData[field] = next;
+          contactChanges.push({ field, old_value: prev, new_value: next });
+        }
+      }
+
+      if (contactChanges.length === 0) {
+        return NextResponse.json({ error: '변경된 내용이 없습니다.' }, { status: 400 });
+      }
+
+      contactUpdateReason = reason;
+    }
 
     if (Object.prototype.hasOwnProperty.call(payload ?? {}, 'salesman_id')) {
       const next = payload?.salesman_id;
@@ -617,6 +678,25 @@ export async function PATCH(request: Request) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // 연락처 수정 이력 — orders 업데이트가 성공한 뒤에만 남긴다.
+    // 이력 기록이 실패해도 수정 자체를 되돌리지는 않되, 로그로 남겨 추적 가능하게 한다.
+    if (contactChanges.length > 0) {
+      const { error: historyError } = await adminClient.from('order_contact_changes').insert(
+        contactChanges.map((change) => ({
+          order_id: orderId,
+          field: change.field,
+          old_value: change.old_value,
+          new_value: change.new_value,
+          reason: contactUpdateReason,
+          changed_by: user.id,
+          changed_by_email: user.email ?? null,
+        }))
+      );
+      if (historyError) {
+        console.error('[admin/orders] 연락처 수정 이력 기록 실패:', historyError, { orderId });
+      }
     }
 
     // 수동 송장 입력(스마트로젠 등 API 외 경로) 시 택배비 원가 자동 기록

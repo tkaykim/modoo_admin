@@ -14,6 +14,7 @@ import FactoryPriceConfirmModal, { type FactoryPriceResult } from '@/components/
 import { formatKstDateLong, formatKstDateShort, formatKstMonthDay } from '@/lib/kst';
 import { orderCategoryLabel } from '@/lib/order-category';
 import { isAdminLike } from '@/lib/auth-helpers';
+import { checkPhone } from '@/lib/phone';
 
 // Extended order type with items from API (now includes factory fields)
 type OrderItemSummary = {
@@ -69,6 +70,18 @@ const ORDER_SOURCE_FILTERS = [
 ] as const;
 
 type OrderSourceKey = typeof ORDER_SOURCE_FILTERS[number]['value'];
+
+/**
+ * 연락처 형식이 깨진 주문 — 목록에서 바로 눈에 띄게 한다.
+ * 고객 오타(0104931766 등)로 연락이 닿지 않는 주문을 배송 전에 잡아내기 위함이다.
+ * 값이 아예 비어 있는 옛 주문까지 빨갛게 칠하면 소음이 되므로, 입력은 됐는데 형식이 틀린 건만 표시한다.
+ */
+function hasBadContact(order: Pick<Order, 'customer_phone' | 'recipient_phone'>): boolean {
+  const candidates = [order.customer_phone, order.recipient_phone].filter(
+    (value): value is string => !!value && value.trim() !== ''
+  );
+  return candidates.some((value) => checkPhone(value).blocking);
+}
 
 function getOrderSourceInfo(
   order: Pick<OrderWithItemCount, 'id' | 'order_category' | 'partner_mall_id' | 'partner_mall'>
@@ -1468,7 +1481,17 @@ export default function OrdersTab() {
                         </td>
                       )}
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{order.customer_name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="text-sm font-medium text-gray-900">{order.customer_name}</div>
+                          {hasBadContact(order) && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-50 text-red-700 shrink-0"
+                              title="연락처 형식이 올바르지 않습니다. 주문 상세에서 정정하세요."
+                            >
+                              연락처 이상
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-gray-500">{order.customer_email}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
@@ -1745,6 +1768,11 @@ export default function OrdersTab() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <div className="text-xs font-medium text-gray-900 truncate">{order.customer_name}</div>
+                        {hasBadContact(order) && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-50 text-red-700 shrink-0">
+                            연락처 이상
+                          </span>
+                        )}
                         {(() => {
                           const src = getOrderSourceInfo(order);
                           return (
