@@ -3,7 +3,7 @@ import { requireAdmin } from '@/lib/admin-api';
 import { createAdminClient } from '@/lib/supabase-admin';
 
 const FIELDS =
-  'id, inquiry_id, source_type, intent, customer_summary, draft_reply, proposed_actions, confidence, flags, status, reviewer_edited_reply, approved_actions, executed_actions, run_id, reviewed_by, reviewed_at, executed_at, created_at, updated_at';
+  'id, inquiry_id, source_type, intent, customer_summary, draft_reply, proposed_actions, confidence, flags, status, reviewer_edited_reply, approved_actions, executed_actions, run_id, knowledge_snapshot, reviewed_by, reviewed_at, executed_at, created_at, updated_at';
 
 export async function GET(request: Request) {
   const auth = await requireAdmin();
@@ -77,6 +77,7 @@ export async function PATCH(request: Request) {
 
     // 학습 피드백 적재 (반려)
     if (draft) {
+      const reviewerNote = typeof body.reviewer_note === 'string' ? body.reviewer_note.trim() : '';
       await db.from('cs_feedback').insert({
         draft_id: id,
         inquiry_id: draft.inquiry_id,
@@ -84,7 +85,11 @@ export async function PATCH(request: Request) {
         original_draft: draft.draft_reply,
         final_sent: null,
         verdict: 'rejected',
-        reviewer_note: typeof body.reviewer_note === 'string' ? body.reviewer_note : null,
+        reviewer_note: reviewerNote || null,
+        is_pinned: true,
+        learning_rule: reviewerNote || null,
+        learned_at: reviewerNote ? new Date().toISOString() : null,
+        learning_version: 1,
         proposed_actions_before: draft.proposed_actions ?? null,
       });
     }

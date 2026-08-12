@@ -333,6 +333,7 @@ export async function POST(request: Request) {
     .eq('id', id);
 
   // 학습 피드백 적재 (승인/수정)
+  const reviewerNote = typeof body.reviewer_note === 'string' ? body.reviewer_note.trim() : '';
   await db.from('cs_feedback').insert({
     draft_id: id,
     inquiry_id: draft.inquiry_id,
@@ -340,7 +341,11 @@ export async function POST(request: Request) {
     original_draft: draft.draft_reply,
     final_sent: finalReply,
     verdict: wasEdited ? 'edited' : 'approved_clean',
-    reviewer_note: typeof body.reviewer_note === 'string' ? body.reviewer_note : null,
+    reviewer_note: reviewerNote || null,
+    is_pinned: wasEdited,
+    learning_rule: wasEdited && reviewerNote ? reviewerNote : null,
+    learned_at: wasEdited && reviewerNote ? now() : null,
+    learning_version: 1,
     proposed_actions_before: draft.proposed_actions ?? null,
     approved_actions_after: actions,
   });
