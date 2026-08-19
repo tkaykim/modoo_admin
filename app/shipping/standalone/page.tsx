@@ -62,7 +62,10 @@ export default function StandaloneShippingPage() {
   const [receiverForm, setReceiverForm] = useState<Party>({ name: '', addr: '', tel: '' });
   const [fareTy, setFareTy] = useState<'010' | '020' | '030' | '040'>('010');
   const [qty, setQty] = useState(1);
+  // 로젠 dlvFare = 총 운임(계약운임 3,000 × 박스 수). 박스 수와 안 맞으면 발행에서 제외되므로
+  // 사용자가 직접 고치기 전까지는 박스 수에 연동해 자동 계산한다.
   const [deliveryFee, setDeliveryFee] = useState(3000);
+  const [deliveryFeeTouched, setDeliveryFeeTouched] = useState(false);
   const [goodsNm, setGoodsNm] = useState('');
   const [category, setCategory] = useState('재고확보');
   const [memo, setMemo] = useState('');
@@ -293,13 +296,17 @@ export default function StandaloneShippingPage() {
                     className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">수량</label>
-                  <input type="number" min={1} value={qty} onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
+                  <label className="block text-xs font-medium text-gray-500 mb-1">수량(박스)</label>
+                  <input type="number" min={1} value={qty} onChange={(e) => {
+                    const next = Math.max(1, Number(e.target.value) || 1);
+                    setQty(next);
+                    if (!deliveryFeeTouched) setDeliveryFee(3000 * next);
+                  }}
                     className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">운임 (원)</label>
-                  <input type="number" min={0} value={deliveryFee} onChange={(e) => setDeliveryFee(Math.max(0, Number(e.target.value) || 0))}
+                  <label className="block text-xs font-medium text-gray-500 mb-1">총 운임 (원) = 3,000 × 박스</label>
+                  <input type="number" min={0} value={deliveryFee} onChange={(e) => { setDeliveryFeeTouched(true); setDeliveryFee(Math.max(0, Number(e.target.value) || 0)); }}
                     className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
                 </div>
                 <div>

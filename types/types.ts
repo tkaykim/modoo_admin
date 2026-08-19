@@ -383,6 +383,10 @@ export interface Order {
   logen_slip_printed: boolean;
   // 실제 발송 박스 수(기본 1) — 상품 수량과 별개. 접수 시 관리자가 입력.
   shipping_box_qty?: number | null;
+  // 로젠 접수 세대 번호(기본 1). 접수 취소 시 +1되며 재접수는 "-R<seq>" 접미사 번호로 등록.
+  logen_reg_seq?: number | null;
+  // 다박스 접수 시 두 번째 이후 박스의 송장번호 목록(첫 송장은 tracking_number).
+  extra_tracking_numbers?: string[] | null;
 
   // Shareable link token (generated on demand)
   share_token: string | null;

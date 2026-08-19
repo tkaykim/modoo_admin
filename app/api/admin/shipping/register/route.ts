@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { registerOrder, inquirySlipNo, LOGEN_FARE_TY, LOGEN_CONTRACT_FARE, LOGEN_BOX_TY_CD, type RegisterOrderInput } from '@/lib/logen';
+import { registerOrder, inquirySlipNo, logenFixTakeNo, logenBaseOrderId, LOGEN_FARE_TY, LOGEN_CONTRACT_FARE, LOGEN_BOX_TY_CD, type RegisterOrderInput } from '@/lib/logen';
 import { getKstYYYYMMDD } from '@/lib/kst';
 
 // 우리 회사(피스코프/모두의 유니폼) 기본 발송지 — 케이스에 따라 발송자/수신자로 모두 쓰임
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
     const adminClient = createAdminClient();
     const { data: orders, error: ordersError } = await adminClient
       .from('orders')
-      .select('id, customer_name, customer_phone, recipient_name, recipient_phone, postal_code, address_line_1, address_line_2, shipping_method, order_status, logen_registered_at, delivery_fee, order_items(id, product_title, design_title, quantity, item_options)')
+      .select('id, customer_name, customer_phone, recipient_name, recipient_phone, postal_code, address_line_1, address_line_2, shipping_method, order_status, logen_registered_at, logen_reg_seq, delivery_fee, order_items(id, product_title, design_title, quantity, item_options)')
       .in('id', orderIds);
 
     if (ordersError) {
@@ -168,7 +168,9 @@ export async function POST(request: Request) {
           boxTyCd: LOGEN_BOX_TY_CD,
           // 로젠 qty = 박스 수(상품 수량 아님). 관리자가 입력한 실제 발송 박스 수.
           qty: internalBoxQty,
-          dlvFare: LOGEN_CONTRACT_FARE,
+          // dlvFare = 총 운임(계약운임 × 박스 수). 공식 문서 예시 qty=2 ↔ dlvFare=6000.
+          // 박스 수와 안 맞는 운임을 보내면 등록은 TRUE여도 송장 발행 대상에서 조용히 제외된다.
+          dlvFare: LOGEN_CONTRACT_FARE * internalBoxQty,
           goodsNm,
         }]);
         if (reg.sttsCd === 'FAIL') {
@@ -205,11 +207,14 @@ export async function POST(request: Request) {
     const candidates = orders.filter(
       (o) => o.shipping_method === 'domestic' && !o.logen_registered_at
     );
+    // 접수번호: 접수 취소 이력이 있으면 -R<seq> 접미사가 붙는다 (취소된 무효 행과 분리).
+    const fixNoByOrder = new Map<string, string>();
+    for (const o of orders) fixNoByOrder.set(o.id, logenFixTakeNo(o.id, (o as any).logen_reg_seq));
     const alreadyAtLogen = new Set<string>();
     if (candidates.length > 0) {
       let inquiry;
       try {
-        inquiry = await inquirySlipNo(candidates.map((o) => o.id));
+        inquiry = await inquirySlipNo(candidates.map((o) => fixNoByOrder.get(o.id)!));
       } catch (e: any) {
         return NextResponse.json({
           error: '로젠 접수 상태 확인에 실패해 접수를 중단했습니다. 잠시 후 다시 시도해주세요. (중복 접수 방지)',
@@ -220,7 +225,7 @@ export async function POST(request: Request) {
           const activeRows = (Array.isArray(item.data1) ? item.data1 : [])
             .filter((r: any) => r && r.delYn !== 'Y');
           if (item.resultCd === 'TRUE' && activeRows.length > 0) {
-            alreadyAtLogen.add(item.fixTakeNo);
+            alreadyAtLogen.add(logenBaseOrderId(item.fixTakeNo));
           }
         }
       }
@@ -282,7 +287,7 @@ export async function POST(request: Request) {
 
       registerData.push({
         takeDt,
-        fixTakeNo: order.id,
+        fixTakeNo: fixNoByOrder.get(order.id)!,
         sndCustNm: sender.name,
         sndCustAddr: sender.addr,
         sndTelNo: sender.tel,
@@ -297,8 +302,10 @@ export async function POST(request: Request) {
         // 로젠 qty = 박스 수(상품 수량 아님 — 상품 수량을 넣으면 그만큼 운임이 청구된다).
         // 기본 1박스이되 관리자가 실제 포장 결과에 맞춰 접수 화면에서 조절할 수 있다.
         qty: boxQtyFor(order.id),
-        // 로젠 계약운임(선불 단가). 고객에게 받은 배송비(order.delivery_fee)와는 별개의 값이다.
-        dlvFare: LOGEN_CONTRACT_FARE,
+        // dlvFare = 총 운임(계약운임 × 박스 수). 공식 문서 예시 qty=2 ↔ dlvFare=6000.
+        // 박스 수와 안 맞는 운임을 보내면 등록은 TRUE여도 송장 발행 대상에서 조용히 제외된다
+        // (2026-08-19 다박스 미발번 실사고). 고객에게 받은 배송비(order.delivery_fee)와는 별개.
+        dlvFare: LOGEN_CONTRACT_FARE * boxQtyFor(order.id),
         goodsNm,
       });
     }
@@ -317,12 +324,24 @@ export async function POST(request: Request) {
     }
 
     const successIds: string[] = [];
+    const failedMsgs: string[] = [];
     if (result.data && Array.isArray(result.data)) {
       for (const item of result.data) {
         if (item.resultCd === 'TRUE') {
-          successIds.push(item.fixTakeNo);
+          successIds.push(logenBaseOrderId(item.fixTakeNo));
+        } else {
+          failedMsgs.push(`${logenBaseOrderId(item.fixTakeNo)}: ${item.resultMsg || '접수 거절'}`);
         }
       }
+    }
+
+    // 전건 거절이면 성공처럼 200을 돌려주지 않고 사유를 그대로 표면화한다.
+    if (successIds.length === 0 && registerData.length > 0) {
+      return NextResponse.json({
+        error: `로젠 접수가 거절되었습니다 — ${failedMsgs.join(' / ') || result.sttsMsg}`,
+        logenResponse: result,
+        skipped,
+      }, { status: 502 });
     }
 
     if (successIds.length > 0) {
@@ -383,6 +402,7 @@ export async function POST(request: Request) {
         registered: successIds.length,
         total: registerData.length,
         skipped,
+        failed: failedMsgs,
         takeDt,
         logenResponse: result,
       },

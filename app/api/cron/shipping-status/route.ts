@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { trackCargoLast, inquirySlipNo } from '@/lib/logen';
+import { trackCargoLast, inquirySlipNo, logenFixTakeNo, logenBaseOrderId } from '@/lib/logen';
 import { automationPing } from '@/lib/automation-ping';
 
 /** Vercel Hobby: 하루 1회. schedule 0 9 * * * = 매일 09:00 UTC = 한국 18:00 (KST) */
@@ -24,14 +24,15 @@ export async function GET(request: Request) {
     try {
       const { data: pending } = await adminClient
         .from('orders')
-        .select('id')
+        .select('id, logen_reg_seq')
         .eq('order_status', 'shipping')
         .eq('tracking_carrier', 'logen')
         .not('logen_registered_at', 'is', null)
         .is('tracking_number', null)
         .limit(200);
 
-      const pendingIds = (pending || []).map((o) => o.id);
+      // 접수 취소 후 재접수된 주문은 로젠에 -R<seq> 접미사 번호로 접수돼 있다
+      const pendingIds = (pending || []).map((o: any) => logenFixTakeNo(o.id, o.logen_reg_seq));
       for (let i = 0; i < pendingIds.length; i += BATCH_SIZE) {
         const batch = pendingIds.slice(i, i + BATCH_SIZE);
         try {
@@ -39,12 +40,18 @@ export async function GET(request: Request) {
           if (inq.sttsCd === 'FAIL' || !Array.isArray(inq.data)) continue;
           for (const item of inq.data) {
             if (item.resultCd !== 'TRUE' || !Array.isArray(item.data1)) continue;
-            const active = item.data1.find((s: any) => s.delYn !== 'Y' && s.slipNo);
+            // 다박스(qty≥2) 접수는 박스마다 송장이 발번된다 — 첫 번째는 tracking_number, 나머지는 extra에
+            const actives = item.data1.filter((s: any) => s.delYn !== 'Y' && s.slipNo);
+            const active = actives[0];
             if (active?.slipNo) {
               await adminClient
                 .from('orders')
-                .update({ tracking_number: active.slipNo, logen_slip_printed: true })
-                .eq('id', item.fixTakeNo)
+                .update({
+                  tracking_number: active.slipNo,
+                  logen_slip_printed: true,
+                  extra_tracking_numbers: actives.length > 1 ? actives.slice(1).map((s: any) => s.slipNo) : null,
+                })
+                .eq('id', logenBaseOrderId(item.fixTakeNo))
                 .is('tracking_number', null);
               syncedSlips++;
             }

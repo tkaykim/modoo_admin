@@ -60,6 +60,21 @@ export async function getContractInfo(custCd?: string) {
   });
 }
 
+// ── 접수번호(fixTakeNo) 규칙 ──
+// 로젠에는 접수 취소/삭제 API가 없어(반품 취소 제외), 어드민에서 접수를 취소하면
+// 로젠 측 행은 미출력 상태로 남겨 무효 처리하고, 재접수는 orders.logen_reg_seq를 올려
+// "-R<seq>" 접미사가 붙은 새 접수번호로 등록한다. (같은 번호 재접수 시 멱등 가드가
+// 기존 무효 행을 보고 접수를 건너뛰는 문제 + 출력 화면 중복 노출을 피하기 위함)
+export function logenFixTakeNo(orderId: string, regSeq?: number | null): string {
+  const seq = Number(regSeq) || 1;
+  return seq <= 1 ? orderId : `${orderId}-R${seq}`;
+}
+
+// 접수번호 → 주문 ID 역변환 (재접수 접미사 제거. 내부 이동 접미사 -U2F/-F2U는 별도 처리)
+export function logenBaseOrderId(fixTakeNo: string): string {
+  return String(fixTakeNo).replace(/-R\d+$/, '');
+}
+
 // ── 주문 정보 일괄 등록 (iLOGEN 출력방식) ──
 export interface RegisterOrderInput {
   takeDt: string;           // 접수일자 YYYYMMDD

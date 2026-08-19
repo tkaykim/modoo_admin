@@ -54,8 +54,10 @@ export async function POST(request: Request) {
     const receiver = body?.receiver as { name?: string; addr?: string; tel?: string; manufacturerId?: string } | undefined;
     const fareTy: string = /^0[1234]0$/.test(body?.fareTy) ? body.fareTy : LOGEN_FARE_TY;
     const qty = Math.max(1, Number(body?.qty) || 1);
-    // 미입력 시 계약운임. 0원 운임은 발행 대상에서 제외되므로 허용하지 않는다.
-    const deliveryFee = Number(body?.deliveryFee) > 0 ? Number(body.deliveryFee) : LOGEN_CONTRACT_FARE;
+    // dlvFare = 총 운임(계약운임 × 박스 수). 공식 문서 예시 qty=2 ↔ dlvFare=6000.
+    // 박스 수와 안 맞는 운임(예: 2박스에 3,000원)을 보내면 등록은 TRUE여도
+    // 송장 발행 대상에서 조용히 제외된다. 0원 운임도 동일하게 제외되므로 허용하지 않는다.
+    const deliveryFee = Number(body?.deliveryFee) > 0 ? Number(body.deliveryFee) : LOGEN_CONTRACT_FARE * qty;
     const goodsNm: string = (body?.goodsNm || '').toString().trim().slice(0, 100);
     const category: string | null = body?.category?.toString().trim() || null;
     const memo: string | null = body?.memo?.toString().trim() || null;

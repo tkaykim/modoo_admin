@@ -134,6 +134,12 @@ export default function OrderDetail({
   const [showLogenModal, setShowLogenModal] = useState(false);
   const [logenLoading, setLogenLoading] = useState(false);
   const [logenError, setLogenError] = useState<string | null>(null);
+  // 택배 접수 취소 (사유 필수)
+  const [showCancelShipping, setShowCancelShipping] = useState(false);
+  const [cancelShippingReason, setCancelShippingReason] = useState('');
+  const [cancelShippingConfirmed, setCancelShippingConfirmed] = useState(false);
+  const [cancelShippingLoading, setCancelShippingLoading] = useState(false);
+  const [cancelShippingError, setCancelShippingError] = useState<string | null>(null);
   // 택배 접수 케이스 (4종) + 발/수/운임 편집 상태
   type ShippingCase = 'us_to_customer' | 'us_to_factory' | 'factory_to_us' | 'factory_to_customer';
   const [shippingCase, setShippingCase] = useState<ShippingCase>('us_to_customer');
@@ -2539,6 +2545,12 @@ export default function OrderDetail({
                           <div>
                             <p className="text-xs text-gray-500">운송장 번호</p>
                             <p className="text-sm font-semibold text-gray-900 font-mono">{order.tracking_number}</p>
+                            {(order.extra_tracking_numbers || []).length > 0 && (
+                              <p className="text-[11px] text-gray-500 font-mono">
+                                + {(order.extra_tracking_numbers || []).join(', ')}
+                                <span className="text-gray-400 font-sans"> (다박스 추가 송장)</span>
+                              </p>
+                            )}
                           </div>
                           <button
                             onClick={async () => {
@@ -2605,9 +2617,109 @@ export default function OrderDetail({
                     )}
 
                     {order.logen_registered_at && (
-                      <p className="text-[10px] text-gray-400">
-                        접수: {formatKstDateTimeMedium(order.logen_registered_at)}
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] text-gray-400">
+                          접수: {formatKstDateTimeMedium(order.logen_registered_at)}
+                        </p>
+                        <button
+                          onClick={() => {
+                            setCancelShippingReason('');
+                            setCancelShippingConfirmed(false);
+                            setCancelShippingError(null);
+                            setShowCancelShipping((v) => !v);
+                          }}
+                          className="text-[11px] text-red-500 hover:text-red-700 underline underline-offset-2"
+                        >
+                          {showCancelShipping ? '닫기' : '접수 취소'}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* 접수 취소 (사유 필수) — 로젠엔 취소 API가 없어 우리 DB 상태만 되돌리고,
+                        로젠 측 접수행은 미출력 무효로 남긴다. 재접수는 새 접수번호(-R2…)로 등록됨. */}
+                    {showCancelShipping && order.logen_registered_at && (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded space-y-2">
+                        {order.tracking_number ? (
+                          <p className="text-xs text-red-800">
+                            이미 송장이 발번된 건입니다.
+                            <br />취소 전에 집화 기사(김지원 010-2627-8287)·서마포 지점에 연락해 실제 집화/배송을 반드시 중단시켜야 합니다.
+                          </p>
+                        ) : (
+                          <p className="text-xs text-red-800">
+                            로젠에는 접수 취소 API가 없어 로젠 측 접수 건은 그대로 남습니다.
+                            <br />송장 출력 화면에서 이 주문의 접수 건은 출력하지 마세요(출력하지 않으면 자동 무효).
+                            <br />취소 후 다시 접수하면 새 접수번호로 등록됩니다.
+                          </p>
+                        )}
+                        <textarea
+                          value={cancelShippingReason}
+                          onChange={(e) => setCancelShippingReason(e.target.value)}
+                          placeholder="취소 사유 입력 (필수) — 예: 주소 오기입, 포장 변경, 고객 요청 등"
+                          rows={2}
+                          className="w-full px-2.5 py-1.5 border border-red-200 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+                        />
+                        {order.tracking_number && (
+                          <label className="flex items-start gap-1.5 text-xs text-red-800">
+                            <input
+                              type="checkbox"
+                              checked={cancelShippingConfirmed}
+                              onChange={(e) => setCancelShippingConfirmed(e.target.checked)}
+                              className="mt-0.5"
+                            />
+                            기사/지점에 연락해 실제 배송 중단을 확인했습니다.
+                          </label>
+                        )}
+                        {cancelShippingError && (
+                          <p className="text-xs text-red-600 font-medium">{cancelShippingError}</p>
+                        )}
+                        <button
+                          onClick={async () => {
+                            const reason = cancelShippingReason.trim();
+                            if (reason.length < 2) { setCancelShippingError('취소 사유를 입력해 주세요.'); return; }
+                            if (order.tracking_number && !cancelShippingConfirmed) {
+                              setCancelShippingError('배송 중단 확인 체크가 필요합니다.'); return;
+                            }
+                            setCancelShippingLoading(true);
+                            setCancelShippingError(null);
+                            try {
+                              const res = await fetch('/api/admin/shipping/cancel', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  orderId: order.id,
+                                  reason,
+                                  force: cancelShippingConfirmed,
+                                }),
+                              });
+                              const json = await res.json();
+                              if (res.ok) {
+                                if (json.data?.warning) alert(json.data.warning);
+                                setShowCancelShipping(false);
+                                onOrderUpdate({
+                                  ...order,
+                                  logen_registered_at: null,
+                                  logen_slip_printed: false,
+                                  tracking_number: null,
+                                  tracking_carrier: null,
+                                  extra_tracking_numbers: null,
+                                  logen_reg_seq: json.data?.nextRegSeq ?? ((order.logen_reg_seq || 1) + 1),
+                                  order_status: json.data?.orderStatus ?? order.order_status,
+                                } as Order);
+                              } else {
+                                setCancelShippingError(json.error || '접수 취소에 실패했습니다.');
+                              }
+                            } catch {
+                              setCancelShippingError('서버 연결에 실패했습니다.');
+                            } finally {
+                              setCancelShippingLoading(false);
+                            }
+                          }}
+                          disabled={cancelShippingLoading || cancelShippingReason.trim().length < 2 || (!!order.tracking_number && !cancelShippingConfirmed)}
+                          className="w-full px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
+                        >
+                          {cancelShippingLoading ? '취소 처리 중...' : '접수 취소 확정'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
