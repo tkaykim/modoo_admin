@@ -823,7 +823,7 @@ export default function AdminOrderCreator({
                     type="text"
                     value={designSearchQuery}
                     onChange={(e) => handleDesignSearchChange(e.target.value)}
-                    placeholder="디자인 제목, 사용자, 제품명으로 검색..."
+                    placeholder="디자인 제목, 고객(이름·이메일·연락처), 제품명, 주문번호로 검색..."
                     className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>

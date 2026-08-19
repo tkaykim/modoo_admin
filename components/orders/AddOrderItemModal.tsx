@@ -433,7 +433,7 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
                   type="text"
                   value={searchQuery}
                   onChange={e => handleSearchChange(e.target.value)}
-                  placeholder="디자인 검색..."
+                  placeholder="디자인 제목, 고객, 제품명, 주문번호로 검색..."
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>

@@ -155,7 +155,7 @@ export default function DesignsTab() {
         <div className="bg-white border border-gray-200/60 rounded-md p-2 sm:p-3 shadow-sm">
           <input
             type="text"
-            placeholder="디자인 제목, 사용자, 제품명으로 검색..."
+            placeholder="디자인 제목, 고객(이름·이메일·연락처), 제품명, 주문번호로 검색..."
             value={searchQuery}
             onChange={handleSearchChange}
             className="w-full px-2.5 py-1.5 sm:px-3 sm:py-2 border border-gray-300 rounded-md text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
