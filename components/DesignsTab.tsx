@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { SavedDesign } from '@/types/types';
@@ -27,6 +27,7 @@ export default function DesignsTab() {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const limit = 10;
+  const designReqSeq = useRef(0);
 
   const [selectedDesigns, setSelectedDesigns] = useState<Map<string, InitialDesignItem>>(new Map());
   const [showOrderCreator, setShowOrderCreator] = useState(false);
@@ -37,6 +38,9 @@ export default function DesignsTab() {
   }, []);
 
   const fetchDesigns = useCallback(async () => {
+    // 검색어를 칠 때마다 즉시 요청이 나가므로, 늦게 도착한 이전 응답이
+    // 최신 검색 결과를 덮어쓰지 않도록 마지막 요청만 반영한다.
+    const seq = ++designReqSeq.current;
     setLoading(true);
     setErrorMessage(null);
     try {
@@ -59,17 +63,19 @@ export default function DesignsTab() {
       }
 
       const payload: PaginatedResponse = await response.json();
+      if (seq !== designReqSeq.current) return;
       setDesigns(payload?.data || []);
       setTotal(payload?.total || 0);
       setTotalPages(payload?.totalPages || 0);
     } catch (error) {
       console.error('Error fetching designs:', error);
+      if (seq !== designReqSeq.current) return;
       setDesigns([]);
       setTotal(0);
       setTotalPages(0);
       setErrorMessage(error instanceof Error ? error.message : '디자인 데이터를 불러오지 못했습니다.');
     } finally {
-      setLoading(false);
+      if (seq === designReqSeq.current) setLoading(false);
     }
   }, [currentPage, searchQuery]);
 

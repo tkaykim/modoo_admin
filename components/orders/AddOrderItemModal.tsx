@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Search, Loader2, Package, Plus, Minus, ChevronDown, ChevronUp, ExternalLink, Check, ImageIcon, Upload } from 'lucide-react';
 import type { OrderItem, SizeOption } from '@/types/types';
 import { createClient } from '@/lib/supabase-client';
@@ -39,6 +39,7 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
   const [designsLoading, setDesignsLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const designReqSeq = useRef(0);
 
   const [selectedDesign, setSelectedDesign] = useState<DesignEntry | null>(null);
   const [sizeOptions, setSizeOptions] = useState<SizeOption[]>([]);
@@ -60,18 +61,25 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
   const [error, setError] = useState<string | null>(null);
 
   const fetchDesigns = useCallback(async (p: number, query: string) => {
+    // 모달 오픈 직후 나가는 전체 목록 조회가 늦게 도착해 검색 결과를 덮어쓰지 않도록
+    // 마지막 요청만 반영한다.
+    const seq = ++designReqSeq.current;
     setDesignsLoading(true);
     try {
       const params = new URLSearchParams({ page: String(p), limit: '12' });
       if (query.trim()) params.set('search', query.trim());
       const res = await fetch(`/api/admin/designs?${params}`);
       const json = await res.json();
+      if (seq !== designReqSeq.current) return;
       setDesigns(json.data || []);
-      setTotalPages(json.pagination?.totalPages || 1);
+      // API 는 totalPages 를 최상위로 내려준다. json.pagination 은 존재하지 않아
+      // 항상 1페이지로 고정돼 13번째 이후 디자인에 아예 접근할 수 없었다.
+      setTotalPages(json.totalPages || 1);
     } catch {
+      if (seq !== designReqSeq.current) return;
       setDesigns([]);
     } finally {
-      setDesignsLoading(false);
+      if (seq === designReqSeq.current) setDesignsLoading(false);
     }
   }, []);
 

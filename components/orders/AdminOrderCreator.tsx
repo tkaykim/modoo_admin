@@ -121,6 +121,7 @@ export default function AdminOrderCreator({
   const [linkCopied, setLinkCopied] = useState(false);
 
   // Design select step state
+  const designReqSeq = useRef(0);
   const [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([]);
   const [designSearchQuery, setDesignSearchQuery] = useState('');
   const [designPage, setDesignPage] = useState(1);
@@ -246,6 +247,9 @@ export default function AdminOrderCreator({
   );
 
   const fetchSavedDesigns = async (page: number, search: string) => {
+    // 모달을 열면 곧바로 목록 조회가 나가는데, 그 응답이 늦게 도착하면
+    // 그 사이 입력한 검색 결과를 전체 목록으로 덮어쓴다. 마지막 요청만 반영한다.
+    const seq = ++designReqSeq.current;
     setDesignLoading(true);
     try {
       const params = new URLSearchParams({ page: page.toString(), limit: designLimit.toString() });
@@ -253,15 +257,17 @@ export default function AdminOrderCreator({
       const res = await fetch(`/api/admin/designs?${params}`);
       if (!res.ok) throw new Error();
       const payload = await res.json();
+      if (seq !== designReqSeq.current) return;
       setSavedDesigns(payload?.data || []);
       setDesignTotal(payload?.total || 0);
       setDesignTotalPages(payload?.totalPages || 0);
     } catch {
+      if (seq !== designReqSeq.current) return;
       setSavedDesigns([]);
       setDesignTotal(0);
       setDesignTotalPages(0);
     } finally {
-      setDesignLoading(false);
+      if (seq === designReqSeq.current) setDesignLoading(false);
     }
   };
 
