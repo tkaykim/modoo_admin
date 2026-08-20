@@ -7,7 +7,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // 역방향(주문 스냅샷 → saved_designs)으로 동기화해 재주문 시 최신 확정본이 쓰이게 한다.
 //
 // 반영 규칙:
-//  - 게스트 주문(user_id 없음)은 디자인함이 없으므로 skip.
+//  - 게스트 주문(user_id 없음)은 고객 디자인함이 없으므로 시스템 계정(GUEST_DESIGN_OWNER_EMAIL)
+//    명의로 저장한다. 저장해두지 않으면 재주문 때 담당자가 디자인을 처음부터 다시 그려야 한다.
 //  - 원본 디자인이 주문 이후 손대지 않은 상태면 in-place 갱신 (updated).
 //  - 고객이 주문 이후 원본을 직접 수정했으면 덮지 않고 "제작 확정본" 사본 생성 (copied).
 //  - 디자인 연결이 없거나(관리자 생성 주문) 소유자가 다르면(파트너몰 영업사원 디자인)
@@ -36,6 +37,25 @@ interface OrderItemRow {
   custom_fonts: unknown[] | null;
   price_per_item: number | null;
   created_at: string;
+}
+
+// 게스트 주문 디자인의 저장 소유자.
+// saved_designs.user_id 는 NOT NULL 이라 주인 없는 디자인을 저장할 수 없어서,
+// 사람이 로그인하지 않는 시스템 계정을 소유자로 쓴다. 고객 앱은 본인 user_id 로만 조회하므로
+// 이 디자인들은 어드민 검색에서만 보인다.
+const GUEST_DESIGN_OWNER_EMAIL = 'guest-designs@modoo.co.kr';
+
+async function resolveGuestDesignOwnerId(db: SupabaseClient): Promise<string | null> {
+  const { data, error } = await db
+    .from('profiles')
+    .select('id')
+    .eq('email', GUEST_DESIGN_OWNER_EMAIL)
+    .maybeSingle<{ id: string }>();
+  if (error) {
+    console.error('[designWriteBack] guest owner lookup failed:', error);
+    return null;
+  }
+  return data?.id ?? null;
 }
 
 function canvasHash(canvas: unknown): string {
@@ -81,8 +101,10 @@ export async function writeBackConfirmedDesign(
     .eq('id', item.order_id)
     .single<{ user_id: string | null }>();
 
-  if (!order?.user_id) {
-    return { action: 'skipped', reason: 'guest_order' };
+  // 게스트 주문도 저장본을 남긴다. 계정이 없으면(시스템 계정 미생성) 예전처럼 skip.
+  const ownerId = order?.user_id ?? (await resolveGuestDesignOwnerId(db));
+  if (!ownerId) {
+    return { action: 'skipped', reason: 'guest_order_no_owner' };
   }
 
   const now = new Date().toISOString();
@@ -105,7 +127,7 @@ export async function writeBackConfirmedDesign(
     const { data: created, error: insertError } = await db
       .from('saved_designs')
       .insert({
-        user_id: order.user_id,
+        user_id: ownerId,
         product_id: item.product_id,
         title,
         ...snapshotFields,
@@ -148,7 +170,7 @@ export async function writeBackConfirmedDesign(
         updated_at: string;
       }>();
 
-    if (design && design.user_id === order.user_id) {
+    if (design && design.user_id === ownerId) {
       // 내용이 이미 같으면 스탬프 + 확정 단가만 동기화
       if (canvasHash(design.canvas_state) === canvasHash(item.canvas_state)) {
         const { error } = await db
