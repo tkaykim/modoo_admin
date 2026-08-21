@@ -284,6 +284,9 @@ function SidebarLink({
     <Link
       href={href}
       onClick={onClick}
+      // 사이드바 메뉴는 화면당 20개가 동시에 노출된다. 기본 prefetch를 켜두면 화면이 뜰 때마다
+      // 메뉴 수만큼 RSC 요청이 나가고, 그 전부가 미들웨어를 타면서 Supabase 인증 왕복을 유발한다.
+      prefetch={false}
       className={`
         w-full flex items-center gap-2 px-2 py-1.5 rounded-md font-medium text-sm transition-colors
         ${active ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'}
