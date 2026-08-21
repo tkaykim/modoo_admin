@@ -263,12 +263,17 @@ export default function OrderDetail({
     }
   }, [order.id, openManualProof]);
 
-  // 수동발송: 자동발송과 똑같이 상태 전환 + 안내 메일을 태우고, 카톡에 붙여넣을 문구를 띄운다.
+  // 수동발송: 고객 확정 링크가 살아나도록 상태만 전환하고, 카톡에 붙여넣을 문구를 띄운다.
+  // 자동 안내(이메일·알림톡)는 보내지 않는다 — 운영자가 직접 보내는 경로이므로 중복 안내가 되면 안 된다.
   const handleManualSendDesign = useCallback(async (itemId: string) => {
-    if (!confirm('시안확인요청을 보내고, 카카오톡에 붙여넣을 문구를 띄웁니다.\n(고객 확정 링크가 살아나려면 이 전환이 필요합니다)')) return;
+    if (!confirm('시안 상태만 전환하고, 카카오톡에 붙여넣을 문구를 띄웁니다.\n고객에게 이메일·알림톡은 나가지 않습니다.')) return;
     setManualProofBusyId(itemId);
     try {
-      const res = await fetch(`/api/admin/orders/${order.id}/items/${itemId}/send-design`, { method: 'POST' });
+      const res = await fetch(`/api/admin/orders/${order.id}/items/${itemId}/send-design`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: 'manual' }),
+      });
       const data = await res.json().catch(() => ({}));
       if (data.manualMessage) {
         setOrderItems((prev) =>
@@ -279,7 +284,6 @@ export default function OrderDetail({
           )
         );
         openManualProof(data.manualMessage);
-        // 메일만 실패한 경우에도 문구는 내려온다 — 상태는 이미 전환됐으니 카톡 발송으로 이어가면 된다.
         if (!res.ok) alert(`${data.error}\n\n시안 상태는 전환됐습니다. 아래 문구로 카톡 발송을 진행해 주세요.`);
       } else {
         alert(data.error || '수동발송 준비에 실패했습니다.');
@@ -292,10 +296,14 @@ export default function OrderDetail({
   }, [order.id, openManualProof]);
 
   const handleManualSendAllDesigns = useCallback(async () => {
-    if (!confirm('이 주문의 모든 준비된 시안을 확인요청하고, 카카오톡에 붙여넣을 문구를 띄웁니다.')) return;
+    if (!confirm('이 주문의 모든 준비된 시안을 상태만 전환하고, 카카오톡에 붙여넣을 문구를 띄웁니다.\n고객에게 이메일·알림톡은 나가지 않습니다.')) return;
     setManualProofBusyId('__all__');
     try {
-      const res = await fetch(`/api/admin/orders/${order.id}/send-design`, { method: 'POST' });
+      const res = await fetch(`/api/admin/orders/${order.id}/send-design`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: 'manual' }),
+      });
       const data = await res.json().catch(() => ({}));
       if (data.manualMessage) {
         const sharedSet = new Set<string>(Array.isArray(data.shared) ? data.shared : []);
@@ -1428,7 +1436,7 @@ export default function OrderDetail({
                 <button
                   onClick={handleManualSendAllDesigns}
                   disabled={manualProofBusyId === '__all__'}
-                  title="전체 시안 확인요청을 보내고, 카카오톡에 붙여넣을 문구를 띄웁니다. (알림톡 장애 시 사용)"
+                  title="전체 시안 상태를 전환하고, 카카오톡에 붙여넣을 문구를 띄웁니다. 고객에게 이메일·알림톡은 나가지 않습니다."
                   className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-md hover:bg-indigo-50 transition-colors disabled:opacity-60"
                 >
                   {manualProofBusyId === '__all__' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MessageSquare className="w-3.5 h-3.5" />}
@@ -1597,7 +1605,7 @@ export default function OrderDetail({
                                   else handleManualSendDesign(item.id);
                                 }}
                                 disabled={manualProofBusyId === item.id}
-                                title="카카오톡에 그대로 붙여넣을 문구와 시안 링크를 띄웁니다. (알림톡 장애 시 사용)"
+                                title="카카오톡에 그대로 붙여넣을 문구와 시안 링크를 띄웁니다. 고객에게 이메일·알림톡은 나가지 않습니다."
                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors disabled:opacity-50 whitespace-nowrap"
                               >
                                 {manualProofBusyId === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MessageSquare className="w-3.5 h-3.5" />}

@@ -97,6 +97,17 @@ export async function POST(
       return NextResponse.json({ error: '관리자 권한이 필요합니다.' }, { status: 403 });
     }
 
+    // channel='manual' = 운영자가 문구를 복사해 카톡으로 직접 보내는 경로.
+    // 상태 전환은 그대로 하되(고객 확정 링크가 살아나는 조건) 이메일과 알림톡은 억제한다.
+    // 알림톡 억제는 order_items.design_share_channel 마커로 워커 폴러가 수행한다.
+    let isManual = false;
+    try {
+      const body = await request.json();
+      isManual = body?.channel === 'manual';
+    } catch {
+      // 본문 없음 = 기존 자동 발송 경로
+    }
+
     const adminClient = createAdminClient();
 
     const { data: orderItem, error: itemError } = await adminClient
@@ -130,7 +141,8 @@ export async function POST(
       customerEmail = userProfile?.email;
     }
 
-    if (!customerEmail) {
+    // 수동발송은 메일을 보내지 않으므로 이메일이 없어도 진행한다(카톡으로 전달).
+    if (!customerEmail && !isManual) {
       return NextResponse.json({ error: '고객 이메일이 없습니다.' }, { status: 400 });
     }
 
@@ -142,6 +154,7 @@ export async function POST(
         design_status: 'design_shared',
         design_shared_at: new Date().toISOString(),
         design_revision_note: null,
+        design_share_channel: isManual ? 'manual' : 'auto',
         updated_at: new Date().toISOString(),
       })
       .eq('id', itemId);
@@ -156,16 +169,18 @@ export async function POST(
       previewUrl = null;
     }
 
-    const sent = await sendDesignProofEmail({
-      orderId,
-      orderItemId: itemId,
-      customerName: order.customer_name || '고객',
-      customerEmail,
-      productTitle: orderItem.product_title,
-      designTitle: orderItem.design_title,
-      previewUrl,
-      confirmToken: token,
-    });
+    const sent = isManual
+      ? true // 수동발송: 이메일을 보내지 않는다. 운영자가 아래 manualMessage 를 직접 전달한다.
+      : await sendDesignProofEmail({
+          orderId,
+          orderItemId: itemId,
+          customerName: order.customer_name || '고객',
+          customerEmail: customerEmail as string,
+          productTitle: orderItem.product_title,
+          designTitle: orderItem.design_title,
+          previewUrl,
+          confirmToken: token,
+        });
 
     // 알림톡(워커)·이메일과 동일한 링크를 담은 복붙용 문구 — 채널 장애 시 운영자가 카톡으로 직접 보낸다.
     const { customerName, phone } = resolveProofRecipient(order);
