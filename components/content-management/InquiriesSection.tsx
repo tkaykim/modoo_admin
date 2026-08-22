@@ -53,8 +53,31 @@ function EmailStatusBadge({ s }: { s?: EmailSummary }) {
   );
 }
 
+const PAGE_SIZE = 30;
+
+type InquiryPage = { items: InquiryRecord[]; total: number; page: number; limit: number };
+
 export default function InquiriesSection() {
-  const { data: inquiries = [], error: swrError, isLoading: loading, mutate } = useSWR<InquiryRecord[]>('/api/admin/inquiries');
+  const [adminFilter, setAdminFilter] = useState<'all' | 'real' | 'admin'>('real');
+  const [page, setPage] = useState(1);
+  const searchParams = useSearchParams();
+  const focusId = searchParams.get('focus');
+
+  // 목록은 페이지 단위로만 가져온다. 전건(654건)을 받으면 페이로드도 크고, 그 id 전부를
+  // 메일추적·주문조회 쿼리스트링에 실어 URL 길이 한계를 넘겨 500 이 났다.
+  const listKey = `/api/admin/inquiries?page=${page}&limit=${PAGE_SIZE}&filter=${adminFilter}${
+    focusId ? `&focus=${focusId}` : ''
+  }`;
+  const { data: pageData, error: swrError, isLoading: loading, mutate } = useSWR<InquiryPage>(listKey);
+  const inquiries = pageData?.items ?? [];
+  const total = pageData?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const mutateItems = (updater: (prev: InquiryRecord[]) => InquiryRecord[]) =>
+    mutate(
+      (prev) => (prev ? { ...prev, items: updater(prev.items) } : prev),
+      { revalidate: false }
+    );
   // 검수 대기 중인 AI 응대 초안 (inquiry_id → draft). 답변창에 임시저장 형태로 미리 채움.
   const { data: csDrafts = [], mutate: mutateDrafts } = useSWR<(CsDraft & { inquiry_id: string; draft_reply: string; reviewer_edited_reply: string | null })[]>('/api/admin/cs/drafts?status=pending_review');
   const draftByInquiry: Record<string, (typeof csDrafts)[number]> = {};
@@ -91,15 +114,12 @@ export default function InquiriesSection() {
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [expandedInquiryId, setExpandedInquiryId] = useState<string | null>(null);
   const [quickOrderInquiry, setQuickOrderInquiry] = useState<InquiryRecord | null>(null);
-  const [adminFilter, setAdminFilter] = useState<'all' | 'real' | 'admin'>('real');
-  const searchParams = useSearchParams();
-  const focusId = searchParams.get('focus');
 
   // 챗봇 문의 관리에서 '게시판 문의 보기' 링크로 들어온 경우 → 해당 문의 자동 펼침 + 스크롤
+  // (현재 페이지 밖이어도 서버가 focus 대상을 끼워 넣어 준다)
   useEffect(() => {
     if (!focusId || inquiries.length === 0) return;
     if (!inquiries.some((q) => q.id === focusId)) return;
-    setAdminFilter('all');
     setExpandedInquiryId(focusId);
     const el = document.getElementById(`inquiry-${focusId}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -120,7 +140,7 @@ export default function InquiriesSection() {
         throw new Error(payload?.error || '문의 삭제에 실패했습니다.');
       }
 
-      mutate(inquiries.filter((inquiry) => inquiry.id !== inquiryId), { revalidate: false });
+      mutateItems((items) => items.filter((inquiry) => inquiry.id !== inquiryId));
       if (expandedInquiryId === inquiryId) {
         setExpandedInquiryId(null);
       }
@@ -155,13 +175,12 @@ export default function InquiriesSection() {
       const payload = await response.json();
       const reply = payload?.data as InquiryReplyRecord;
 
-      mutate(
-        inquiries.map((inquiry) => {
+      mutateItems((items) =>
+        items.map((inquiry) => {
           if (inquiry.id !== inquiryId) return inquiry;
           const replies = inquiry.inquiry_replies ? [...inquiry.inquiry_replies, reply] : [reply];
           return { ...inquiry, inquiry_replies: replies };
-        }),
-        { revalidate: false }
+        })
       );
 
       setReplyDrafts((prev) => ({ ...prev, [inquiryId]: '' }));
@@ -195,11 +214,10 @@ export default function InquiriesSection() {
       const payload = await response.json();
       const updated = payload?.data as { id: string; status: InquiryStatus };
 
-      mutate(
-        inquiries.map((inquiry) =>
+      mutateItems((items) =>
+        items.map((inquiry) =>
           inquiry.id === updated.id ? { ...inquiry, status: updated.status } : inquiry
-        ),
-        { revalidate: false }
+        )
       );
     } catch (err) {
       console.error('Error updating inquiry status:', err);
@@ -209,15 +227,12 @@ export default function InquiriesSection() {
     }
   };
 
-  const filteredInquiries = inquiries.filter((inquiry) => {
-    if (adminFilter === 'real') return !inquiry.is_admin;
-    if (adminFilter === 'admin') return inquiry.is_admin;
-    return true;
-  });
+  // 필터링은 서버가 한다(페이지 단위로만 받으므로 클라이언트에서 거르면 페이지가 비어 보인다).
+  const filteredInquiries = inquiries;
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
+      <div className="flex gap-2 items-center">
         {([
           ['real', '실제 문의'],
           ['admin', '자동 생성'],
@@ -226,7 +241,10 @@ export default function InquiriesSection() {
           <button
             key={value}
             type="button"
-            onClick={() => setAdminFilter(value)}
+            onClick={() => {
+              setAdminFilter(value);
+              setPage(1);
+            }}
             className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
               adminFilter === value
                 ? 'bg-blue-600 text-white'
@@ -236,6 +254,10 @@ export default function InquiriesSection() {
             {label}
           </button>
         ))}
+        <span className="ml-auto text-sm text-gray-500">
+          총 {total.toLocaleString()}건
+          {totalPages > 1 && ` · ${page}/${totalPages} 페이지`}
+        </span>
       </div>
       {(swrError || error) && (
         <div className="bg-red-50 border border-red-200 rounded-md p-3 text-red-800">
@@ -593,6 +615,30 @@ export default function InquiriesSection() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1 || loading}
+            className="px-3 py-1.5 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:hover:bg-gray-100"
+          >
+            이전
+          </button>
+          <span className="text-sm text-gray-600 tabular-nums px-2">
+            {page} / {totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages || loading}
+            className="px-3 py-1.5 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:hover:bg-gray-100"
+          >
+            다음
+          </button>
         </div>
       )}
 

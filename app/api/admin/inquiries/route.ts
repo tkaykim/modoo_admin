@@ -37,16 +37,30 @@ const requireAdmin = async () => {
   return { user };
 };
 
-export async function GET() {
+const DEFAULT_LIMIT = 30;
+const MAX_LIMIT = 100;
+
+// 문의는 654건까지 쌓였다. 전건을 한 번에 내려주면 답변·상품까지 중첩된 큰 페이로드를 매번
+// 실어 나르고, 화면은 그 id 전부를 메일추적·주문조회 API 의 쿼리스트링에 이어 붙여
+// URL 길이 한계를 넘겨 500 을 냈다. 목록은 페이지 단위로만 내려준다.
+export async function GET(request: Request) {
   try {
     const authResult = await requireAdmin();
     if (authResult.error) return authResult.error;
 
+    const url = new URL(request.url);
+    const page = Math.max(1, Number.parseInt(url.searchParams.get('page') || '1', 10) || 1);
+    const limit = Math.min(
+      MAX_LIMIT,
+      Math.max(1, Number.parseInt(url.searchParams.get('limit') || String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT)
+    );
+    // real=실제 고객 문의(is_admin=false) / admin=자동 생성 더미 / all=전체
+    const filter = url.searchParams.get('filter') || 'real';
+    // 챗봇 문의에서 '게시판 문의 보기'로 넘어온 경우, 그 문의가 현재 페이지 밖이어도 보여야 한다.
+    const focusId = url.searchParams.get('focus');
+
     const adminClient = createAdminClient();
-    const { data, error } = await adminClient
-      .from('inquiries')
-      .select(
-        `
+    const selectColumns = `
         id,
         user_id,
         title,
@@ -80,16 +94,39 @@ export async function GET() {
           is_admin,
           created_at
         )
-      `
-      )
+      `;
+
+    let query = adminClient
+      .from('inquiries')
+      .select(selectColumns, { count: 'exact' })
       .order('created_at', { ascending: false })
       .order('created_at', { ascending: true, foreignTable: 'inquiry_replies' });
+
+    if (filter === 'real') query = query.eq('is_admin', false);
+    else if (filter === 'admin') query = query.eq('is_admin', true);
+
+    const from = (page - 1) * limit;
+    const { data, error, count } = await query.range(from, from + limit - 1);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ data: data || [] });
+    const items = data || [];
+
+    // focus 대상이 이 페이지에 없으면 따로 붙여 준다(링크로 진입한 문의가 사라지지 않게).
+    if (focusId && !items.some((row: { id: string }) => row.id === focusId)) {
+      const { data: focused } = await adminClient
+        .from('inquiries')
+        .select(selectColumns)
+        .eq('id', focusId)
+        .maybeSingle();
+      if (focused) items.unshift(focused as typeof items[number]);
+    }
+
+    return NextResponse.json({
+      data: { items, total: count ?? items.length, page, limit },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : '문의 데이터를 불러오지 못했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });

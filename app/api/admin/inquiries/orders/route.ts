@@ -28,15 +28,29 @@ export async function GET(request: Request) {
   if (ids.length === 0) return NextResponse.json({ data: {} });
 
   const db = createAdminClient();
-  const { data: orders } = await db
-    .from('orders')
-    .select('id, inquiry_id, order_category, total_amount, payment_status, order_status, payment_link_token, created_at')
-    .in('inquiry_id', ids)
-    .order('created_at', { ascending: true });
+
+  // id 를 통째로 .in() 에 넣으면 긴 GET URL 로 조회가 실패한다. 게다가 아래 에러를 삼키고
+  // 빈 결과를 200 으로 돌려주고 있어, 주문 카드가 통째로 안 뜨는데도 아무도 몰랐다.
+  const CHUNK = 80;
+  const parts: string[][] = [];
+  for (let i = 0; i < ids.length; i += CHUNK) parts.push(ids.slice(i, i + CHUNK));
+
+  const orderChunks = await Promise.all(
+    parts.map((part) =>
+      db
+        .from('orders')
+        .select('id, inquiry_id, order_category, total_amount, payment_status, order_status, payment_link_token, created_at')
+        .in('inquiry_id', part)
+        .order('created_at', { ascending: true })
+    )
+  );
+  const oErr = orderChunks.find((r) => r.error)?.error;
+  if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
+  const orders = orderChunks.flatMap((r) => r.data ?? []);
 
   const result: Record<string, OrderCard[]> = {};
   for (const id of ids) result[id] = [];
-  if (!orders || orders.length === 0) return NextResponse.json({ data: result });
+  if (orders.length === 0) return NextResponse.json({ data: result });
 
   const orderIds = orders.map((o) => o.id);
   const { data: items } = await db

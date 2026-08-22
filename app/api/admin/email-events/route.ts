@@ -42,14 +42,29 @@ export async function GET(request: Request) {
 
   const db = createAdminClient();
 
+  // id 를 통째로 .in() 에 넣으면 PostgREST 가 그만큼 긴 GET URL 을 만들어 길이 한계를 넘기고,
+  // 화면은 배지가 통째로 사라진 채 원인이 안 보였다(654건 기준 500). 나눠서 조회한다.
+  const CHUNK = 80;
+  const chunk = <T,>(arr: T[]): T[][] => {
+    const out: T[][] = [];
+    for (let i = 0; i < arr.length; i += CHUNK) out.push(arr.slice(i, i + CHUNK));
+    return out;
+  };
+
   // 1) 앵커(sent/queued) 행 → message_id ↔ inquiry 매핑. open/click 은 inquiry_id가 없고
   //    message_id 로만 적재되므로, 먼저 앵커로 매핑표를 만든다.
-  const { data: anchors, error: aErr } = await db
-    .from('email_events')
-    .select('message_id, inquiry_id, to_email, event_type, created_at')
-    .in('inquiry_id', ids)
-    .in('event_type', ['sent', 'queued']);
+  const anchorChunks = await Promise.all(
+    chunk(ids).map((part) =>
+      db
+        .from('email_events')
+        .select('message_id, inquiry_id, to_email, event_type, created_at')
+        .in('inquiry_id', part)
+        .in('event_type', ['sent', 'queued'])
+    )
+  );
+  const aErr = anchorChunks.find((r) => r.error)?.error;
   if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
+  const anchors = anchorChunks.flatMap((r) => r.data ?? []);
 
   const byInquiry: Record<string, Summary> = {};
   for (const id of ids) {
@@ -74,13 +89,18 @@ export async function GET(request: Request) {
   const messageIds = Object.keys(msgToInquiry);
   let rows: EmailRow[] = [];
   if (messageIds.length > 0) {
-    const { data: evts, error: eErr } = await db
-      .from('email_events')
-      .select('message_id, inquiry_id, to_email, event_type, url, created_at')
-      .in('message_id', messageIds)
-      .order('created_at', { ascending: true });
+    const evtChunks = await Promise.all(
+      chunk(messageIds).map((part) =>
+        db
+          .from('email_events')
+          .select('message_id, inquiry_id, to_email, event_type, url, created_at')
+          .in('message_id', part)
+          .order('created_at', { ascending: true })
+      )
+    );
+    const eErr = evtChunks.find((r) => r.error)?.error;
     if (eErr) return NextResponse.json({ error: eErr.message }, { status: 500 });
-    rows = (evts ?? []) as EmailRow[];
+    rows = evtChunks.flatMap((r) => (r.data ?? []) as EmailRow[]);
   }
 
   // 3) message_id → inquiry 로 매핑해 open/click 집계
