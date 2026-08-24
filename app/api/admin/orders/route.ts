@@ -6,6 +6,7 @@ import { sendFactoryAssignmentEmail } from '@/lib/gmail';
 import { sendOrderStatusNotification, type OrderStatus } from '@/lib/notifications/order-status';
 import { LOGEN_CONTRACT_FARE } from '@/lib/logen';
 import { assertPhoneOrMessage, sanitizePhoneInput } from '@/lib/phone';
+import { NAVER_UNIFIED_ORDER_PREFIX, projectNaverOrdersForAdmin } from '@/lib/naver-commerce/unified-orders';
 import { randomBytes } from 'crypto';
 
 export async function GET(request: Request) {
@@ -42,6 +43,7 @@ export async function GET(request: Request) {
     const status = url.searchParams.get('status') || 'all';
     const factoryId = url.searchParams.get('factoryId');
     const orderId = url.searchParams.get('orderId');
+    const includeNaver = url.searchParams.get('includeNaver') === '1';
     // 택배 관리 등에서 디자인 썸네일/4면 미리보기가 필요할 때만 미디어 필드 포함(기본 목록 페이로드 비대화 방지)
     const withMedia = url.searchParams.get('withMedia') === '1';
     const itemMedia = withMedia ? ', thumbnail_url, image_urls, product_title, quantity, price_per_item' : '';
@@ -104,7 +106,34 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ data: data || [] });
+    const regularOrders = data || [];
+    const canIncludeNaver = includeNaver
+      && !isFactoryUser
+      && !factoryId
+      && !orderId
+      && !parentOrderId
+      && !withMedia
+      && status === 'all';
+
+    if (!canIncludeNaver) {
+      return NextResponse.json({ data: regularOrders });
+    }
+
+    // 네이버 주문은 기존 orders/order_items에 복제하지 않는다.
+    // 이 읽기 전용 조회가 실패해도 기존 주문 목록은 반드시 정상 응답한다.
+    const { data: naverRows, error: naverError } = await adminClient
+      .from('naver_product_orders')
+      .select('product_order_id, naver_order_id, product_order_status, claim_status, last_changed_type, last_changed_at, order_date, payment_date, origin_product_no, channel_product_no, product_name, option_name, option_manage_code, local_product_id, quantity, unit_price, total_payment_amount, buyer_name, buyer_tel, receiver_name, receiver_tel1, receiver_tel2, receiver_zip_code, receiver_base_address, receiver_detail_address, shipping_memo, delivery_method, delivery_company_code, tracking_number, dispatched_at, synced_at, updated_at')
+      .order('last_changed_at', { ascending: false })
+      .limit(1000);
+
+    if (naverError) {
+      console.error('Orders GET Naver projection error (regular orders returned):', naverError);
+      return NextResponse.json({ data: regularOrders });
+    }
+
+    const naverOrders = projectNaverOrdersForAdmin(naverRows || []);
+    return NextResponse.json({ data: [...regularOrders, ...naverOrders] });
   } catch (error) {
     console.error('Orders GET error:', error);
     const message = error instanceof Error ? error.message : '주문 데이터를 불러오지 못했습니다.';
@@ -149,6 +178,13 @@ export async function PATCH(request: Request) {
 
     if (!orderId || typeof orderId !== 'string') {
       return NextResponse.json({ error: '주문 ID가 필요합니다.' }, { status: 400 });
+    }
+
+    if (orderId.startsWith(NAVER_UNIFIED_ORDER_PREFIX)) {
+      return NextResponse.json(
+        { error: '네이버 주문 상태는 네이버 스마트스토어 관리 화면에서 처리해 주세요.' },
+        { status: 400 }
+      );
     }
 
     const adminClient = createAdminClient();

@@ -12,7 +12,7 @@
     "test:naver-commerce": "tsx --env-file=.env.local scripts/naver-commerce-smoke.ts",
     "naver:register-initial-products": "tsx --env-file=.env.local scripts/naver-commerce-register-initial-products.ts",
     "naver:apply-print-structure": "tsx --env-file=.env.local scripts/naver-commerce-apply-print-structure.ts",
-    "test:regression": "tsx --test lib/canvasUtils.regression-1.test.ts lib/font-contract.test.ts lib/text-outline-export.test.ts"
+    "test:regression": "tsx --test lib/canvasUtils.regression-1.test.ts lib/font-contract.test.ts lib/text-outline-export.test.ts lib/naver-commerce/unified-orders.test.ts"
   },
   "dependencies": {
     "@fontsource/noto-sans-kr": "^5.2.9",

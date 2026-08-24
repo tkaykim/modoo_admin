@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import { Factory, Order } from '@/types/types';
-import { Package, Calendar, Clock, Plus, Factory as FactoryIcon, RotateCcw, Search, X, ArrowUp, ArrowDown, ArrowUpDown, Trash2 } from 'lucide-react';
+import { Package, Calendar, Clock, Plus, Factory as FactoryIcon, RotateCcw, Search, X, ArrowUp, ArrowDown, ArrowUpDown, Trash2, ExternalLink } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import AdminOrderCreator from '@/components/orders/AdminOrderCreator';
 import FactoryAllocationModal from '@/components/orders/FactoryAllocationModal';
@@ -15,6 +15,7 @@ import { formatKstDateLong, formatKstDateShort, formatKstMonthDay } from '@/lib/
 import { orderCategoryLabel } from '@/lib/order-category';
 import { isAdminLike } from '@/lib/auth-helpers';
 import { checkPhone } from '@/lib/phone';
+import { isNaverUnifiedOrder } from '@/lib/naver-commerce/unified-orders';
 
 // Extended order type with items from API (now includes factory fields)
 type OrderItemSummary = {
@@ -39,6 +40,12 @@ type OrderWithItemCount = Order & {
   paid_at?: string | null;
   order_items?: { count: number }[] | OrderItemSummary[];
   partner_mall?: { id: string; name: string | null; slug: string | null } | null;
+  order_source?: 'naver_smartstore';
+  external_order_id?: string;
+  naver_management_href?: string;
+  naver_status_label?: string;
+  naver_product_summary?: string;
+  naver_option_summary?: string;
 };
 
 // 주문 처리 담당자 — orders.salesman_id(영업담당자)와 완전히 다른 개념이다.
@@ -61,6 +68,7 @@ type AssigneeOption = { id: string; name: string | null; email: string | null };
 type StaffFilter = 'all' | 'mine' | 'unassigned';
 
 const ORDER_SOURCE_FILTERS = [
+  { value: 'naver_smartstore', label: '네이버 스마트스토어' },
   { value: 'partner_mall', label: '영업몰고객주문' },
   { value: 'salesman_direct', label: '영업직접주문' },
   { value: 'admin_created', label: '관리자생성' },
@@ -84,8 +92,11 @@ function hasBadContact(order: Pick<Order, 'customer_phone' | 'recipient_phone'>)
 }
 
 function getOrderSourceInfo(
-  order: Pick<OrderWithItemCount, 'id' | 'order_category' | 'partner_mall_id' | 'partner_mall'>
+  order: Pick<OrderWithItemCount, 'id' | 'order_category' | 'partner_mall_id' | 'partner_mall' | 'order_source'>
 ): { label: string; color: string } {
+  if (isNaverUnifiedOrder(order)) {
+    return { label: '네이버 스마트스토어', color: 'bg-green-100 text-green-800' };
+  }
   if (order.order_category === 'surcharge') {
     return { label: '차액주문', color: 'bg-orange-100 text-orange-800' };
   }
@@ -105,8 +116,9 @@ function getOrderSourceInfo(
 }
 
 function getOrderSourceKey(
-  order: Pick<OrderWithItemCount, 'id' | 'order_category' | 'partner_mall_id'>
+  order: Pick<OrderWithItemCount, 'id' | 'order_category' | 'partner_mall_id' | 'order_source'>
 ): OrderSourceKey {
+  if (isNaverUnifiedOrder(order)) return 'naver_smartstore';
   if (order.order_category === 'surcharge') return 'surcharge';
   if (order.order_category === 'quick') return 'quick';
   if (order.id.startsWith('ORDER-')) return 'admin_created';
@@ -150,6 +162,8 @@ export default function OrdersTab() {
     const params = new URLSearchParams();
     if (user.role === 'factory' && user.manufacturer_id) {
       params.set('factoryId', user.manufacturer_id);
+    } else {
+      params.set('includeNaver', '1');
     }
     return `/api/admin/orders${params.toString() ? `?${params}` : ''}`;
   }, [user]);
@@ -305,6 +319,7 @@ export default function OrdersTab() {
     let mine = 0;
     let unassigned = 0;
     orders.forEach((order) => {
+      if (isNaverUnifiedOrder(order)) return;
       const assignment = getAssignment(order);
       if (assignment?.assignee_profile_id && assignment.assignee_profile_id === user?.id) mine += 1;
       else if (!assignment?.assignee_profile_id && order.parent_order_id == null) unassigned += 1;
@@ -691,6 +706,7 @@ export default function OrdersTab() {
     // 주문 처리 담당 필터. 배정 정보를 신뢰할 수 있을 때만 적용한다.
     if (assignmentReady && staffFilter !== 'all') {
       result = result.filter((o) => {
+        if (isNaverUnifiedOrder(o)) return false;
         const assignment = getAssignment(o);
         if (staffFilter === 'mine') {
           return !!user?.id && assignment?.assignee_profile_id === user.id;
@@ -712,6 +728,9 @@ export default function OrdersTab() {
         const mallName = o.partner_mall?.name?.toLowerCase() || '';
         const salesmanName = o.attributed_salesman?.display_name?.toLowerCase() || '';
         const salesmanCode = o.attributed_salesman?.salesman_code?.toLowerCase() || '';
+        const naverProduct = o.naver_product_summary?.toLowerCase() || '';
+        const naverOption = o.naver_option_summary?.toLowerCase() || '';
+        const externalOrderId = o.external_order_id?.toLowerCase() || '';
         return (
           o.id.toLowerCase().includes(q) ||
           o.customer_name?.toLowerCase().includes(q) ||
@@ -719,6 +738,9 @@ export default function OrdersTab() {
           mallName.includes(q) ||
           salesmanName.includes(q) ||
           salesmanCode.includes(q) ||
+          naverProduct.includes(q) ||
+          naverOption.includes(q) ||
+          externalOrderId.includes(q) ||
           designTitles.includes(q)
         );
       });
@@ -758,6 +780,9 @@ export default function OrdersTab() {
     const items = order.order_items;
     if (!items || items.length === 0) return '-';
     if ('count' in items[0]) return items[0].count;
+    if (isNaverUnifiedOrder(order)) {
+      return (items as OrderItemSummary[]).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+    }
     return items.length;
   };
 
@@ -847,8 +872,12 @@ export default function OrdersTab() {
     };
   }, [orders]);
 
-  const handleOrderClick = useCallback((orderId: string) => {
-    router.push(`/orders/${orderId}`);
+  const handleOrderClick = useCallback((order: OrderWithItemCount) => {
+    if (isNaverUnifiedOrder(order)) {
+      router.push(order.naver_management_href || `/naver-commerce?orderId=${encodeURIComponent(order.external_order_id || '')}`);
+      return;
+    }
+    router.push(`/orders/${order.id}`);
   }, [router]);
 
   const handleStatusChange = useCallback(async (orderId: string, newStatus: Order['order_status']) => {
@@ -1227,7 +1256,8 @@ export default function OrdersTab() {
               {filteredOrders.map((order) => (
                 <tr
                   key={order.id}
-                  onClick={() => handleOrderClick(order.id)}
+                  data-order-source={order.order_source || 'modoo'}
+                  onClick={() => handleOrderClick(order)}
                   className="hover:bg-gray-50 cursor-pointer transition-colors"
                 >
                   {isFactoryUser ? (
@@ -1427,7 +1457,9 @@ export default function OrdersTab() {
                       </td>
                       {assignmentFeatureOn && (
                         <td className="px-4 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                          {(() => {
+                          {isNaverUnifiedOrder(order) ? (
+                            <span className="text-[11px] font-medium text-green-700">네이버 전용</span>
+                          ) : (() => {
                             if (assignmentError) {
                               return <span className="text-[11px] text-red-500">불러오기 실패</span>;
                             }
@@ -1483,7 +1515,7 @@ export default function OrdersTab() {
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <div className="text-sm font-medium text-gray-900">{order.customer_name}</div>
-                          {hasBadContact(order) && (
+                          {!isNaverUnifiedOrder(order) && hasBadContact(order) && (
                             <span
                               className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-50 text-red-700 shrink-0"
                               title="연락처 형식이 올바르지 않습니다. 주문 상세에서 정정하세요."
@@ -1510,23 +1542,30 @@ export default function OrdersTab() {
                         </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        <select
-                          value={order.order_status}
-                          onChange={(e) => handleStatusChange(order.id, e.target.value as Order['order_status'])}
-                          disabled={updatingStatusId === order.id}
-                          className={`px-2 py-1 rounded-md text-xs font-medium border-0 cursor-pointer focus:ring-2 focus:ring-blue-500/40 disabled:opacity-60 ${getStatusColor(order.order_status)}`}
-                        >
-                          <option value="payment_pending">결제대기</option>
-                          <option value="payment_completed">결제완료</option>
-                          <option value="in_production">제작중</option>
-                          <option value="shipping">배송중</option>
-                          <option value="delivered">배송완료</option>
-                          <option value="cancelled">취소</option>
-                          <option value="partially_cancelled">부분취소</option>
-                        </select>
+                        {isNaverUnifiedOrder(order) ? (
+                          <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusColor(order.order_status)}`}>
+                            {order.naver_status_label || '네이버 상태 확인'}
+                          </span>
+                        ) : (
+                          <select
+                            value={order.order_status}
+                            onChange={(e) => handleStatusChange(order.id, e.target.value as Order['order_status'])}
+                            disabled={updatingStatusId === order.id}
+                            className={`px-2 py-1 rounded-md text-xs font-medium border-0 cursor-pointer focus:ring-2 focus:ring-blue-500/40 disabled:opacity-60 ${getStatusColor(order.order_status)}`}
+                          >
+                            <option value="payment_pending">결제대기</option>
+                            <option value="payment_completed">결제완료</option>
+                            <option value="in_production">제작중</option>
+                            <option value="shipping">배송중</option>
+                            <option value="delivered">배송완료</option>
+                            <option value="cancelled">취소</option>
+                            <option value="partially_cancelled">부분취소</option>
+                          </select>
+                        )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPaymentStatusColor(order.payment_status)}`}>
+                          {isNaverUnifiedOrder(order) && '네이버페이 · '}
                           {{pending:'입금대기',completed:'결제완료',failed:'결제실패',refunded:'환불'}[order.payment_status] || order.payment_status}
                         </span>
                       </td>
@@ -1537,12 +1576,14 @@ export default function OrdersTab() {
                         return (
                           <>
                             <td className="px-4 py-3 whitespace-nowrap">
-                              <span className={`text-sm text-gray-900 ${!hasFactory && 'text-red-500'}`}>
-                                {factoryLabel}
+                              <span className={`text-sm text-gray-900 ${!hasFactory && !isNaverUnifiedOrder(order) ? 'text-red-500' : ''}`}>
+                                {isNaverUnifiedOrder(order) ? '네이버 전용' : factoryLabel}
                               </span>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                              {hasFactory ? (
+                              {isNaverUnifiedOrder(order) ? (
+                                <span className="text-xs text-gray-400">-</span>
+                              ) : hasFactory ? (
                                 factoryStatus === 'mixed' ? (
                                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getFactoryStatusColor('mixed')}`}>
                                     {getFactoryStatusLabel('mixed')}
@@ -1573,7 +1614,7 @@ export default function OrdersTab() {
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap">
                               <span className={`text-xs ${hasFactory ? 'text-gray-900' : 'text-gray-400'}`}>
-                                {hasFactory ? formatKstMonthDay(getMyFactorySummary(order).assignedAt) : '-'}
+                                {hasFactory && !isNaverUnifiedOrder(order) ? formatKstMonthDay(getMyFactorySummary(order).assignedAt) : '-'}
                               </span>
                             </td>
                           </>
@@ -1581,6 +1622,7 @@ export default function OrdersTab() {
                       })()}
                       <td className="px-4 py-3 whitespace-nowrap">
                         {(() => {
+                          if (isNaverUnifiedOrder(order)) return <span className="text-xs text-gray-400">-</span>;
                           const ps = getPurchaseOrderSummary(order);
                           return ps.label !== '-' ? (
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${ps.color}`}>
@@ -1593,31 +1635,44 @@ export default function OrdersTab() {
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => setAllocationOrder(order)}
-                            className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
-                          >
-                            <FactoryIcon className="w-3 h-3" />
-                            공장배정
-                          </button>
-                          {order.payment_status === 'completed' && (
+                          {isNaverUnifiedOrder(order) ? (
                             <button
-                              onClick={() => setRefundOrder(order)}
-                              className="flex items-center gap-1 px-3 py-1 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+                              data-testid="naver-order-manage"
+                              onClick={() => handleOrderClick(order)}
+                              className="flex items-center gap-1 px-3 py-1 text-xs bg-green-50 text-green-700 rounded hover:bg-green-100 transition-colors"
                             >
-                              <RotateCcw className="w-3 h-3" />
-                              환불
+                              <ExternalLink className="w-3 h-3" />
+                              네이버 주문 관리
                             </button>
-                          )}
-                          {isSuperAdmin && (
-                            <button
-                              onClick={() => setDeleteOrder(order)}
-                              className="flex items-center gap-1 px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-                              title="주문 영구 삭제 (super-admin)"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              삭제
-                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => setAllocationOrder(order)}
+                                className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
+                              >
+                                <FactoryIcon className="w-3 h-3" />
+                                공장배정
+                              </button>
+                              {order.payment_status === 'completed' && (
+                                <button
+                                  onClick={() => setRefundOrder(order)}
+                                  className="flex items-center gap-1 px-3 py-1 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                  환불
+                                </button>
+                              )}
+                              {isSuperAdmin && (
+                                <button
+                                  onClick={() => setDeleteOrder(order)}
+                                  className="flex items-center gap-1 px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                                  title="주문 영구 삭제 (super-admin)"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  삭제
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                       </td>
@@ -1634,7 +1689,8 @@ export default function OrdersTab() {
           {filteredOrders.map((order) => (
             <div
               key={order.id}
-              onClick={() => handleOrderClick(order.id)}
+              data-order-source={order.order_source || 'modoo'}
+              onClick={() => handleOrderClick(order)}
               className="p-3 space-y-2 cursor-pointer hover:bg-gray-50 transition-colors"
             >
               {isFactoryUser ? (
@@ -1768,7 +1824,7 @@ export default function OrdersTab() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <div className="text-xs font-medium text-gray-900 truncate">{order.customer_name}</div>
-                        {hasBadContact(order) && (
+                        {!isNaverUnifiedOrder(order) && hasBadContact(order) && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-50 text-red-700 shrink-0">
                             연락처 이상
                           </span>
@@ -1794,7 +1850,9 @@ export default function OrdersTab() {
                           {order.attributed_salesman.salesman_code ? ` · ${order.attributed_salesman.salesman_code}` : ''}
                         </div>
                       )}
-                      {assignmentFeatureOn && (() => {
+                      {assignmentFeatureOn && (isNaverUnifiedOrder(order) ? (
+                        <div className="text-[11px] font-medium text-green-700">담당 네이버 전용</div>
+                      ) : (() => {
                         if (assignmentError) return <div className="text-[11px] text-red-500">담당 정보 실패</div>;
                         if (assignmentLoading) return <div className="text-[11px] text-gray-400">담당 확인 중…</div>;
                         const assignment = getAssignment(order);
@@ -1834,30 +1892,37 @@ export default function OrdersTab() {
                             </select>
                           </div>
                         );
-                      })()}
+                      })())}
                     </div>
                     <div onClick={(e) => e.stopPropagation()}>
-                      <select
-                        value={order.order_status}
-                        onChange={(e) => handleStatusChange(order.id, e.target.value as Order['order_status'])}
-                        disabled={updatingStatusId === order.id}
-                        className={`px-1.5 py-0.5 rounded text-[11px] font-medium border-0 cursor-pointer disabled:opacity-60 ${getStatusColor(order.order_status)}`}
-                      >
-                        <option value="payment_pending">결제대기</option>
-                        <option value="payment_completed">결제완료</option>
-                        <option value="in_production">제작중</option>
-                        <option value="shipping">배송중</option>
-                        <option value="delivered">배송완료</option>
-                        <option value="cancelled">취소</option>
-                        <option value="partially_cancelled">부분취소</option>
-                      </select>
+                      {isNaverUnifiedOrder(order) ? (
+                        <span className={`inline-flex px-1.5 py-0.5 rounded text-[11px] font-medium ${getStatusColor(order.order_status)}`}>
+                          {order.naver_status_label || '네이버 상태 확인'}
+                        </span>
+                      ) : (
+                        <select
+                          value={order.order_status}
+                          onChange={(e) => handleStatusChange(order.id, e.target.value as Order['order_status'])}
+                          disabled={updatingStatusId === order.id}
+                          className={`px-1.5 py-0.5 rounded text-[11px] font-medium border-0 cursor-pointer disabled:opacity-60 ${getStatusColor(order.order_status)}`}
+                        >
+                          <option value="payment_pending">결제대기</option>
+                          <option value="payment_completed">결제완료</option>
+                          <option value="in_production">제작중</option>
+                          <option value="shipping">배송중</option>
+                          <option value="delivered">배송완료</option>
+                          <option value="cancelled">취소</option>
+                          <option value="partially_cancelled">부분취소</option>
+                        </select>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
                     <span>{orderCategoryLabel(order.order_category)}</span>
                     <span className="font-medium text-gray-700">{order.total_amount.toLocaleString()}원</span>
-                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${getPaymentStatusColor(order.payment_status)}`}>{{pending:'입금대기',completed:'결제완료',failed:'결제실패',refunded:'환불'}[order.payment_status] || order.payment_status}</span>
+                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${getPaymentStatusColor(order.payment_status)}`}>{isNaverUnifiedOrder(order) && '네이버페이 · '}{{pending:'입금대기',completed:'결제완료',failed:'결제실패',refunded:'환불'}[order.payment_status] || order.payment_status}</span>
                     {(() => {
+                      if (isNaverUnifiedOrder(order)) return null;
                       const ps = getPurchaseOrderSummary(order);
                       return ps.label !== '-' ? (
                         <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${ps.color}`}>{ps.label}</span>
@@ -1875,8 +1940,8 @@ export default function OrdersTab() {
                       const hasF = fl !== '미배정';
                       return (
                         <>
-                          <span className={!hasF ? 'text-red-500' : ''}>{fl}</span>
-                          {hasF && (
+                          <span className={!hasF && !isNaverUnifiedOrder(order) ? 'text-red-500' : ''}>{isNaverUnifiedOrder(order) ? '네이버 전용' : fl}</span>
+                          {hasF && !isNaverUnifiedOrder(order) && (
                             fs === 'mixed' ? (
                               <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${getFactoryStatusColor('mixed')}`}>
                                 {getFactoryStatusLabel('mixed')}
@@ -1907,31 +1972,44 @@ export default function OrdersTab() {
                   <div className="flex items-center justify-between text-[11px]">
                     <div className="flex-1" />
                     <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setAllocationOrder(order); }}
-                        className="flex items-center gap-1 px-2 py-1 text-[11px] bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
-                      >
-                        <FactoryIcon className="w-3 h-3" />
-                        공장배정
-                      </button>
-                      {order.payment_status === 'completed' && (
+                      {isNaverUnifiedOrder(order) ? (
                         <button
-                          onClick={(e) => { e.stopPropagation(); setRefundOrder(order); }}
-                          className="flex items-center gap-1 px-2 py-1 text-[11px] bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+                          data-testid="naver-order-manage"
+                          onClick={(e) => { e.stopPropagation(); handleOrderClick(order); }}
+                          className="flex items-center gap-1 px-2 py-1 text-[11px] bg-green-50 text-green-700 rounded hover:bg-green-100 transition-colors"
                         >
-                          <RotateCcw className="w-3 h-3" />
-                          환불
+                          <ExternalLink className="w-3 h-3" />
+                          네이버 주문 관리
                         </button>
-                      )}
-                      {isSuperAdmin && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setDeleteOrder(order); }}
-                          className="flex items-center gap-1 px-2 py-1 text-[11px] bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-                          title="주문 영구 삭제 (super-admin)"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          삭제
-                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setAllocationOrder(order); }}
+                            className="flex items-center gap-1 px-2 py-1 text-[11px] bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
+                          >
+                            <FactoryIcon className="w-3 h-3" />
+                            공장배정
+                          </button>
+                          {order.payment_status === 'completed' && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setRefundOrder(order); }}
+                              className="flex items-center gap-1 px-2 py-1 text-[11px] bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              환불
+                            </button>
+                          )}
+                          {isSuperAdmin && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDeleteOrder(order); }}
+                              className="flex items-center gap-1 px-2 py-1 text-[11px] bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                              title="주문 영구 삭제 (super-admin)"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              삭제
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

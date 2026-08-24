@@ -62,6 +62,13 @@ export default function NaverCommercePage() {
 
   useEffect(() => { void load(); }, []);
 
+  useEffect(() => {
+    const orderId = new URLSearchParams(window.location.search).get('orderId');
+    if (!orderId) return;
+    setTab('orders');
+    setSearch(orderId);
+  }, []);
+
   const run = async (key: string, operation: () => Promise<unknown>, success: string) => {
     setWorking(key);
     setMessage(null);
