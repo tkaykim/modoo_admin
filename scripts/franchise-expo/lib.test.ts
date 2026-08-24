@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import sharp from 'sharp';
 import {
+  adaptLogoContrast,
   analyzeLogoContrast,
+  buildContrastLogoVariants,
   buildLogoPlacement,
+  combineArtworkPreviews,
   dedupeExpoRows,
   parseExpoRows,
   prepareArtwork,
@@ -54,7 +57,7 @@ test('같은 브랜드는 최신 source id 하나로 병합한다', () => {
   assert.deepEqual(result.duplicates[0].droppedSourceIds, ['10']);
 });
 
-test('기본 배치는 인쇄영역 안의 좌측 가슴 크기로 계산한다', () => {
+test('앞면 기본 배치는 착용자 왼쪽 가슴에 충분한 크기로 계산한다', () => {
   const placement = buildLogoPlacement(
     {
       id: 'front',
@@ -68,7 +71,29 @@ test('기본 배치는 인쇄영역 안의 좌측 가슴 크기로 계산한다'
   assert.ok(placement.y >= 0);
   assert.ok(placement.x + placement.width <= 400);
   assert.ok(placement.y + placement.height <= 500);
+  assert.ok(placement.x >= 400 * 0.48);
+  assert.ok(Math.max(placement.width / 400, placement.height / 500) >= 0.16);
   assert.equal(placement.width / placement.height, 2);
+});
+
+test('등판 배치는 중앙에 크게 계산한다', () => {
+  const placement = buildLogoPlacement(
+    {
+      id: 'back',
+      imageUrl: 'https://example.com/back.png',
+      printArea: { x: 100, y: 80, width: 600, height: 800 },
+    },
+    400,
+    200,
+    null,
+    'large-back',
+  );
+  assert.ok(placement.x >= 0);
+  assert.ok(placement.y >= 0);
+  assert.ok(placement.x + placement.width <= 600);
+  assert.ok(placement.y + placement.height <= 800);
+  assert.ok(Math.max(placement.width / 600, placement.height / 800) >= 0.38);
+  assert.ok(Math.abs(placement.x + placement.width / 2 - 300) <= 1);
 });
 
 test('단색 테두리 배경을 투명하게 만들고 로고 영역을 trim한다', async () => {
@@ -156,6 +181,61 @@ test('밝은 단색 로고는 어두운 의류가 필요한 것으로 분류한�
   }).png().toBuffer();
   assert.equal((await analyzeLogoContrast(whiteLogo)).needsDarkGarment, true);
   assert.equal((await analyzeLogoContrast(blackLogo)).needsDarkGarment, false);
+  const whiteVariants = await buildContrastLogoVariants(whiteLogo, await analyzeLogoContrast(whiteLogo));
+  const blackVariants = await buildContrastLogoVariants(blackLogo, await analyzeLogoContrast(blackLogo));
+  assert.equal(whiteVariants.lightGarmentMode, 'black');
+  assert.equal(whiteVariants.darkGarmentMode, 'original');
+  assert.equal(blackVariants.lightGarmentMode, 'original');
+  assert.equal(blackVariants.darkGarmentMode, 'white');
+});
+
+test('검정 의류용 대비 보정은 검정 요소를 밝히고 브랜드 컬러 차이는 유지한다', async () => {
+  const input = await sharp(Buffer.from([
+    10, 10, 10, 255,
+    220, 20, 30, 255,
+  ]), { raw: { width: 2, height: 1, channels: 4 } }).png().toBuffer();
+  const output = await sharp(await adaptLogoContrast(input, 'dark-garment')).raw().toBuffer();
+  assert.deepEqual([...output.slice(0, 4)], [255, 255, 255, 255]);
+  assert.ok(output[4] > output[5]);
+  assert.ok(output[5] >= 155);
+  assert.equal(output[7], 255);
+});
+
+test('앞면과 등판 시안을 한 카드 이미지로 합친다', async () => {
+  const productImage = await sharp({
+    create: {
+      width: 400,
+      height: 500,
+      channels: 4,
+      background: { r: 255, g: 255, b: 255, alpha: 1 },
+    },
+  }).png().toBuffer();
+  const logo = await sharp({
+    create: {
+      width: 120,
+      height: 60,
+      channels: 4,
+      background: { r: 20, g: 20, b: 20, alpha: 1 },
+    },
+  }).png().toBuffer();
+  const front = await prepareArtwork({
+    side: { id: 'front', imageUrl: 'front.png', printArea: { x: 80, y: 80, width: 240, height: 320 } },
+    productImage,
+    logo,
+    logoUrl: 'https://example.com/logo.png',
+    placementKind: 'left-chest',
+  });
+  const back = await prepareArtwork({
+    side: { id: 'back', imageUrl: 'back.png', printArea: { x: 80, y: 80, width: 240, height: 320 } },
+    productImage,
+    logo,
+    logoUrl: 'https://example.com/logo.png',
+    placementKind: 'large-back',
+  });
+  const combined = await combineArtworkPreviews(front, back);
+  const metadata = await sharp(combined).metadata();
+  assert.equal(metadata.width, 1200);
+  assert.equal(metadata.height, 1000);
 });
 
 test('제품 색상 multiply는 투명도를 보존한다', async () => {
