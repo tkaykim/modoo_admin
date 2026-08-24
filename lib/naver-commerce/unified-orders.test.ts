@@ -82,3 +82,12 @@ test('keeps a no-payment cancellation distinct from a refund', () => {
   assert.equal(result.payment_status, 'failed');
   assert.equal(result.naver_status_label, '미결제 취소');
 });
+
+test('projects design intake progress without changing the Naver order source', () => {
+  const result = projectNaverOrdersForAdmin([row()], new Map([
+    ['ORDER 1', { status: 'submitted', job_count: 2, submitted_job_count: 2 }],
+  ]))[0];
+  assert.equal(result.naver_design_status_label, '디자인 접수 완료');
+  assert.equal(result.naver_design_progress, '2/2');
+  assert.equal(result.order_source, 'naver_smartstore');
+});

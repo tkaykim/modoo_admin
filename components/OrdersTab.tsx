@@ -46,6 +46,9 @@ type OrderWithItemCount = Order & {
   naver_status_label?: string;
   naver_product_summary?: string;
   naver_option_summary?: string;
+  naver_design_status?: string;
+  naver_design_status_label?: string;
+  naver_design_progress?: string;
 };
 
 // 주문 처리 담당자 — orders.salesman_id(영업담당자)와 완전히 다른 개념이다.
@@ -1525,6 +1528,19 @@ export default function OrdersTab() {
                           )}
                         </div>
                         <div className="text-xs text-gray-500">{order.customer_email}</div>
+                        {isNaverUnifiedOrder(order) && (
+                          <div className="mt-1">
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              order.naver_design_status === 'submitted' || order.naver_design_status === 'approved' || order.naver_design_status === 'reviewed'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : order.naver_design_status === 'pending'
+                                  ? 'bg-gray-100 text-gray-600'
+                                  : 'bg-amber-50 text-amber-700'
+                            }`}>
+                              {order.naver_design_status_label || '디자인 상태 확인'} · {order.naver_design_progress || '0/0'}
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span className="text-xs text-gray-600">
@@ -1839,6 +1855,11 @@ export default function OrdersTab() {
                         })()}
                       </div>
                       <div className="text-[11px] text-gray-400 truncate">{order.customer_email}</div>
+                      {isNaverUnifiedOrder(order) && (
+                        <div className="mt-1 text-[11px] font-semibold text-amber-700">
+                          {order.naver_design_status_label || '디자인 상태 확인'} · {order.naver_design_progress || '0/0'}
+                        </div>
+                      )}
                       {order.partner_mall?.name && (
                         <div className="text-[11px] text-teal-700 truncate">
                           {order.partner_mall.name}
