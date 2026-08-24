@@ -38,9 +38,11 @@ ALTER TABLE public.partner_mall_products ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "pm_assets_public_read" ON public.partner_mall_assets;
 DROP POLICY IF EXISTS "pm_assets_guest_insert" ON public.partner_mall_assets;
 DROP POLICY IF EXISTS "pm_assets_owner_modify" ON public.partner_mall_assets;
+DROP POLICY IF EXISTS "Anyone can view partner_mall_assets" ON public.partner_mall_assets;
 DROP POLICY IF EXISTS "pm_products_public_read" ON public.partner_mall_products;
 DROP POLICY IF EXISTS "pm_products_guest_insert" ON public.partner_mall_products;
 DROP POLICY IF EXISTS "pm_products_owner_modify" ON public.partner_mall_products;
+DROP POLICY IF EXISTS "Public read access for shared partner mall products" ON public.partner_mall_products;
 
 CREATE POLICY "pm_assets_public_read"
   ON public.partner_mall_assets
