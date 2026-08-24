@@ -11,6 +11,7 @@
     "ga4": "tsx scripts/ga4/cli.ts",
     "test:naver-commerce": "tsx --env-file=.env.local scripts/naver-commerce-smoke.ts",
     "naver:register-initial-products": "tsx --env-file=.env.local scripts/naver-commerce-register-initial-products.ts",
+    "naver:apply-print-structure": "tsx --env-file=.env.local scripts/naver-commerce-apply-print-structure.ts",
     "test:regression": "tsx --test lib/canvasUtils.regression-1.test.ts lib/font-contract.test.ts lib/text-outline-export.test.ts"
   },
   "dependencies": {

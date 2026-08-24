@@ -48,10 +48,24 @@ export type NaverPrintTier = {
   optionPrice: number;
 };
 
+export type NaverSupplementProduct = {
+  code: string;
+  name: string;
+  price: number;
+};
+
+export type NaverSupplementGroup = {
+  groupName: string;
+  products: NaverSupplementProduct[];
+};
+
 export type NaverProductOptionConfig = {
   colorCodes?: string[];
   sizeCodes?: string[];
   printTiers: NaverPrintTier[];
+  combinationStockQuantity?: number;
+  supplementStockQuantity?: number;
+  supplementGroups?: NaverSupplementGroup[];
   maxCombinations?: number;
 };
 
@@ -77,6 +91,18 @@ export type NaverProductUpdateInput = {
   stockQuantity?: number;
   imageUrls?: string[];
   detailHtml?: string;
+  optionInfo?: JsonRecord;
+  supplementProductInfo?: JsonRecord;
+  syncAfter?: boolean;
+};
+
+export type NaverProductReconfigureInput = {
+  localProductId: string;
+  originProductNo: number;
+  name: string;
+  salePrice: number;
+  optionConfig: NaverProductOptionConfig;
+  suspended?: boolean;
 };
 
 export type NaverDispatchInput = {

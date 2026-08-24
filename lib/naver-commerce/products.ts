@@ -1,7 +1,7 @@
 import { createAdminClient } from '@/lib/supabase-admin';
 import { naverRequest, uploadNaverImages } from './client';
 import { buildNaverCombinationOptions, type LocalProductColor, type LocalProductSize } from './product-options';
-import type { JsonRecord, NaverProductCreateInput, NaverProductUpdateInput } from './types';
+import type { JsonRecord, NaverProductCreateInput, NaverProductReconfigureInput, NaverProductUpdateInput } from './types';
 
 const asRecord = (value: unknown): JsonRecord => value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {};
 const asNumber = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : null;
@@ -84,6 +84,7 @@ function applyEditableFields(
     uploadedImages?: string[];
     suspended?: boolean;
     optionInfo?: JsonRecord;
+    supplementProductInfo?: JsonRecord;
     sellerManagementCode?: string;
   },
 ) {
@@ -97,6 +98,7 @@ function applyEditableFields(
   if (values.detailHtml) origin.detailContent = values.detailHtml;
   const detailAttribute = asRecord(origin.detailAttribute);
   if (values.optionInfo) detailAttribute.optionInfo = values.optionInfo;
+  if (values.supplementProductInfo) detailAttribute.supplementProductInfo = values.supplementProductInfo;
   if (values.sellerManagementCode) {
     detailAttribute.sellerCodeInfo = {
       ...asRecord(detailAttribute.sellerCodeInfo),
@@ -150,6 +152,37 @@ async function localColors(localProductId: string): Promise<LocalProductColor[]>
   }).filter((color) => color.name && color.code);
 }
 
+const PRINT_GUIDE_START = '<!-- modoo-print-guide:v2:start -->';
+const PRINT_GUIDE_END = '<!-- modoo-print-guide:v2:end -->';
+
+function printOrderGuideHtml() {
+  return `${PRINT_GUIDE_START}
+    <section id="modoo-print-guide-v2" style="margin:0 auto 24px;padding:24px 18px;background:#fff7e8;text-align:left;color:#4b3512">
+      <h3 style="margin:0 0 12px;font-size:20px">기본 10cm 이내 인쇄가 상품 가격에 포함되어 있습니다.</h3>
+      <p style="margin:0 0 8px">색상과 사이즈를 고른 뒤 필수 인쇄 옵션의 포함 안내를 선택해 주세요.</p>
+      <p style="margin:0 0 8px">A4·A3 크기로 변경하거나 다른 위치에 인쇄하려면 추가 옵션을 선택해 주세요.</p>
+      <p style="margin:0;font-weight:700">의류 10장을 주문하면 인쇄 변경·추가 옵션도 10개를 선택해야 합니다.</p>
+    </section>
+  ${PRINT_GUIDE_END}`;
+}
+
+function refreshDetailPrintGuide(detailHtml: string) {
+  const markerPattern = /<!-- modoo-print-guide:v2:start -->[\s\S]*?<!-- modoo-print-guide:v2:end -->\s*/g;
+  const sectionPattern = /<section[^>]*id=["']modoo-print-guide-v2["'][^>]*>[\s\S]*?<\/section>\s*/g;
+  const cleaned = detailHtml.replace(markerPattern, '').replace(sectionPattern, '');
+  const updated = cleaned
+    .replace('인쇄 크기 3단계 중 선택', '기본 10cm 인쇄 포함')
+    .replace(
+      '<li>예상 인쇄 크기를 소형, 중형, 대형 중에서 선택해 주세요.</li>',
+      '<li>필수 인쇄 옵션에서 기본 10cm 인쇄 포함 안내를 선택해 주세요.</li><li>인쇄 크기 변경이나 추가 위치 인쇄는 추가 옵션에서 의류 수량과 동일하게 선택해 주세요.</li>',
+    )
+    .replace(
+      '<li>완성 디자인이 선택 범위를 넘으면 제작 전에 축소 또는 주문 변경을 안내드립니다.</li>',
+      '<li>결제 후 전달된 링크에서 디자인을 올리면 담당자가 제작 가능 범위를 확인합니다.</li>',
+    );
+  return `${printOrderGuideHtml()}${updated}`;
+}
+
 function defaultDetailHtml(input: {
   name: string;
   productCode: string;
@@ -159,10 +192,11 @@ function defaultDetailHtml(input: {
 }) {
   const name = escapeHtml(input.name);
   const optionSummary = input.colorCount && input.sizeCount
-    ? `<p style="margin:8px 0;color:#444">색상 ${input.colorCount}종 · 사이즈 ${input.sizeCount}종 · 인쇄 크기 3단계 중 선택</p>`
+    ? `<p style="margin:8px 0;color:#444">색상 ${input.colorCount}종 · 사이즈 ${input.sizeCount}종 · 기본 10cm 인쇄 포함</p>`
     : '';
   const images = input.detailImages.map((url) => `<img src="${escapeHtml(url)}" alt="${name} 상품 정보" style="display:block;max-width:100%;height:auto;margin:0 auto" />`).join('');
   return `<div style="max-width:860px;margin:0 auto;text-align:center;font-family:Arial,sans-serif;line-height:1.7;color:#222">
+    ${printOrderGuideHtml()}
     <section style="padding:28px 18px;background:#f7f7f7">
       <h2 style="margin:0 0 10px;font-size:24px">${name}</h2>
       <p style="margin:0;color:#666">상품 코드 ${escapeHtml(input.productCode)}</p>
@@ -172,9 +206,10 @@ function defaultDetailHtml(input: {
       <h3 style="margin:0 0 12px">주문 방법</h3>
       <ol style="margin:0;padding-left:22px">
         <li>색상과 사이즈를 선택해 주세요.</li>
-        <li>예상 인쇄 크기를 소형, 중형, 대형 중에서 선택해 주세요.</li>
+        <li>필수 인쇄 옵션에서 기본 10cm 인쇄 포함 안내를 선택해 주세요.</li>
+        <li>인쇄 크기 변경이나 추가 위치 인쇄는 추가 옵션에서 의류 수량과 동일하게 선택해 주세요.</li>
         <li>결제 확인 후 디자인 업로드 방법을 별도로 안내드립니다.</li>
-        <li>완성 디자인이 선택 범위를 넘으면 제작 전에 축소 또는 주문 변경을 안내드립니다.</li>
+        <li>결제 후 전달된 링크에서 디자인을 올리면 담당자가 제작 가능 범위를 확인합니다.</li>
       </ol>
       <p style="margin:18px 0 0;padding:14px;background:#fff4df;color:#6b4700">주문제작 상품은 디자인 확인과 시안 확정 후 제작이 시작됩니다.</p>
     </section>
@@ -257,6 +292,7 @@ export async function createNaverProductFromLocal(input: NaverProductCreateInput
     uploadedImages: uploadedThumbnails,
     suspended: input.suspended,
     optionInfo: optionResult?.optionInfo,
+    supplementProductInfo: optionResult?.supplementProductInfo,
     sellerManagementCode: local.product_code || undefined,
   });
   const response = await naverRequest<JsonRecord>('/v2/products', { method: 'POST', body });
@@ -268,7 +304,45 @@ export async function createNaverProductFromLocal(input: NaverProductCreateInput
     colors: optionResult.colors.map((color) => color.name),
     sizes: optionResult.sizes.map((size) => size.label),
     combinations: optionResult.combinationCount,
+    supplements: optionResult.supplementCount,
   } : null };
+}
+
+export async function reconfigureNaverProductFromLocal(input: NaverProductReconfigureInput) {
+  const admin = createAdminClient();
+  const { data: local, error } = await admin.from('products')
+    .select('id,product_code,size_options')
+    .eq('id', input.localProductId)
+    .single();
+  if (error || !local) throw error || new Error('자체몰 상품을 찾지 못했습니다.');
+  const current = await getNaverProduct(input.originProductNo);
+  const currentOrigin = asRecord(current.originProduct);
+  const optionResult = buildNaverCombinationOptions({
+    productCode: local.product_code || input.localProductId,
+    colors: await localColors(input.localProductId),
+    sizes: localSizes(local.size_options),
+    config: input.optionConfig,
+  });
+  const body = stripReadOnlyProductFields(current);
+  applyEditableFields(body, {
+    suspended: input.suspended,
+    name: input.name,
+    salePrice: input.salePrice,
+    detailHtml: refreshDetailPrintGuide(String(currentOrigin.detailContent || '')),
+    optionInfo: optionResult.optionInfo,
+    supplementProductInfo: optionResult.supplementProductInfo,
+    sellerManagementCode: local.product_code || undefined,
+  });
+  const response = await naverRequest<JsonRecord>(`/v2/products/origin-products/${input.originProductNo}`, { method: 'PUT', body });
+  return {
+    response,
+    optionSummary: {
+      colors: optionResult.colors.map((color) => color.name),
+      sizes: optionResult.sizes.map((size) => size.label),
+      combinations: optionResult.combinationCount,
+      supplements: optionResult.supplementCount,
+    },
+  };
 }
 
 export async function updateNaverProduct(input: NaverProductUpdateInput) {
@@ -279,6 +353,6 @@ export async function updateNaverProduct(input: NaverProductUpdateInput) {
   const uploadedImages = input.imageUrls?.length ? await uploadNaverImages(input.imageUrls.slice(0, 10)) : undefined;
   applyEditableFields(body, { ...input, uploadedImages });
   const response = await naverRequest<JsonRecord>(`/v2/products/origin-products/${input.originProductNo}`, { method: 'PUT', body });
-  await syncNaverProducts();
+  if (input.syncAfter !== false) await syncNaverProducts();
   return response;
 }
