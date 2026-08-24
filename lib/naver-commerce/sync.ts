@@ -3,6 +3,7 @@ import { syncNaverOrders } from './orders';
 import { syncNaverProducts } from './products';
 import { syncNaverQnas } from './qnas';
 import { syncNaverSettlements } from './settlements';
+import { ingestNaverPaidOrders } from './design-intake';
 import type { NaverSyncResult } from './types';
 
 const dateOnly = (date: Date) => date.toISOString().slice(0, 10);
@@ -29,6 +30,11 @@ export async function syncAllNaverCommerce() {
   const results: Record<string, NaverSyncResult> = {};
   results.products = await withRun('products', syncNaverProducts);
   results.orders = await withRun('orders', () => syncNaverOrders());
+  results.designIntake = {
+    fetched: 0,
+    upserted: 0,
+    detail: await ingestNaverPaidOrders(),
+  };
   results.settlements = await withRun('settlements', () => syncNaverSettlements(dateOnly(sevenDaysAgo), dateOnly(today)));
   results.qnas = await withRun('qnas', () => syncNaverQnas(thirtyDaysAgo.toISOString(), today.toISOString()));
   return results;
@@ -37,7 +43,10 @@ export async function syncAllNaverCommerce() {
 export async function syncNaverCommerceSection(section: string) {
   const today = new Date();
   if (section === 'products') return withRun(section, syncNaverProducts);
-  if (section === 'orders') return withRun(section, () => syncNaverOrders());
+  if (section === 'orders') {
+    const orders = await withRun(section, () => syncNaverOrders());
+    return { ...orders, detail: { ...(orders.detail || {}), designIntake: await ingestNaverPaidOrders() } };
+  }
   if (section === 'settlements') return withRun(section, () => syncNaverSettlements(dateOnly(new Date(today.getTime() - 31 * 86_400_000)), dateOnly(today)));
   if (section === 'qnas') return withRun(section, () => syncNaverQnas(new Date(today.getTime() - 90 * 86_400_000).toISOString(), today.toISOString()));
   throw new Error('지원하지 않는 동기화 항목입니다.');

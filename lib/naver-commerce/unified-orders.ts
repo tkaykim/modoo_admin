@@ -5,6 +5,12 @@ export const NAVER_UNIFIED_ORDER_PREFIX = 'NAVER-';
 
 export type NaverProductOrderProjectionRow = Omit<NaverProductOrderRow, 'raw_data'>;
 
+export type NaverDesignIntakeProjection = {
+  status: string;
+  job_count: number;
+  submitted_job_count: number;
+};
+
 export type NaverUnifiedOrderItem = {
   id: string;
   product_title: string | null;
@@ -74,6 +80,9 @@ export type NaverUnifiedOrder = {
   naver_status_label: string;
   naver_product_summary: string;
   naver_option_summary: string;
+  naver_design_status: string;
+  naver_design_status_label: string;
+  naver_design_progress: string;
 };
 
 const PRODUCT_STATUS_LABELS: Record<string, string> = {
@@ -169,7 +178,22 @@ export function isNaverUnifiedOrder(value: { order_source?: string | null }): bo
   return value.order_source === NAVER_UNIFIED_ORDER_SOURCE;
 }
 
-export function projectNaverOrdersForAdmin(rows: NaverProductOrderProjectionRow[]): NaverUnifiedOrder[] {
+function designStatusLabel(design: NaverDesignIntakeProjection | undefined): string {
+  if (!design) return '디자인 링크 생성 대기';
+  if (design.status === 'approved') return '디자인 확정';
+  if (design.status === 'reviewed') return '담당자 확인 완료';
+  if (design.status === 'revision_requested') return '디자인 수정 요청';
+  if (design.status === 'submitted') return '디자인 접수 완료';
+  if (design.status === 'cancelled') return '디자인 접수 취소';
+  if (design.submitted_job_count > 0) return '디자인 일부 접수';
+  if (design.status === 'in_progress') return '디자인 작성 중';
+  return '디자인 미접수';
+}
+
+export function projectNaverOrdersForAdmin(
+  rows: NaverProductOrderProjectionRow[],
+  designByOrderId: ReadonlyMap<string, NaverDesignIntakeProjection> = new Map(),
+): NaverUnifiedOrder[] {
   const groups = new Map<string, NaverProductOrderProjectionRow[]>();
   rows.forEach((row) => {
     if (!row.naver_order_id) return;
@@ -188,6 +212,7 @@ export function projectNaverOrdersForAdmin(rows: NaverProductOrderProjectionRow[
     const optionNames = uniqueNonEmpty(group.map((row) => row.option_name));
     const receiverPhone = first.receiver_tel1 || first.receiver_tel2 || null;
     const visitReceipt = group.every((row) => row.delivery_method === 'VISIT_RECEIPT');
+    const design = designByOrderId.get(naverOrderId);
 
     return {
       id: `${NAVER_UNIFIED_ORDER_PREFIX}${naverOrderId}`,
@@ -256,6 +281,9 @@ export function projectNaverOrdersForAdmin(rows: NaverProductOrderProjectionRow[
       naver_status_label: status.label,
       naver_product_summary: productNames.join(', ') || '네이버 상품',
       naver_option_summary: optionNames.join(', '),
+      naver_design_status: design?.status || 'pending',
+      naver_design_status_label: designStatusLabel(design),
+      naver_design_progress: design ? `${design.submitted_job_count}/${design.job_count}` : '0/0',
     };
   }).sort((a, b) => (validDateValue(b.paid_at || b.created_at) ?? 0) - (validDateValue(a.paid_at || a.created_at) ?? 0));
 }
