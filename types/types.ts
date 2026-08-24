@@ -1093,6 +1093,7 @@ export interface PartnerMall {
   id: string;
   name: string;
   slug: string | null;
+  source_key?: string | null;
   logo_url: string;
   original_logo_url: string | null;
   is_active: boolean;
@@ -1117,6 +1118,7 @@ export type PartnerMallActorRole = 'salesman' | 'admin' | 'guest' | 'owner';
 export interface PartnerMallAsset {
   id: string;
   partner_mall_id?: string;
+  import_key?: string | null;
   asset_type: PartnerMallAssetType;
   url: string;
   name: string | null;
@@ -1133,6 +1135,7 @@ export interface PartnerMallAsset {
 export interface PartnerMallProduct {
   id: string;
   partner_mall_id: string;
+  import_key?: string | null;
   product_id: string;
   display_name: string | null;
   manufacturer_color_id: string | null;

@@ -56,6 +56,7 @@ export async function GET() {
           mime_type,
           is_primary,
           sort_order,
+          import_key,
           created_at
         ),
         partner_mall_products (
@@ -70,6 +71,7 @@ export async function GET() {
           logo_placements,
           canvas_state,
           preview_url,
+          import_key,
           product:products (
             id,
             title,
