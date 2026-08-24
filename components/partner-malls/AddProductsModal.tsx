@@ -13,6 +13,12 @@ interface AddProductsModalProps {
   partnerMallId: string;
   partnerMallName: string;
   logoUrl: string;
+  logoAssets?: Array<{
+    id: string;
+    url: string;
+    name?: string | null;
+    is_primary?: boolean;
+  }>;
   onClose: () => void;
   onProductsAdded: () => void;
 }
@@ -363,6 +369,7 @@ export default function AddProductsModal({
   partnerMallId,
   partnerMallName,
   logoUrl,
+  logoAssets = [],
   onClose,
   onProductsAdded,
 }: AddProductsModalProps) {
@@ -372,14 +379,28 @@ export default function AddProductsModal({
   const [step, setStep] = useState<'select' | 'configure'>('select');
   const [productConfigs, setProductConfigs] = useState<ProductConfig[]>([]);
   const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [activeLogoUrl, setActiveLogoUrl] = useState(logoUrl);
   const router = useRouter();
+
+  const selectableLogoAssets = logoAssets.length > 0
+    ? logoAssets
+    : [{ id: 'primary-logo', url: logoUrl, name: '기본 로고', is_primary: true }];
+
+  const selectLogoAsset = (url: string) => {
+    setActiveLogoUrl(url);
+    setProductConfigs((previous) => previous.map((config) => ({
+      ...config,
+      previewUrl: null,
+      canvasState: {},
+    })));
+  };
 
   // Open full editor for a product config
   const handleOpenEditor = (config: ProductConfig) => {
     sessionStorage.setItem('adminPartnerMallAddData', JSON.stringify({
       partnerMallId,
       partnerMallName,
-      logoUrl,
+      logoUrl: activeLogoUrl,
       displayName: config.displayName,
       manufacturerColorId: config.color?.id ?? null,
       colorHex: config.color?.hex ?? null,
@@ -633,9 +654,9 @@ export default function AddProductsModal({
 
           {step === 'configure' && editingConfig && (
             <InlinePlacementEditor
-              key={`${editingConfig.key}-${editingConfig.color?.hex || ''}`}
+              key={`${editingConfig.key}-${editingConfig.color?.hex || ''}-${activeLogoUrl}`}
               product={editingConfig.product}
-              logoUrl={logoUrl}
+              logoUrl={activeLogoUrl}
               productColor={editingConfig.color?.hex}
               initialPlacement={editingConfig.logoPlacement}
               onDone={(placement, previewUrl, canvasState) =>
@@ -647,6 +668,41 @@ export default function AddProductsModal({
 
           {step === 'configure' && !editingKey && (
             <div className="p-3 sm:p-4 space-y-4">
+              <div className="rounded-lg border border-gray-200 bg-white p-3 sm:p-4">
+                <div className="mb-3">
+                  <p className="text-sm font-semibold text-gray-800">사용할 로고 에셋</p>
+                  <p className="mt-0.5 text-xs text-gray-500">의류 색상에 맞는 대비 로고를 선택한 뒤 제품을 추가하세요.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {selectableLogoAssets.map((asset) => {
+                    const selected = asset.url === activeLogoUrl;
+                    return (
+                      <button
+                        key={asset.id}
+                        type="button"
+                        onClick={() => selectLogoAsset(asset.url)}
+                        className={`relative flex min-h-24 flex-col items-center justify-center rounded-lg border p-2 text-center transition-colors ${
+                          selected
+                            ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500'
+                            : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                        }`}
+                      >
+                        <span className="flex h-14 w-full items-center justify-center rounded bg-white p-1">
+                          <img src={asset.url} alt="" className="max-h-full max-w-full object-contain" />
+                        </span>
+                        <span className="mt-1.5 line-clamp-2 text-[11px] font-medium text-gray-700">
+                          {asset.name || '로고'}
+                        </span>
+                        {selected && (
+                          <span className="absolute right-1.5 top-1.5 rounded-full bg-blue-600 p-0.5 text-white">
+                            <Check className="h-3 w-3" />
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               {productConfigs.map((config) => (
                 <div
                   key={config.key}
