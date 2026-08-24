@@ -49,6 +49,7 @@ const navGroups: NavGroup[] = [
       { type: 'link', href: '/orders', label: '주문 관리', icon: BarChart3, roles: ['admin', 'factory', 'super_admin'] },
       { type: 'link', href: '/purchase-orders', label: '발주 관리', icon: ClipboardList, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/products', label: '제품 관리', icon: Package, roles: ['admin', 'super_admin'] },
+      { type: 'link', href: '/naver-commerce', label: '네이버 스마트스토어', icon: ShoppingBag, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/invoices', label: '거래명세서', icon: FileText, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/shipping', label: '택배 관리', icon: Truck, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/shipping/standalone', label: '수동 택배 접수', icon: Truck, roles: ['admin', 'super_admin'] },
