@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NaverCommerceError } from '../lib/naver-commerce/client';
 import { createNaverProductFromLocal, getNaverProduct, updateNaverProduct } from '../lib/naver-commerce/products';
+import { INCLUDED_10CM_PRINT_TIER, STANDARD_PRINT_SUPPLEMENT_GROUPS } from '../lib/naver-commerce/product-options';
 import { createAdminClient } from '../lib/supabase-admin';
 import type { NaverProductOptionConfig } from '../lib/naver-commerce/types';
 
@@ -8,27 +9,25 @@ const TEMPLATE_ORIGIN_PRODUCT_NO = Number(process.env.NAVER_COMMERCE_PRODUCT_TEM
 const CONFIRM_VALUE = 'REGISTER_THREE_SUSPENDED_PRODUCTS';
 
 const PRINT_TIERS: NaverProductOptionConfig['printTiers'] = [
-  { code: '10X10', name: '소형 (10×10cm 이내)', optionPrice: 0 },
-  { code: 'A4', name: '중형 (A4 이내)', optionPrice: 2000 },
-  { code: 'A3', name: '대형 (A3 이내)', optionPrice: 4000 },
+  INCLUDED_10CM_PRINT_TIER,
 ];
 
 const products = [
   {
     localProductId: 'a66bb3aa-c16a-4f62-b183-064290c149f3',
-    name: '[주문제작] 085-CVT 베이직 라운드 단체티 커스텀 DTF 인쇄',
+    name: '[10cm 인쇄 포함] 티셔츠 주문 제작 라운드 반팔 단체티 소량 커스텀 인쇄 17수 빅사이즈 085-CVT',
     salePrice: 11_900,
-    expectedCombinations: 462,
-    colorCodes: ['005', '010', '031', '032', '025', '146', '014', '165', '015', '112', '003'],
+    expectedCombinations: 154,
+    colorCodes: ['005', '010', '031', '032', '025', '146', '014', '165', '015', '112,302', '003'],
     thumbnailImageUrls: [
       'https://obxekwyolrmipwmffhwq.supabase.co/storage/v1/object/public/products/product-images/product-meta/a66bb3aa-c16a-4f62-b183-064290c149f3/thumbnail_image_link/1780112789552-khey54.png',
     ],
   },
   {
     localProductId: 'dd2a9b80-792d-44dd-9c5a-d8db66e56024',
-    name: '[주문제작] 113-BCV 오버핏 라운드 단체티 커스텀 DTF 인쇄',
+    name: '[10cm 인쇄 포함] 오버핏 티셔츠 주문 제작 라운드 반팔 단체티 소량 커스텀 인쇄 17수 113-BCV',
     salePrice: 13_900,
-    expectedCombinations: 96,
+    expectedCombinations: 32,
     refreshExistingImages: true,
     thumbnailImageUrls: [
       'https://shop-phinf.pstatic.net/20210512_86/1620819970910jnT0q_JPEG/bcv-%EB%A9%94%EC%9D%B8.jpg?type=w860',
@@ -37,9 +36,9 @@ const products = [
   },
   {
     localProductId: '406d573e-0147-46f3-bc7a-3f5837deefbb',
-    name: '[주문제작] 216-MLH 쮸리 후드티 단체복 커스텀 DTF 인쇄',
+    name: '[10cm 인쇄 포함] 후드티 주문 제작 단체복 소량 커스텀 인쇄 8.4oz 미니쭈리 216-MLH',
     salePrice: 25_500,
-    expectedCombinations: 252,
+    expectedCombinations: 84,
   },
 ] as const;
 
@@ -57,6 +56,8 @@ async function verify(originProductNo: number, expected: { name: string; salePri
   const representativeImageUrl = asRecord(images.representativeImage).url;
   const optionalImages = Array.isArray(images.optionalImages) ? images.optionalImages : [];
   const combinations = Array.isArray(optionInfo.optionCombinations) ? optionInfo.optionCombinations : [];
+  const supplementInfo = asRecord(detailAttribute.supplementProductInfo);
+  const supplements = Array.isArray(supplementInfo.supplementProducts) ? supplementInfo.supplementProducts : [];
   return {
     passed: origin.name === expected.name
       && origin.salePrice === expected.salePrice
@@ -64,6 +65,7 @@ async function verify(originProductNo: number, expected: { name: string; salePri
       && channel.channelProductDisplayStatusType === 'SUSPENSION'
       && channel.naverShoppingRegistration === false
       && combinations.length === expected.expectedCombinations
+      && supplements.length === 13
       && Boolean(representativeImageUrl),
     originProductNo,
     channelProductNo: channel.channelProductNo || null,
@@ -73,6 +75,7 @@ async function verify(originProductNo: number, expected: { name: string; salePri
     displayStatus: channel.channelProductDisplayStatusType,
     naverShoppingRegistration: channel.naverShoppingRegistration,
     optionCombinations: combinations.length,
+    supplementProducts: supplements.length,
     representativeImage: Boolean(representativeImageUrl),
     representativeImageUrl,
     optionalImageCount: optionalImages.length,
@@ -92,7 +95,6 @@ async function main() {
     const { data: existing } = await admin.from('naver_product_mappings')
       .select('origin_product_no,channel_product_no,naver_product_name')
       .eq('local_product_id', product.localProductId)
-      .eq('naver_product_name', product.name)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -123,6 +125,7 @@ async function main() {
       optionConfig: {
         colorCodes: 'colorCodes' in product ? [...product.colorCodes] : undefined,
         printTiers: PRINT_TIERS,
+        supplementGroups: STANDARD_PRINT_SUPPLEMENT_GROUPS,
         maxCombinations: 500,
       },
     });
