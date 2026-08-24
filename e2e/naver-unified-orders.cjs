@@ -147,7 +147,8 @@ const naverDashboard = {
   });
 
   try {
-    await page.goto(`${baseUrl}/login`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${baseUrl}/login`, { waitUntil: 'networkidle' });
+    await page.waitForFunction(() => Boolean(document.querySelector('#email')?._valueTracker), null, { timeout: 15000 });
     await page.locator('#email').fill(email);
     await page.locator('#password').fill(password);
     await Promise.all([
@@ -161,16 +162,28 @@ const naverDashboard = {
         '/api/admin/orders?includeNaver=1',
         '/api/admin/orders?status=all&withMedia=1',
       ];
-      return Promise.all(urls.map(async (url) => {
-        const response = await fetch(url);
-        const payload = await response.json();
-        return {
+      const checks = [];
+      for (const url of urls) {
+        let response;
+        let payload;
+        let attempts = 0;
+        do {
+          attempts += 1;
+          response = await fetch(url);
+          payload = await response.json();
+          if (response.status < 500) break;
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        } while (attempts < 2);
+        checks.push({
           url,
           status: response.status,
           count: Array.isArray(payload.data) ? payload.data.length : -1,
           naverCount: Array.isArray(payload.data) ? payload.data.filter((row) => row.order_source === 'naver_smartstore').length : -1,
-        };
-      }));
+          attempts,
+          error: payload.error || null,
+        });
+      }
+      return checks;
     });
     liveChecks.forEach((check) => assert.equal(check.status, 200, `${check.url} 응답 실패`));
     assert.equal(liveChecks[0].count, liveChecks[2].count, '기존 배송용 주문 조회 행 수가 바뀌었습니다.');
@@ -232,7 +245,8 @@ const naverDashboard = {
   } catch (error) {
     fs.mkdirSync(path.join(process.cwd(), '.artifacts'), { recursive: true });
     await page.screenshot({ path: path.join(process.cwd(), '.artifacts', 'naver-unified-orders-e2e-failed.png'), fullPage: true });
-    process.stderr.write(`E2E page URL: ${page.url()}\n`);
+    const failedUrl = new URL(page.url());
+    process.stderr.write(`E2E page URL: ${failedUrl.origin}${failedUrl.pathname}\n`);
     process.stderr.write(`E2E page text: ${(await page.locator('body').innerText()).slice(0, 2000)}\n`);
     process.stderr.write(`E2E order requests: ${orderRequestUrls.join(', ')}\n`);
     throw error;
