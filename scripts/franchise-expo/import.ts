@@ -1,15 +1,16 @@
 import { randomBytes } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
 import {
   analyzeLogoContrast,
+  buildContrastLogoVariants,
+  combineArtworkPreviews,
   prepareArtwork,
   preprocessLogo,
   recolorProductImage,
   type ExpoManifest,
-  type LogoPlacement,
   type ManifestBrand,
   type ProductSideInput,
 } from './lib';
@@ -44,19 +45,22 @@ interface ProductColor {
   color_code: string;
 }
 
-interface PresetRow {
-  product_id: string;
-  placement: LogoPlacement;
-}
-
 interface RuntimeProduct {
   row: ProductRow;
-  side: ProductSideInput;
-  image: Buffer;
-  preset: LogoPlacement | null;
-  lightColor: ProductColor;
-  darkColor: ProductColor;
-  darkImage: Buffer;
+  frontSide: ProductSideInput;
+  backSide: ProductSideInput;
+  whiteColor: ProductColor;
+  blackColor: ProductColor;
+  whiteFrontImage: Buffer;
+  whiteBackImage: Buffer;
+  blackFrontImage: Buffer;
+  blackBackImage: Buffer;
+}
+
+type GarmentColor = 'white' | 'black';
+
+function safeFilename(value: string): string {
+  return value.replace(/[<>:"/\\|?*]+/g, '-').replace(/\s+/g, '_');
 }
 
 function arg(name: string): string | undefined {
@@ -95,13 +99,19 @@ async function fetchBuffer(url: string): Promise<Buffer> {
   return Buffer.from(await response.arrayBuffer());
 }
 
-function primarySide(product: ProductRow): ProductSideInput {
+function productSide(product: ProductRow, kind: 'front' | 'back'): ProductSideInput {
+  const pattern = kind === 'front' ? /^(앞면|front)$/i : /^(뒷면|등판|back)$/i;
   const source = product.configuration?.find((side) => {
     const imageUrl = side.imageUrl || side.layers?.find((layer) => layer.imageUrl)?.imageUrl;
-    return Boolean(imageUrl && side.printArea?.width && side.printArea?.height);
+    return Boolean(
+      imageUrl &&
+      side.printArea?.width &&
+      side.printArea?.height &&
+      (side.id.toLowerCase() === kind || pattern.test(side.name || '')),
+    );
   });
   if (!source?.printArea) {
-    throw new Error(`${product.product_code} 제품의 사용 가능한 인쇄면이 없습니다.`);
+    throw new Error(`${product.product_code} 제품의 ${kind === 'front' ? '앞면' : '뒷면'} 인쇄면이 없습니다.`);
   }
   const imageUrl = source.imageUrl || source.layers?.find((layer) => layer.imageUrl)?.imageUrl;
   if (!imageUrl) throw new Error(`${product.product_code} 제품 이미지가 없습니다.`);
@@ -125,16 +135,20 @@ function colorLuminance(colorHex: string): number {
   return red * 0.2126 + green * 0.7152 + blue * 0.0722;
 }
 
-function productColors(product: ProductRow): { light: ProductColor; dark: ProductColor } {
+function productColors(product: ProductRow): { white: ProductColor; black: ProductColor } {
   const colors = (product.product_colors || [])
     .filter((entry) => entry.is_active && entry.manufacturer_colors)
     .map((entry) => entry.manufacturer_colors!);
   if (colors.length === 0) throw new Error(`${product.product_code} 제품에 활성 색상이 없습니다.`);
-  const light = colors.find((color) => /화이트|white/i.test(color.name)) ||
-    [...colors].sort((a, b) => colorLuminance(b.hex) - colorLuminance(a.hex))[0];
-  const dark = colors.find((color) => /블랙|검정|black/i.test(color.name)) ||
-    [...colors].sort((a, b) => colorLuminance(a.hex) - colorLuminance(b.hex))[0];
-  return { light, dark };
+  const white = colors.find((color) => /화이트|white/i.test(color.name));
+  const black = colors.find((color) => /블랙|검정|black/i.test(color.name));
+  if (!white || colorLuminance(white.hex) < 220) {
+    throw new Error(`${product.product_code} 제품에 정확한 화이트 색상이 없습니다.`);
+  }
+  if (!black || colorLuminance(black.hex) > 80) {
+    throw new Error(`${product.product_code} 제품에 정확한 블랙 색상이 없습니다.`);
+  }
+  return { white, black };
 }
 
 async function loadRuntimeProducts(client: SupabaseClient, manifest: ExpoManifest) {
@@ -151,31 +165,25 @@ async function loadRuntimeProducts(client: SupabaseClient, manifest: ExpoManifes
   const missing = codes.filter((code) => !byCode.has(code));
   if (missing.length > 0) throw new Error(`활성 제품을 찾을 수 없습니다: ${missing.join(', ')}`);
 
-  const productIds = [...byCode.values()].map((product) => product.id);
-  const { data: presetData, error: presetError } = await client
-    .from('partner_mall_presets')
-    .select('product_id,placement')
-    .in('product_id', productIds)
-    .order('name');
-  if (presetError) throw new Error(`파트너몰 프리셋 조회 실패: ${presetError.message}`);
-  const presetByProduct = new Map<string, LogoPlacement>();
-  for (const preset of (presetData || []) as PresetRow[]) {
-    if (!presetByProduct.has(preset.product_id)) presetByProduct.set(preset.product_id, preset.placement);
-  }
-
   const runtime = new Map<string, RuntimeProduct>();
   for (const [code, row] of byCode) {
-    const side = primarySide(row);
-    const image = await fetchBuffer(side.imageUrl);
+    const frontSide = productSide(row, 'front');
+    const backSide = productSide(row, 'back');
+    const [whiteFrontImage, whiteBackImage] = await Promise.all([
+      fetchBuffer(frontSide.imageUrl),
+      fetchBuffer(backSide.imageUrl),
+    ]);
     const colors = productColors(row);
     runtime.set(code, {
       row,
-      side,
-      image,
-      preset: presetByProduct.get(row.id) || null,
-      lightColor: colors.light,
-      darkColor: colors.dark,
-      darkImage: await recolorProductImage(image, colors.dark.hex),
+      frontSide,
+      backSide,
+      whiteColor: colors.white,
+      blackColor: colors.black,
+      whiteFrontImage,
+      whiteBackImage,
+      blackFrontImage: await recolorProductImage(whiteFrontImage, colors.black.hex),
+      blackBackImage: await recolorProductImage(whiteBackImage, colors.black.hex),
     });
   }
   return runtime;
@@ -252,21 +260,28 @@ async function upsertAsset(
   client: SupabaseClient,
   brand: ManifestBrand,
   mallId: string,
-  processedLogoUrl: string,
-  processedLogo: Buffer,
+  input: {
+    suffix: '' | ':light-garment' | ':dark-garment';
+    url: string;
+    body: Buffer;
+    name: string;
+    description: string;
+    isPrimary: boolean;
+    sortOrder: number;
+  },
 ) {
-  const importKey = `${brand.sourceKey}:logo`;
+  const importKey = `${brand.sourceKey}:logo${input.suffix}`;
   const values = {
     partner_mall_id: mallId,
     import_key: importKey,
     asset_type: 'logo',
-    url: processedLogoUrl,
-    name: `${brand.brand} 로고`,
-    description: `제84회 프랜차이즈 창업박람회 ${brand.booth}`,
-    file_size: processedLogo.byteLength,
+    url: input.url,
+    name: input.name,
+    description: input.description,
+    file_size: input.body.byteLength,
     mime_type: 'image/png',
-    is_primary: true,
-    sort_order: 0,
+    is_primary: input.isPrimary,
+    sort_order: input.sortOrder,
     created_by_role: 'admin',
   };
   const { data: existing, error: lookupError } = await client
@@ -282,6 +297,37 @@ async function upsertAsset(
   if (error) throw new Error(`${brand.brand} 에셋 저장 실패: ${error.message}`);
 }
 
+async function buildColorwayArtwork(
+  runtime: RuntimeProduct,
+  logo: Buffer,
+  logoUrl: string,
+  garmentColor: GarmentColor,
+) {
+  const selectedColor = garmentColor === 'white' ? runtime.whiteColor : runtime.blackColor;
+  const frontArtwork = await prepareArtwork({
+    side: runtime.frontSide,
+    productImage: garmentColor === 'white' ? runtime.whiteFrontImage : runtime.blackFrontImage,
+    logo,
+    logoUrl,
+    productColor: selectedColor.hex,
+    placementKind: 'left-chest',
+  });
+  const backArtwork = await prepareArtwork({
+    side: runtime.backSide,
+    productImage: garmentColor === 'white' ? runtime.whiteBackImage : runtime.blackBackImage,
+    logo,
+    logoUrl,
+    productColor: selectedColor.hex,
+    placementKind: 'large-back',
+  });
+  return {
+    selectedColor,
+    frontArtwork,
+    backArtwork,
+    preview: await combineArtworkPreviews(frontArtwork, backArtwork),
+  };
+}
+
 async function upsertProduct(
   client: SupabaseClient,
   brand: ManifestBrand,
@@ -289,32 +335,35 @@ async function upsertProduct(
   runtime: RuntimeProduct,
   logo: Buffer,
   logoUrl: string,
-  needsDarkGarment: boolean,
+  garmentColor: GarmentColor,
 ) {
-  const importKey = `${brand.sourceKey}:product:${runtime.row.product_code}`;
-  const selectedColor = needsDarkGarment ? runtime.darkColor : runtime.lightColor;
-  const artwork = await prepareArtwork({
-    side: runtime.side,
-    productImage: needsDarkGarment ? runtime.darkImage : runtime.image,
+  const importKey = `${brand.sourceKey}:product:${runtime.row.product_code}:${garmentColor}`;
+  const { selectedColor, frontArtwork, backArtwork, preview } = await buildColorwayArtwork(
+    runtime,
     logo,
     logoUrl,
-    preset: runtime.preset,
-    productColor: selectedColor.hex,
-  });
-  const previewPath = `${STORAGE_ROOT}/${brand.sourceId}/products/${runtime.row.product_code}.png`;
-  const previewUrl = await upload(client, previewPath, artwork.previewBuffer, 'image/png');
+    garmentColor,
+  );
+  const previewPath = `${STORAGE_ROOT}/${brand.sourceId}/products/${runtime.row.product_code}-${garmentColor}.png`;
+  const previewUrl = await upload(client, previewPath, preview, 'image/png');
   const now = new Date().toISOString();
   const values = {
     partner_mall_id: mallId,
     import_key: importKey,
     product_id: runtime.row.id,
-    display_name: `${brand.brand} ${runtime.row.title}`,
+    display_name: `${brand.brand} ${runtime.row.title} · ${garmentColor === 'white' ? '화이트' : '블랙'}`,
     manufacturer_color_id: selectedColor.id,
     color_hex: selectedColor.hex,
     color_name: selectedColor.name,
     color_code: selectedColor.color_code,
-    logo_placements: { [runtime.side.id]: artwork.placement },
-    canvas_state: { [runtime.side.id]: artwork.canvasState },
+    logo_placements: {
+      [runtime.frontSide.id]: frontArtwork.placement,
+      [runtime.backSide.id]: backArtwork.placement,
+    },
+    canvas_state: {
+      [runtime.frontSide.id]: frontArtwork.canvasState,
+      [runtime.backSide.id]: backArtwork.canvasState,
+    },
     preview_url: previewUrl,
     price: null,
     created_by_role: 'admin',
@@ -326,8 +375,20 @@ async function upsertProduct(
     .eq('import_key', importKey)
     .maybeSingle();
   if (lookupError) throw new Error(`${brand.brand} ${runtime.row.product_code} 조회 실패: ${lookupError.message}`);
-  const query = existing
-    ? client.from('partner_mall_products').update(values).eq('id', existing.id)
+  let reusable = existing;
+  if (!reusable && garmentColor === 'white') {
+    const legacyProductCode = runtime.row.product_code === 'DK520' ? 'JK115' : runtime.row.product_code;
+    const legacyKey = `${brand.sourceKey}:product:${legacyProductCode}`;
+    const { data: legacy, error: legacyError } = await client
+      .from('partner_mall_products')
+      .select('id')
+      .eq('import_key', legacyKey)
+      .maybeSingle();
+    if (legacyError) throw new Error(`${brand.brand} ${legacyProductCode} 기존 제품 조회 실패: ${legacyError.message}`);
+    reusable = legacy;
+  }
+  const query = reusable
+    ? client.from('partner_mall_products').update(values).eq('id', reusable.id)
     : client.from('partner_mall_products').insert({ ...values, created_at: now });
   const { error } = await query;
   if (error) throw new Error(`${brand.brand} ${runtime.row.product_code} 저장 실패: ${error.message}`);
@@ -345,26 +406,39 @@ async function validateBrand(
   if (!metadata.width || !metadata.height || !metadata.hasAlpha) {
     throw new Error(`${brand.brand} 전처리 로고 검증에 실패했습니다.`);
   }
+  const logoVariants = await buildContrastLogoVariants(processed, contrast);
   for (const code of brand.productCodes) {
     const runtime = runtimeProducts.get(code);
     if (!runtime) throw new Error(`${brand.brand}의 ${code} 제품이 없습니다.`);
-    const selectedColor = contrast.needsDarkGarment ? runtime.darkColor : runtime.lightColor;
-    await prepareArtwork({
-      side: runtime.side,
-      productImage: contrast.needsDarkGarment ? runtime.darkImage : runtime.image,
-      logo: processed,
-      logoUrl: `https://preview.invalid/${brand.sourceId}.png`,
-      preset: runtime.preset,
-      productColor: selectedColor.hex,
-    });
+    for (const garmentColor of ['white', 'black'] as const) {
+      const selectedColor = garmentColor === 'white' ? runtime.whiteColor : runtime.blackColor;
+      const selectedLogo = garmentColor === 'white'
+        ? logoVariants.lightGarmentLogo
+        : logoVariants.darkGarmentLogo;
+      for (const [side, productImage, placementKind] of [
+        [runtime.frontSide, garmentColor === 'white' ? runtime.whiteFrontImage : runtime.blackFrontImage, 'left-chest'],
+        [runtime.backSide, garmentColor === 'white' ? runtime.whiteBackImage : runtime.blackBackImage, 'large-back'],
+      ] as const) {
+        await prepareArtwork({
+          side,
+          productImage,
+          logo: selectedLogo,
+          logoUrl: `https://preview.invalid/${brand.sourceId}-${garmentColor}.png`,
+          productColor: selectedColor.hex,
+          placementKind,
+        });
+      }
+    }
   }
-  return { original, processed, contrast };
+  return { original, processed, contrast, logoVariants };
 }
 
 async function main() {
   const commit = process.argv.includes('--commit');
   const manifestPath = path.resolve(arg('--manifest') || DEFAULT_MANIFEST);
   const sourceRoot = path.resolve(arg('--source-root') || DEFAULT_SOURCE_ROOT);
+  const previewDirArg = arg('--preview-dir');
+  const previewDir = previewDirArg ? path.resolve(previewDirArg) : null;
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as ExpoManifest;
   if (manifest.totals.uniqueBrands !== 76) {
     throw new Error(`manifest 브랜드 수가 76개가 아닙니다: ${manifest.totals.uniqueBrands}`);
@@ -377,12 +451,29 @@ async function main() {
   );
   const runtimeProducts = await loadRuntimeProducts(client, manifest);
   if (commit) await assertMigration(client);
+  if (previewDir) await mkdir(previewDir, { recursive: true });
 
   console.log(`${commit ? 'COMMIT' : 'DRY-RUN'}: ${manifest.brands.length}개 브랜드를 검증합니다.`);
   let productCount = 0;
   for (const [index, brand] of manifest.brands.entries()) {
-    const { original, processed, contrast } = await validateBrand(brand, sourceRoot, runtimeProducts);
-    productCount += brand.productCodes.length;
+    const { original, processed, logoVariants } = await validateBrand(brand, sourceRoot, runtimeProducts);
+    productCount += brand.productCodes.length * 2;
+
+    if (previewDir && (index % 10 === 0 || index === manifest.brands.length - 1)) {
+      const runtime = runtimeProducts.get(brand.productCodes[0])!;
+      for (const garmentColor of ['white', 'black'] as const) {
+        const artwork = await buildColorwayArtwork(
+          runtime,
+          garmentColor === 'white' ? logoVariants.lightGarmentLogo : logoVariants.darkGarmentLogo,
+          `https://preview.invalid/${brand.sourceId}-${garmentColor}.png`,
+          garmentColor,
+        );
+        await writeFile(
+          path.join(previewDir, `${String(index + 1).padStart(3, '0')}_${safeFilename(brand.brand)}_${garmentColor}.png`),
+          artwork.preview,
+        );
+      }
+    }
 
     if (commit) {
       const extension = brand.logoFormat === 'jpeg' ? 'jpg' : brand.logoFormat;
@@ -399,23 +490,63 @@ async function main() {
         processed,
         'image/png',
       );
+      const lightGarmentLogoUrl = await upload(
+        client,
+        `${basePath}/logo-light-garment.png`,
+        logoVariants.lightGarmentLogo,
+        'image/png',
+      );
+      const darkGarmentLogoUrl = await upload(
+        client,
+        `${basePath}/logo-dark-garment.png`,
+        logoVariants.darkGarmentLogo,
+        'image/png',
+      );
       const mall = await findOrCreateMall(client, brand, originalUrl, processedUrl);
       if (!mall) throw new Error(`${brand.brand} 몰 저장 결과가 없습니다.`);
-      await upsertAsset(client, brand, mall.id, processedUrl, processed);
+      await upsertAsset(client, brand, mall.id, {
+        suffix: '',
+        url: processedUrl,
+        body: processed,
+        name: `${brand.brand} 원본 로고`,
+        description: `제84회 프랜차이즈 창업박람회 ${brand.booth} 원본 색상`,
+        isPrimary: true,
+        sortOrder: 0,
+      });
+      await upsertAsset(client, brand, mall.id, {
+        suffix: ':light-garment',
+        url: lightGarmentLogoUrl,
+        body: logoVariants.lightGarmentLogo,
+        name: `${brand.brand} 밝은 의류용 로고`,
+        description: `화이트 의류에서 선명하게 보이도록 대비 보정 · ${logoVariants.lightGarmentMode}`,
+        isPrimary: false,
+        sortOrder: 1,
+      });
+      await upsertAsset(client, brand, mall.id, {
+        suffix: ':dark-garment',
+        url: darkGarmentLogoUrl,
+        body: logoVariants.darkGarmentLogo,
+        name: `${brand.brand} 어두운 의류용 로고`,
+        description: `블랙 의류에서 선명하게 보이도록 대비 보정 · ${logoVariants.darkGarmentMode}`,
+        isPrimary: false,
+        sortOrder: 2,
+      });
       for (const code of brand.productCodes) {
-        await upsertProduct(
-          client,
-          brand,
-          mall.id,
-          runtimeProducts.get(code)!,
-          processed,
-          processedUrl,
-          contrast.needsDarkGarment,
-        );
+        for (const garmentColor of ['white', 'black'] as const) {
+          await upsertProduct(
+            client,
+            brand,
+            mall.id,
+            runtimeProducts.get(code)!,
+            garmentColor === 'white' ? logoVariants.lightGarmentLogo : logoVariants.darkGarmentLogo,
+            garmentColor === 'white' ? lightGarmentLogoUrl : darkGarmentLogoUrl,
+            garmentColor,
+          );
+        }
       }
     }
 
-    console.log(`[${index + 1}/${manifest.brands.length}] ${brand.brand} · ${contrast.needsDarkGarment ? '어두운 의류' : '밝은 의류'} · ${brand.productCodes.join(', ')}`);
+    console.log(`[${index + 1}/${manifest.brands.length}] ${brand.brand} · 화이트/블랙 · 앞면 왼쪽 가슴/등판 · ${brand.productCodes.join(', ')}`);
   }
 
   console.log(`${commit ? '저장' : '검증'} 완료: 몰 ${manifest.brands.length}개, 제품 ${productCount}개, 로고 ${manifest.brands.length}개`);

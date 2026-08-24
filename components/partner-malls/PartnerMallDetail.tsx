@@ -166,6 +166,15 @@ export default function PartnerMallDetail({
     document: assets.filter((a) => a.asset_type === 'document'),
     reference: assets.filter((a) => a.asset_type === 'reference'),
   };
+  const logoForProduct = (mallProduct: PartnerMallProduct): string => {
+    const wantsDarkGarment = /블랙|검정|black/i.test(mallProduct.color_name || '');
+    const variant = assetsByType.logo.find((asset) =>
+      wantsDarkGarment
+        ? asset.import_key?.endsWith(':dark-garment')
+        : asset.import_key?.endsWith(':light-garment'),
+    );
+    return variant?.url || partnerMall.logo_url;
+  };
   const assetTypeLabel: Record<PartnerMallAsset['asset_type'], string> = {
     logo: '로고',
     image: '이미지',
@@ -622,6 +631,12 @@ export default function PartnerMallDetail({
           partnerMallId={partnerMall.id}
           partnerMallName={partnerMall.name}
           logoUrl={partnerMall.logo_url}
+          logoAssets={assetsByType.logo.map((asset) => ({
+            id: asset.id,
+            url: asset.url,
+            name: asset.name,
+            is_primary: Boolean(asset.is_primary),
+          }))}
           onClose={() => setShowAddProducts(false)}
           onProductsAdded={() => {
             setShowAddProducts(false);
@@ -634,7 +649,7 @@ export default function PartnerMallDetail({
       {editingProduct && (
         <SingleProductPlacementEditor
           mallProduct={editingProduct}
-          logoUrl={partnerMall.logo_url}
+          logoUrl={logoForProduct(editingProduct)}
           partnerMallName={partnerMall.name}
           onClose={() => setEditingProduct(null)}
           onSave={() => {

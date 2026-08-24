@@ -9,8 +9,8 @@ export const EXPO_SOURCE_URL =
 export const EXPO_ROUND = 84;
 
 export const TARGET_PRODUCT_CODES = {
-  common: ['00085-CVT', '00302-ADP', 'JK115'],
-  study: ['00085-CVT', '00113-BCV', 'JK115'],
+  common: ['00085-CVT', '00302-ADP', 'DK520'],
+  study: ['00085-CVT', '00113-BCV', 'DK520'],
 } as const;
 
 export interface ExpoRow {
@@ -84,7 +84,17 @@ export interface LogoPlacement {
 export interface PreparedArtwork {
   placement: LogoPlacement;
   canvasState: string;
+  composedBuffer: Buffer;
   previewBuffer: Buffer;
+}
+
+export type ArtworkPlacementKind = 'left-chest' | 'large-back';
+
+export interface ContrastLogoVariants {
+  lightGarmentLogo: Buffer;
+  darkGarmentLogo: Buffer;
+  lightGarmentMode: 'original' | 'black';
+  darkGarmentMode: 'original' | 'white';
 }
 
 export interface LogoContrast {
@@ -212,6 +222,7 @@ async function walkFiles(root: string): Promise<string[]> {
 export async function listLocalLogoFiles(root: string): Promise<string[]> {
   return (await walkFiles(root))
     .filter((filePath) => /\.(?:png|jpe?g|webp)$/i.test(filePath))
+    .filter((filePath) => !filePath.includes(`${path.sep}파트너몰_QR_운영본${path.sep}`))
     .sort((a, b) => a.localeCompare(b, 'ko'));
 }
 
@@ -427,23 +438,124 @@ export async function recolorProductImage(input: Buffer, colorHex: string): Prom
   }).png().toBuffer();
 }
 
+export async function recolorLogo(input: Buffer, colorHex: string): Promise<Buffer> {
+  const match = colorHex.match(/^#?([a-f0-9]{2})([a-f0-9]{2})([a-f0-9]{2})$/i);
+  if (!match) throw new Error(`올바르지 않은 로고 색상입니다: ${colorHex}`);
+  const target = match.slice(1).map((channel) => Number.parseInt(channel, 16));
+  const { data, info } = await sharp(input).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+
+  for (let offset = 0; offset < data.length; offset += info.channels) {
+    if (data[offset + 3] === 0) continue;
+    data[offset] = target[0];
+    data[offset + 1] = target[1];
+    data[offset + 2] = target[2];
+  }
+
+  return sharp(data, {
+    raw: {
+      width: info.width,
+      height: info.height,
+      channels: 4,
+    },
+  }).png().toBuffer();
+}
+
+export async function adaptLogoContrast(
+  input: Buffer,
+  target: 'light-garment' | 'dark-garment',
+): Promise<Buffer> {
+  const { data, info } = await sharp(input).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+
+  for (let offset = 0; offset < data.length; offset += info.channels) {
+    if (data[offset + 3] === 0) continue;
+    const red = data[offset];
+    const green = data[offset + 1];
+    const blue = data[offset + 2];
+    const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+    const max = Math.max(red, green, blue);
+    const min = Math.min(red, green, blue);
+    const chroma = max - min;
+
+    if (target === 'dark-garment' && luminance < 170) {
+      if (chroma <= 45) {
+        data[offset] = 255;
+        data[offset + 1] = 255;
+        data[offset + 2] = 255;
+      } else {
+        const denominator = Math.max(1, max);
+        data[offset] = Math.round(155 + (red / denominator) * 100);
+        data[offset + 1] = Math.round(155 + (green / denominator) * 100);
+        data[offset + 2] = Math.round(155 + (blue / denominator) * 100);
+      }
+    }
+
+    if (target === 'light-garment' && luminance > 145) {
+      if (chroma <= 45) {
+        data[offset] = 17;
+        data[offset + 1] = 17;
+        data[offset + 2] = 17;
+      } else {
+        const scale = 105 / Math.max(1, luminance);
+        data[offset] = Math.round(red * scale);
+        data[offset + 1] = Math.round(green * scale);
+        data[offset + 2] = Math.round(blue * scale);
+      }
+    }
+  }
+
+  return sharp(data, {
+    raw: {
+      width: info.width,
+      height: info.height,
+      channels: 4,
+    },
+  }).png().toBuffer();
+}
+
+export async function buildContrastLogoVariants(
+  logo: Buffer,
+  contrast: LogoContrast,
+): Promise<ContrastLogoVariants> {
+  const needsWhiteOnDark =
+    (contrast.averageLuminance <= 145 && contrast.darkPixelRatio >= 0.34) ||
+    contrast.darkPixelRatio >= 0.58;
+  const lightGarmentMode = contrast.needsDarkGarment ? 'black' : 'original';
+  const darkGarmentMode = needsWhiteOnDark ? 'white' : 'original';
+
+  return {
+    lightGarmentLogo: lightGarmentMode === 'black'
+      ? await adaptLogoContrast(logo, 'light-garment')
+      : logo,
+    darkGarmentLogo: darkGarmentMode === 'white'
+      ? await adaptLogoContrast(logo, 'dark-garment')
+      : logo,
+    lightGarmentMode,
+    darkGarmentMode,
+  };
+}
+
 export function buildLogoPlacement(
   side: ProductSideInput,
   logoWidth: number,
   logoHeight: number,
   preset?: LogoPlacement | null,
+  placementKind: ArtworkPlacementKind = 'left-chest',
 ): LogoPlacement {
   if (preset) return { ...preset };
 
-  const boxWidth = Math.max(36, Math.round(side.printArea.width * 0.16));
-  const boxHeight = Math.max(36, Math.round(side.printArea.height * 0.12));
+  const isBack = placementKind === 'large-back';
+  const boxWidth = Math.max(isBack ? 180 : 64, Math.round(side.printArea.width * (isBack ? 0.70 : 0.28)));
+  const boxHeight = Math.max(isBack ? 160 : 54, Math.round(side.printArea.height * (isBack ? 0.44 : 0.18)));
   const scale = Math.min(boxWidth / logoWidth, boxHeight / logoHeight);
   const width = Math.max(1, Math.round(logoWidth * scale));
   const height = Math.max(1, Math.round(logoHeight * scale));
+  const centerX = side.printArea.width * (isBack ? 0.5 : 0.72);
+  const x = Math.round(centerX - width / 2);
+  const y = Math.round(side.printArea.height * (isBack ? 0.16 : 0.10));
 
   return {
-    x: Math.max(0, Math.round(side.printArea.width * 0.18)),
-    y: Math.max(0, Math.round(side.printArea.height * 0.045)),
+    x: Math.max(0, Math.min(side.printArea.width - width, x)),
+    y: Math.max(0, Math.min(side.printArea.height - height, y)),
     width,
     height,
   };
@@ -458,6 +570,7 @@ export async function prepareArtwork(input: {
   canvasWidth?: number;
   canvasHeight?: number;
   productColor?: string;
+  placementKind?: ArtworkPlacementKind;
 }): Promise<PreparedArtwork> {
   const canvasWidth = input.canvasWidth || 400;
   const canvasHeight = input.canvasHeight || 500;
@@ -472,6 +585,7 @@ export async function prepareArtwork(input: {
     logoMetadata.width,
     logoMetadata.height,
     input.preset,
+    input.placementKind,
   );
   const productScale = Math.min(
     canvasWidth / productMetadata.width,
@@ -512,6 +626,7 @@ export async function prepareArtwork(input: {
       id: 'partner-mall-logo',
       source: 'franchise_expo_import',
       supabaseUrl: input.logoUrl,
+      placementKind: input.placementKind || 'left-chest',
       printMethod: 'dtf',
     },
   };
@@ -569,7 +684,48 @@ export async function prepareArtwork(input: {
     .png({ compressionLevel: 9 })
     .toBuffer();
 
-  return { placement, canvasState, previewBuffer };
+  return { placement, canvasState, composedBuffer: composed, previewBuffer };
+}
+
+export async function combineArtworkPreviews(
+  front: PreparedArtwork,
+  back: PreparedArtwork,
+): Promise<Buffer> {
+  const [frontPanel, backPanel] = await Promise.all(
+    [front.composedBuffer, back.composedBuffer].map((buffer) =>
+      sharp(buffer)
+        .resize({
+          width: 520,
+          height: 820,
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .png()
+        .toBuffer(),
+    ),
+  );
+  const labels = Buffer.from(`
+    <svg width="1200" height="1000" xmlns="http://www.w3.org/2000/svg">
+      <text x="300" y="950" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#78716c">FRONT</text>
+      <text x="900" y="950" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#78716c">BACK</text>
+    </svg>
+  `);
+
+  return sharp({
+    create: {
+      width: 1200,
+      height: 1000,
+      channels: 4,
+      background: { r: 243, g: 241, b: 237, alpha: 1 },
+    },
+  })
+    .composite([
+      { input: frontPanel, left: 40, top: 65 },
+      { input: backPanel, left: 640, top: 65 },
+      { input: labels, left: 0, top: 0 },
+    ])
+    .png({ compressionLevel: 9 })
+    .toBuffer();
 }
 
 export async function fetchExpoRows(fetchImpl: typeof fetch = fetch): Promise<ExpoRow[]> {
