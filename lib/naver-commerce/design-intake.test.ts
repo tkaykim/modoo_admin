@@ -11,6 +11,9 @@ test('accepts paid non-terminal orders only', () => {
   assert.equal(isDesignIntakeEligible({ payment_date: '2026-08-25T00:00:00Z', product_order_status: 'PAYED', claim_status: null }), true);
   assert.equal(isDesignIntakeEligible({ payment_date: null, product_order_status: 'PAYMENT_WAITING', claim_status: null }), false);
   assert.equal(isDesignIntakeEligible({ payment_date: '2026-08-25T00:00:00Z', product_order_status: 'CANCELED', claim_status: 'CANCEL_DONE' }), false);
+  assert.equal(isDesignIntakeEligible({ payment_date: '2026-08-25T00:00:00Z', product_order_status: 'DELIVERED', claim_status: null }), false);
+  assert.equal(isDesignIntakeEligible({ payment_date: '2026-08-25T00:00:00Z', product_order_status: 'PURCHASE_DECIDED', claim_status: null }), false);
+  assert.equal(isDesignIntakeEligible({ payment_date: '2026-08-25T00:00:00Z', product_order_status: 'PAYED', claim_status: 'CANCEL_REQUEST' }), false);
 });
 
 test('does not send a design link to masked Naver numbers', () => {

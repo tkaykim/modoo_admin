@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { isNaverCommerceConfigured } from '@/lib/naver-commerce/client';
 import { ingestNaverPaidOrders } from '@/lib/naver-commerce/design-intake';
@@ -6,9 +7,16 @@ import { syncNaverOrders } from '@/lib/naver-commerce/orders';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
+function secretMatches(expected: string, actual: string): boolean {
+  const expectedHash = createHash('sha256').update(expected).digest();
+  const actualHash = createHash('sha256').update(actual).digest();
+  return timingSafeEqual(expectedHash, actualHash);
+}
+
 export async function POST(request: Request) {
   const expected = process.env.NAVER_DESIGN_SYNC_SECRET || '';
-  if (!expected || request.headers.get('x-internal-secret') !== expected) {
+  const actual = request.headers.get('x-internal-secret') || '';
+  if (!expected || !secretMatches(expected, actual)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   if (!isNaverCommerceConfigured()) {
@@ -16,11 +24,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const now = new Date();
-    const orders = await syncNaverOrders({
-      from: new Date(now.getTime() - 15 * 60 * 1000),
-      to: now,
-    });
+    const orders = await syncNaverOrders({ to: new Date() });
     const designIntake = await ingestNaverPaidOrders();
     return NextResponse.json({ data: { orders, designIntake } });
   } catch (error) {

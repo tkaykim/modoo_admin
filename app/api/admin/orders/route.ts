@@ -134,16 +134,16 @@ export async function GET(request: Request) {
 
     const naverOrderIds = [...new Set((naverRows || []).map((row) => row.naver_order_id).filter(Boolean))];
     const designByOrderId = new Map<string, { status: string; job_count: number; submitted_job_count: number }>();
-    if (naverOrderIds.length > 0) {
+    for (let index = 0; index < naverOrderIds.length; index += 500) {
       const { data: designRows, error: designError } = await adminClient
         .from('naver_design_sessions')
         .select('naver_order_id,status,job_count,submitted_job_count')
-        .in('naver_order_id', naverOrderIds);
+        .in('naver_order_id', naverOrderIds.slice(index, index + 500));
       if (designError) {
         console.error('Orders GET Naver design projection error (orders returned without design status):', designError);
-      } else {
-        (designRows || []).forEach((row) => designByOrderId.set(row.naver_order_id, row));
+        break;
       }
+      (designRows || []).forEach((row) => designByOrderId.set(row.naver_order_id, row));
     }
 
     const naverOrders = projectNaverOrdersForAdmin(naverRows || [], designByOrderId);

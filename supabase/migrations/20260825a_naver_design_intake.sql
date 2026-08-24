@@ -163,12 +163,23 @@ begin
       case when length(coalesce(v_phone, '')) >= 10 then 'pending' else 'skipped_no_phone' end
     );
   else
+    v_phone := nullif(regexp_replace(coalesce(p_notification_phone, ''), '[^0-9]', '', 'g'), '');
     update public.naver_design_sessions
     set buyer_name = coalesce(nullif(trim(p_buyer_name), ''), buyer_name),
         buyer_phone = coalesce(nullif(trim(p_buyer_phone), ''), buyer_phone),
         receiver_phone = coalesce(nullif(trim(p_receiver_phone), ''), receiver_phone),
         updated_at = now()
     where id = v_session_id;
+
+    if length(coalesce(v_phone, '')) >= 10 then
+      update public.naver_design_notification_outbox
+      set recipient_phone = v_phone,
+          status = case when status = 'skipped_no_phone' then 'pending' else status end,
+          next_attempt_at = case when status = 'skipped_no_phone' then now() else next_attempt_at end,
+          error_message = case when status = 'skipped_no_phone' then null else error_message end,
+          updated_at = now()
+      where session_id = v_session_id;
+    end if;
   end if;
 
   for v_item in select value from jsonb_array_elements(p_items)
@@ -237,8 +248,10 @@ begin
       updated_at = now()
   where s.id = v_session_id;
 
-  insert into public.naver_design_events(session_id, event_type, payload)
-  values (v_session_id, 'order_ingested', jsonb_build_object('items_claimed', v_items_claimed));
+  if v_session_created or v_items_claimed > 0 then
+    insert into public.naver_design_events(session_id, event_type, payload)
+    values (v_session_id, 'order_ingested', jsonb_build_object('items_claimed', v_items_claimed));
+  end if;
 
   return query select v_session_id, v_session_created, v_jobs_created, v_items_claimed;
 end;
@@ -253,16 +266,19 @@ as $$
 begin
   return query
   with candidates as (
-    select id
-    from public.naver_design_notification_outbox
+    select o.id
+    from public.naver_design_notification_outbox o
+    join public.naver_design_sessions s on s.id = o.session_id
     where (
-      status in ('pending', 'failed')
-      or (status = 'sending' and claimed_at < now() - interval '10 minutes')
+      o.status in ('pending', 'failed')
+      or (o.status = 'sending' and o.claimed_at < now() - interval '10 minutes')
     )
-      and next_attempt_at <= now()
-      and attempts < 5
-    order by created_at
-    for update skip locked
+      and o.next_attempt_at <= now()
+      and o.attempts < 5
+      and s.expires_at > now()
+      and coalesce(o.variables->>'디자인접수링크', '') not in ('', '[발송 후 삭제]', '[만료 후 삭제]')
+    order by o.created_at
+    for update of o skip locked
     limit greatest(1, least(coalesce(p_limit, 20), 100))
   )
   update public.naver_design_notification_outbox o
@@ -273,6 +289,35 @@ begin
   from candidates c
   where o.id = c.id
   returning o.*;
+end;
+$$;
+
+create or replace function public.redact_expired_naver_design_notifications()
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_redacted integer := 0;
+begin
+  with redacted as (
+    update public.naver_design_notification_outbox o
+    set variables = jsonb_set(o.variables, '{디자인접수링크}', to_jsonb('[만료 후 삭제]'::text), true),
+        status = 'failed',
+        attempts = greatest(o.attempts, 5),
+        claimed_at = null,
+        error_message = 'session expired before notification',
+        updated_at = now()
+    from public.naver_design_sessions s
+    where s.id = o.session_id
+      and s.expires_at <= now()
+      and o.status <> 'sent'
+      and coalesce(o.variables->>'디자인접수링크', '') not in ('', '[발송 후 삭제]', '[만료 후 삭제]')
+    returning o.id
+  )
+  select count(*) into v_redacted from redacted;
+  return v_redacted;
 end;
 $$;
 
@@ -301,6 +346,10 @@ grant execute on function public.ingest_naver_design_order(text, text, text, tex
 revoke all on function public.claim_naver_design_notifications(integer)
   from public, anon, authenticated;
 grant execute on function public.claim_naver_design_notifications(integer)
+  to service_role;
+revoke all on function public.redact_expired_naver_design_notifications()
+  from public, anon, authenticated;
+grant execute on function public.redact_expired_naver_design_notifications()
   to service_role;
 
 grant usage, select on all sequences in schema public to service_role;

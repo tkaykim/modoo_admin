@@ -23,6 +23,16 @@ async function withRun(type: string, operation: () => Promise<NaverSyncResult>) 
   }
 }
 
+async function ingestDesignIntakeSafely() {
+  try {
+    return await ingestNaverPaidOrders();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '알 수 없는 디자인 접수 오류';
+    console.error('[naver-design] paid-order ingest skipped:', error);
+    return { skipped: true, error: message };
+  }
+}
+
 export async function syncAllNaverCommerce() {
   const today = new Date();
   const thirtyDaysAgo = new Date(today.getTime() - 30 * 86_400_000);
@@ -33,7 +43,7 @@ export async function syncAllNaverCommerce() {
   results.designIntake = {
     fetched: 0,
     upserted: 0,
-    detail: await ingestNaverPaidOrders(),
+    detail: await ingestDesignIntakeSafely(),
   };
   results.settlements = await withRun('settlements', () => syncNaverSettlements(dateOnly(sevenDaysAgo), dateOnly(today)));
   results.qnas = await withRun('qnas', () => syncNaverQnas(thirtyDaysAgo.toISOString(), today.toISOString()));
@@ -45,7 +55,7 @@ export async function syncNaverCommerceSection(section: string) {
   if (section === 'products') return withRun(section, syncNaverProducts);
   if (section === 'orders') {
     const orders = await withRun(section, () => syncNaverOrders());
-    return { ...orders, detail: { ...(orders.detail || {}), designIntake: await ingestNaverPaidOrders() } };
+    return { ...orders, detail: { ...(orders.detail || {}), designIntake: await ingestDesignIntakeSafely() } };
   }
   if (section === 'settlements') return withRun(section, () => syncNaverSettlements(dateOnly(new Date(today.getTime() - 31 * 86_400_000)), dateOnly(today)));
   if (section === 'qnas') return withRun(section, () => syncNaverQnas(new Date(today.getTime() - 90 * 86_400_000).toISOString(), today.toISOString()));

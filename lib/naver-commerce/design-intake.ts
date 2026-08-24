@@ -20,6 +20,17 @@ type PaidOrderRow = {
   receiver_tel2: string | null;
 };
 
+type ExistingClaimRow = {
+  product_order_id: string;
+  job_id: string;
+};
+
+type ExistingJobRow = {
+  id: string;
+  local_product_id: string | null;
+  status: string;
+};
+
 export type NaverDesignIngestItem = {
   product_order_id: string;
   group_key: string;
@@ -30,13 +41,14 @@ export type NaverDesignIngestItem = {
   quantity: number;
 };
 
-const TERMINAL_PRODUCT_STATUSES = new Set(['CANCELED', 'RETURNED', 'CANCELED_BY_NOPAYMENT']);
+const DESIGN_INTAKE_PRODUCT_STATUSES = new Set(['PAYED']);
 const TERMINAL_CLAIM_STATUSES = new Set(['CANCEL_DONE', 'RETURN_DONE']);
 
 export function isDesignIntakeEligible(row: Pick<PaidOrderRow, 'payment_date' | 'product_order_status' | 'claim_status'>): boolean {
   if (!row.payment_date) return false;
-  if (row.product_order_status && TERMINAL_PRODUCT_STATUSES.has(row.product_order_status)) return false;
+  if (!row.product_order_status || !DESIGN_INTAKE_PRODUCT_STATUSES.has(row.product_order_status)) return false;
   if (row.claim_status && TERMINAL_CLAIM_STATUSES.has(row.claim_status)) return false;
+  if (row.claim_status) return false;
   return true;
 }
 
@@ -78,24 +90,76 @@ function customerSiteUrl(): string {
     .replace(/\/+$/, '');
 }
 
+async function selectInBatches<T>(
+  fetchBatch: (ids: string[]) => Promise<{ data: T[] | null; error: { message: string } | null }>,
+  ids: string[],
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let index = 0; index < ids.length; index += 500) {
+    const { data, error } = await fetchBatch(ids.slice(index, index + 500));
+    if (error) throw new Error(error.message);
+    rows.push(...(data ?? []));
+  }
+  return rows;
+}
+
+async function actionableRows(admin: ReturnType<typeof createAdminClient>, rows: PaidOrderRow[]): Promise<PaidOrderRow[]> {
+  const productOrderIds = rows.map((row) => row.product_order_id);
+  const claims = await selectInBatches<ExistingClaimRow>(
+    async (ids) => admin.from('naver_design_job_claims').select('product_order_id,job_id').in('product_order_id', ids),
+    productOrderIds,
+  );
+  const claimByProductOrderId = new Map(claims.map((claim) => [claim.product_order_id, claim]));
+  const jobIds = [...new Set(claims.map((claim) => claim.job_id))];
+  const jobs = await selectInBatches<ExistingJobRow>(
+    async (ids) => admin.from('naver_design_jobs').select('id,local_product_id,status').in('id', ids),
+    jobIds,
+  );
+  const jobById = new Map(jobs.map((job) => [job.id, job]));
+
+  return rows.filter((row) => {
+    const claim = claimByProductOrderId.get(row.product_order_id);
+    if (!claim) return true;
+    const job = jobById.get(claim.job_id);
+    return Boolean(row.local_product_id && job?.status === 'needs_mapping' && !job.local_product_id);
+  });
+}
+
 export async function ingestNaverPaidOrders(): Promise<{
   candidateOrders: number;
   sessionsCreated: number;
   jobsCreated: number;
   itemsClaimed: number;
+  skipped?: string;
 }> {
   const admin = createAdminClient();
+  const intakeSinceRaw = process.env.NAVER_DESIGN_INTAKE_SINCE || '';
+  const intakeSince = intakeSinceRaw ? new Date(intakeSinceRaw) : null;
+  if (!intakeSince || Number.isNaN(intakeSince.getTime())) {
+    return {
+      candidateOrders: 0,
+      sessionsCreated: 0,
+      jobsCreated: 0,
+      itemsClaimed: 0,
+      skipped: 'NAVER_DESIGN_INTAKE_SINCE is missing or invalid',
+    };
+  }
   const { data, error } = await admin
     .from('naver_product_orders')
     .select('product_order_id,naver_order_id,product_order_status,claim_status,payment_date,origin_product_no,channel_product_no,local_product_id,product_name,option_name,option_manage_code,quantity,buyer_name,buyer_tel,receiver_tel1,receiver_tel2')
     .not('payment_date', 'is', null)
+    .gte('payment_date', intakeSince.toISOString())
     .order('payment_date', { ascending: false })
     .limit(2000);
   if (error) throw error;
 
-  const groups = new Map<string, PaidOrderRow[]>();
+  const eligibleRows: PaidOrderRow[] = [];
   for (const raw of (data ?? []) as PaidOrderRow[]) {
-    if (!isDesignIntakeEligible(raw)) continue;
+    if (isDesignIntakeEligible(raw)) eligibleRows.push(raw);
+  }
+  const pendingRows = await actionableRows(admin, eligibleRows);
+  const groups = new Map<string, PaidOrderRow[]>();
+  for (const raw of pendingRows) {
     const group = groups.get(raw.naver_order_id) ?? [];
     group.push(raw);
     groups.set(raw.naver_order_id, group);
