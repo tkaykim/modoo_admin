@@ -16,6 +16,10 @@
     {
       "path": "/api/cron/notification-queue",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/naver-commerce-sync",
+      "schedule": "15 * * * *"
     }
   ]
 }
