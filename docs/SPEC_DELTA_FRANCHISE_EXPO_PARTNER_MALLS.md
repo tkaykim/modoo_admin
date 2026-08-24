@@ -1,0 +1,51 @@
+# 프랜차이즈 박람회 파트너몰 사전 구축
+
+## 추가 기능
+
+- 제84회 프랜차이즈 창업박람회 참가업체 페이지 1~6과 로컬 로고 폴더를 대조해 재현 가능한 manifest를 만든다.
+- 중복 참가 항목은 브랜드 기준으로 합치며 현재 입력은 77개 항목, 76개 브랜드다.
+- 브랜드별 파트너몰을 비활성 초안으로 만들고 원본·전처리 로고, 업종별 3개 제품, 캔버스 상태와 미리보기를 함께 저장한다.
+- 밝은 단색 로고는 대비를 분석해 검정 의류를 자동 선택하고 나머지는 흰색 의류를 사용한다.
+- importer는 출처 키와 import 키를 사용해 중단 후 재실행해도 중복 행을 만들지 않는다.
+- 비활성 파트너몰은 공개 slug가 아니라 고엔트로피 share token으로만 미리볼 수 있다.
+- 공개 slug를 아는 게스트가 제품이나 에셋을 수정할 수 있었던 쓰기 경로를 capability token 전용으로 제한한다.
+
+## 영향 파일
+
+- `scripts/franchise-expo/*`
+- `data/franchise-expo-84/manifest.json`
+- `components/partner-malls/PartnerMallDetail.tsx`
+- `supabase/migrations/*franchise_expo_partner_malls.sql`
+- 고객앱 `app/api/partner-mall/[shareToken]/*`
+- 고객앱 `app/mall/[shareToken]/page.tsx`
+
+## 기본 상품 구성
+
+- 공통: `00085-CVT` 베이직 라운드 티셔츠.
+- 외식·카페·디저트·치킨·펍: `00302-ADP` 기능성 폴로셔츠와 `JK115` 바람막이.
+- 스터디카페·교육: `00113-BCV` 오버핏 티셔츠와 `JK115` 바람막이.
+- 모든 상품가는 제품 정본 가격과 인쇄 가격 계산을 따르도록 `partner_mall_products.price`를 비워 둔다.
+
+## 안전 경계
+
+- 신규 몰은 항상 `is_active=false`로 생성한다.
+- 기존 활성 몰을 importer가 비활성화하지 않는다.
+- 삭제 작업은 제공하지 않는다.
+- 실제 importer 쓰기는 `--commit`을 명시한 경우에만 실행한다.
+- 공개 전환은 관리자 화면에서 담당자가 별도로 수행한다.
+- 원본 로고와 전처리 로고의 체크섬과 출처를 `team_meta`에 남긴다.
+
+## 완료 조건
+
+- manifest가 공식 목록 130개와 로컬 파일 77개를 검증하고 76개 브랜드를 출력한다.
+- dry-run이 76개 브랜드와 필요한 제품 코드 세 개를 모두 검증한다.
+- 동일 import를 두 번 실행해도 몰·제품·에셋 수가 증가하지 않는다.
+- 모든 생성 몰에 기본 로고 1개, 제품 3개, 각 제품의 앞면 canvas state와 preview URL이 있다.
+- 비활성 몰은 slug로 404이고 token preview로만 조회된다.
+- 공개 slug로 제품·에셋 쓰기를 시도하면 404 또는 403으로 거절된다.
+- 양쪽 저장소의 타입 검사, 린트, 빌드와 변경 화면 브라우저 QA가 통과한다.
+
+## 배포 경계
+
+- 이번 브랜치는 PR과 preview 배포가 가능한 상태까지 만든다.
+- main 병합과 production 배포는 별도 승인 후 수행한다.

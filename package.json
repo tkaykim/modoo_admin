@@ -11,7 +11,11 @@
     "ga4": "tsx scripts/ga4/cli.ts",
     "test:naver-commerce": "tsx --env-file=.env.local scripts/naver-commerce-smoke.ts",
     "naver:register-initial-products": "tsx --env-file=.env.local scripts/naver-commerce-register-initial-products.ts",
-    "test:regression": "tsx --test lib/canvasUtils.regression-1.test.ts lib/font-contract.test.ts lib/text-outline-export.test.ts"
+    "test:regression": "tsx --test lib/canvasUtils.regression-1.test.ts lib/font-contract.test.ts lib/text-outline-export.test.ts",
+    "franchise:manifest": "tsx scripts/franchise-expo/build-manifest.ts",
+    "franchise:import": "tsx --env-file=.env.local scripts/franchise-expo/import.ts",
+    "franchise:verify": "tsx --env-file=.env.local scripts/franchise-expo/verify.ts",
+    "test:franchise-expo": "tsx --test scripts/franchise-expo/*.test.ts"
   },
   "dependencies": {
     "@fontsource/noto-sans-kr": "^5.2.9",
