@@ -150,6 +150,13 @@ export default function PartnerMallDetail({
   const [showEditInfo, setShowEditInfo] = useState(false);
   const [generatingLink, setGeneratingLink] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const publicShareUrl = partnerMall.slug || partnerMall.share_token
+    ? `${APP_BASE_URL}/mall/${partnerMall.slug || partnerMall.share_token}`
+    : null;
+  const previewShareUrl = partnerMall.share_token
+    ? `${APP_BASE_URL}/mall/${partnerMall.share_token}?preview=1`
+    : null;
+  const shareUrl = partnerMall.is_active ? publicShareUrl : previewShareUrl;
 
   const products = partnerMall.partner_mall_products || [];
   const assets = partnerMall.partner_mall_assets || [];
@@ -268,8 +275,8 @@ export default function PartnerMallDetail({
 
   // Copy share link
   const copyShareLink = async () => {
-    if (!partnerMall.slug && !partnerMall.share_token) return;
-    const url = `${APP_BASE_URL}/mall/${partnerMall.slug || partnerMall.share_token}`;
+    if (!shareUrl) return;
+    const url = shareUrl;
     try {
       await navigator.clipboard.writeText(url);
       setLinkCopied(true);
@@ -387,27 +394,34 @@ export default function PartnerMallDetail({
             <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-100">
               <label className="block text-[10px] sm:text-sm font-medium text-gray-500 mb-1 sm:mb-1.5">
                 <Link2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 inline mr-0.5 sm:mr-1" />
-                공유 링크
+                {partnerMall.is_active ? '공개 구매 링크' : '비공개 시안 링크'}
               </label>
-              {(partnerMall.slug || partnerMall.share_token) ? (
-                <div className="flex items-center gap-1.5 sm:gap-2">
-                  <input
-                    readOnly
-                    value={`${APP_BASE_URL}/mall/${partnerMall.slug || partnerMall.share_token}`}
-                    className="flex-1 text-[10px] sm:text-xs px-2 sm:px-2.5 py-1.5 sm:py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-600 truncate"
-                  />
-                  <button
-                    onClick={copyShareLink}
-                    className="shrink-0 p-1.5 sm:p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
-                    title="복사"
-                  >
-                    {linkCopied ? (
-                      <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    )}
-                  </button>
-                </div>
+              {shareUrl ? (
+                <>
+                  {!partnerMall.is_active && (
+                    <p className="mb-2 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-[10px] leading-4 text-sky-800 sm:text-xs">
+                      토큰을 가진 사람만 열 수 있으며 이 화면에서는 주문할 수 없습니다.
+                    </p>
+                  )}
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <input
+                      readOnly
+                      value={shareUrl}
+                      className="flex-1 text-[10px] sm:text-xs px-2 sm:px-2.5 py-1.5 sm:py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-600 truncate"
+                    />
+                    <button
+                      onClick={copyShareLink}
+                      className="shrink-0 p-1.5 sm:p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                      title="복사"
+                    >
+                      {linkCopied ? (
+                        <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      )}
+                    </button>
+                  </div>
+                </>
               ) : (
                 <button
                   onClick={generateShareLink}
