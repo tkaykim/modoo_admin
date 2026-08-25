@@ -330,43 +330,69 @@ export async function preprocessLogo(input: Buffer): Promise<Buffer> {
   const cornerIndexes = [0, info.width - 1, (info.height - 1) * info.width, info.width * info.height - 1];
   const corners = cornerIndexes.map(pixel);
   const background = [0, 1, 2].map((channel) => median(corners.map((entry) => entry[channel])));
-  const hasTransparentPixels = (() => {
-    for (let offset = 3; offset < data.length; offset += channels) {
-      if (data[offset] < 245) return true;
-    }
-    return false;
-  })();
   const cornersAgree = corners.every((corner) => colorDistance(corner, background) <= 42);
 
-  if (!hasTransparentPixels && cornersAgree) {
+  const cornersOpaque = corners.every((corner) => corner[3] >= 245);
+  if (cornersAgree && cornersOpaque) {
     const visited = new Uint8Array(info.width * info.height);
     const queue: number[] = [];
     const enqueue = (index: number) => {
-      if (index < 0 || index >= visited.length || visited[index]) return;
+      if (index < 0 || index >= visited.length || visited[index] || !nearBackgroundPixel(data, channels, index, background)) return;
       visited[index] = 1;
       queue.push(index);
     };
 
+    const flood = (start: number) => {
+      if (!nearBackgroundPixel(data, channels, start, background)) return;
+      enqueue(start);
+      for (let cursor = queue.length - 1; cursor < queue.length; cursor += 1) {
+        const index = queue[cursor];
+        const x = index % info.width;
+        const y = Math.floor(index / info.width);
+        data[index * channels + 3] = 0;
+        if (x > 0) enqueue(index - 1);
+        if (x + 1 < info.width) enqueue(index + 1);
+        if (y > 0) enqueue(index - info.width);
+        if (y + 1 < info.height) enqueue(index + info.width);
+      }
+      queue.length = 0;
+    };
+
     for (let x = 0; x < info.width; x += 1) {
-      enqueue(x);
-      enqueue((info.height - 1) * info.width + x);
+      flood(x);
+      flood((info.height - 1) * info.width + x);
     }
     for (let y = 0; y < info.height; y += 1) {
-      enqueue(y * info.width);
-      enqueue(y * info.width + info.width - 1);
+      flood(y * info.width);
+      flood(y * info.width + info.width - 1);
     }
 
-    for (let cursor = 0; cursor < queue.length; cursor += 1) {
-      const index = queue[cursor];
-      const rgba = pixel(index);
-      if (rgba[3] === 0 || colorDistance(rgba, background) > 54) continue;
-      data[index * channels + 3] = 0;
-      const x = index % info.width;
-      const y = Math.floor(index / info.width);
-      if (x > 0) enqueue(index - 1);
-      if (x + 1 < info.width) enqueue(index + 1);
-      if (y > 0) enqueue(index - info.width);
-      if (y + 1 < info.height) enqueue(index + info.width);
+    const visitedInterior = new Uint8Array(info.width * info.height);
+    for (let start = 0; start < visitedInterior.length; start += 1) {
+      if (!nearBackgroundPixel(data, channels, start, background) || visitedInterior[start]) continue;
+      const component = [start];
+      visitedInterior[start] = 1;
+      let touchesEdge = false;
+      for (let cursor = 0; cursor < component.length; cursor += 1) {
+        const index = component[cursor];
+        const x = index % info.width;
+        const y = Math.floor(index / info.width);
+        if (x === 0 || y === 0 || x === info.width - 1 || y === info.height - 1) touchesEdge = true;
+        for (const next of [
+          x > 0 ? index - 1 : -1,
+          x + 1 < info.width ? index + 1 : -1,
+          y > 0 ? index - info.width : -1,
+          y + 1 < info.height ? index + info.width : -1,
+        ]) {
+          if (next >= 0 && !visitedInterior[next] && nearBackgroundPixel(data, channels, next, background)) {
+            visitedInterior[next] = 1;
+            component.push(next);
+          }
+        }
+      }
+      if (!touchesEdge && component.length >= 12) {
+        for (const index of component) data[index * channels + 3] = 0;
+      }
     }
   }
 
@@ -381,6 +407,15 @@ export async function preprocessLogo(input: Buffer): Promise<Buffer> {
     .resize({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true })
     .png({ compressionLevel: 9 })
     .toBuffer();
+}
+
+function nearBackgroundPixel(data: Buffer, channels: number, index: number, background: number[]): boolean {
+  const offset = index * channels;
+  if (data[offset + 3] < 245) return false;
+  return colorDistance(
+    [data[offset], data[offset + 1], data[offset + 2], data[offset + 3]],
+    [background[0], background[1], background[2], 255],
+  ) <= 54;
 }
 
 export async function analyzeLogoContrast(input: Buffer): Promise<LogoContrast> {

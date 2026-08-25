@@ -127,6 +127,38 @@ test('단색 테두리 배경을 투명하게 만들고 로고 영역을 trim한
   assert.equal(pixel[3], 255);
 });
 
+test('로고 내부에 갇힌 배경도 투명하게 제거한다', async () => {
+  const input = Buffer.from('<svg width="80" height="80" xmlns="http://www.w3.org/2000/svg"><rect width="80" height="80" fill="white"/><circle cx="40" cy="40" r="28" fill="none" stroke="#1e40af" stroke-width="14"/></svg>');
+  const output = await preprocessLogo(input);
+  const center = await sharp(output).ensureAlpha().raw().toBuffer();
+  const metadata = await sharp(output).metadata();
+  const centerX = Math.floor((metadata.width || 1) / 2);
+  const centerY = Math.floor((metadata.height || 1) / 2);
+  const offset = ((centerY * (metadata.width || 1)) + centerX) * 4;
+  assert.equal(center[offset + 3], 0);
+});
+
+test('투명 배경의 검정 로고는 배경 제거 대상이 아니다', async () => {
+  const input = await sharp({
+    create: {
+      width: 40,
+      height: 40,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  }).composite([{ input: await sharp({
+    create: {
+      width: 20,
+      height: 20,
+      channels: 4,
+      background: { r: 10, g: 10, b: 10, alpha: 1 },
+    },
+  }).png().toBuffer(), left: 10, top: 10 }]).png().toBuffer();
+  const output = await preprocessLogo(input);
+  const raw = await sharp(output).ensureAlpha().raw().toBuffer();
+  assert.ok([...raw].some((value, index) => index % 4 === 3 && value > 0));
+});
+
 test('제품 미리보기의 contain 여백은 검정색이 아닌 배경색으로 합성된다', async () => {
   const productImage = await sharp({
     create: {
