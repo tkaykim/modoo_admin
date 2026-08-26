@@ -9,6 +9,8 @@ const EVENT_TYPES = [
   'partner_mall_inquiry_click',
   'partner_mall_order_start',
   'partner_mall_checkout_start',
+  'partner_mall_action_click',
+  'partner_mall_engagement',
 ] as const;
 
 type ExpoMall = {
@@ -51,6 +53,10 @@ type MutableMallStats = {
   inquiry_sessions: Set<string>;
   order_starts: number;
   checkout_starts: number;
+  action_clicks: number;
+  active_seconds_by_session: Map<string, number>;
+  duration_seconds_by_session: Map<string, number>;
+  scroll_percent_by_session: Map<string, number>;
   orders: number;
   paid_orders: number;
   revenue: number;
@@ -66,6 +72,20 @@ type MutableDailyStats = {
   checkout_starts: number;
   orders: number;
   revenue: number;
+};
+
+type MutableJourney = {
+  session_id: string;
+  mall_id: string;
+  mall_name: string;
+  started_at: string | null;
+  last_event_at: string;
+  active_seconds: number;
+  duration_seconds: number;
+  max_scroll_percent: number;
+  click_count: number;
+  last_action: string | null;
+  actions: Array<{ action: string; elapsed_seconds: number | null; occurred_at: string }>;
 };
 
 function kstDateKey(value: string | Date): string {
@@ -98,6 +118,22 @@ function buildDateKeys(from: Date, to: Date): string[] {
 function readMetaString(meta: Record<string, unknown> | null, key: string): string | null {
   const value = meta?.[key];
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function readMetaNumber(meta: Record<string, unknown> | null, key: string): number | null {
+  const value = meta?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function normalizeAction(action: string): string {
+  if (action.startsWith('product_preview:')) return 'product_preview';
+  if (action.startsWith('order_start:')) return 'order_start';
+  return action;
+}
+
+function average(values: Iterable<number>): number {
+  const list = [...values];
+  return list.length > 0 ? list.reduce((sum, value) => sum + value, 0) / list.length : 0;
 }
 
 function readMallKey(path: string | null): string | null {
@@ -198,6 +234,10 @@ export async function GET(req: NextRequest) {
         inquiry_sessions: new Set(),
         order_starts: 0,
         checkout_starts: 0,
+        action_clicks: 0,
+        active_seconds_by_session: new Map(),
+        duration_seconds_by_session: new Map(),
+        scroll_percent_by_session: new Map(),
         orders: 0,
         paid_orders: 0,
         revenue: 0,
@@ -225,6 +265,8 @@ export async function GET(req: NextRequest) {
     const checkoutSessions = new Set<string>();
     const sessionDevices = new Map<string, string>();
     const sessionChannels = new Map<string, 'direct' | 'external'>();
+    const journeys = new Map<string, MutableJourney>();
+    const actionBreakdown = new Map<string, number>();
     const inquiryBreakdown: Record<string, number> = {
       header_kakao: 0,
       header_phone: 0,
@@ -242,8 +284,28 @@ export async function GET(req: NextRequest) {
       const stats = byId.get(mallId)!;
       const day = daily.get(kstDateKey(event.occurred_at));
       const sessionId = event.session_id || `event:${event.id}`;
+      const journeyKey = `${mallId}:${sessionId}`;
+      let journey = journeys.get(journeyKey);
+      if (!journey) {
+        journey = {
+          session_id: sessionId,
+          mall_id: mallId,
+          mall_name: stats.name,
+          started_at: null,
+          last_event_at: event.occurred_at,
+          active_seconds: 0,
+          duration_seconds: 0,
+          max_scroll_percent: 0,
+          click_count: 0,
+          last_action: null,
+          actions: [],
+        };
+        journeys.set(journeyKey, journey);
+      }
+      journey.last_event_at = event.occurred_at;
 
       if (event.event_type === 'page_view') {
+        if (!journey.started_at) journey.started_at = event.occurred_at;
         stats.pageviews += 1;
         stats.visitors.add(sessionId);
         stats.last_visit_at = event.occurred_at;
@@ -276,6 +338,35 @@ export async function GET(req: NextRequest) {
         stats.checkout_starts += 1;
         checkoutSessions.add(sessionId);
         if (day) day.checkout_starts += 1;
+      } else if (event.event_type === 'partner_mall_action_click') {
+        const action = readMetaString(event.meta, 'action');
+        if (!action) continue;
+        const normalizedAction = normalizeAction(action);
+        stats.action_clicks += 1;
+        actionBreakdown.set(normalizedAction, (actionBreakdown.get(normalizedAction) ?? 0) + 1);
+        journey.click_count = Math.max(journey.click_count, readMetaNumber(event.meta, 'click_index') ?? journey.click_count + 1);
+        journey.last_action = action;
+        if (journey.actions.length < 50) {
+          journey.actions.push({
+            action,
+            elapsed_seconds: readMetaNumber(event.meta, 'elapsed_seconds'),
+            occurred_at: event.occurred_at,
+          });
+        }
+      } else if (event.event_type === 'partner_mall_engagement') {
+        const activeSeconds = Math.max(0, readMetaNumber(event.meta, 'active_seconds') ?? 0);
+        const durationSeconds = Math.max(0, readMetaNumber(event.meta, 'duration_seconds') ?? 0);
+        const scrollPercent = Math.min(100, Math.max(0, readMetaNumber(event.meta, 'max_scroll_percent') ?? 0));
+        const clickCount = Math.max(0, readMetaNumber(event.meta, 'click_count') ?? 0);
+        const lastAction = readMetaString(event.meta, 'last_action');
+        stats.active_seconds_by_session.set(sessionId, Math.max(stats.active_seconds_by_session.get(sessionId) ?? 0, activeSeconds));
+        stats.duration_seconds_by_session.set(sessionId, Math.max(stats.duration_seconds_by_session.get(sessionId) ?? 0, durationSeconds));
+        stats.scroll_percent_by_session.set(sessionId, Math.max(stats.scroll_percent_by_session.get(sessionId) ?? 0, scrollPercent));
+        journey.active_seconds = Math.max(journey.active_seconds, activeSeconds);
+        journey.duration_seconds = Math.max(journey.duration_seconds, durationSeconds);
+        journey.max_scroll_percent = Math.max(journey.max_scroll_percent, scrollPercent);
+        journey.click_count = Math.max(journey.click_count, clickCount);
+        if (lastAction) journey.last_action = lastAction;
       }
     }
 
@@ -313,6 +404,11 @@ export async function GET(req: NextRequest) {
         inquiry_sessions: stats.inquiry_sessions.size,
         order_starts: stats.order_starts,
         checkout_starts: stats.checkout_starts,
+        action_clicks: stats.action_clicks,
+        measured_sessions: stats.active_seconds_by_session.size,
+        avg_active_seconds: average(stats.active_seconds_by_session.values()),
+        avg_duration_seconds: average(stats.duration_seconds_by_session.values()),
+        avg_scroll_percent: average(stats.scroll_percent_by_session.values()),
         orders: stats.orders,
         paid_orders: stats.paid_orders,
         revenue: stats.revenue,
@@ -321,6 +417,25 @@ export async function GET(req: NextRequest) {
         last_visit_at: stats.last_visit_at,
       }))
       .sort((a, b) => b.unique_visitors - a.unique_visitors || b.inquiry_clicks - a.inquiry_clicks || a.name.localeCompare(b.name, 'ko'));
+
+    const measuredJourneys = [...journeys.values()].filter((journey) => journey.active_seconds > 0 || journey.duration_seconds > 0);
+    const recentJourneys = [...journeys.values()]
+      .filter((journey) => journey.started_at)
+      .sort((a, b) => new Date(b.last_event_at).getTime() - new Date(a.last_event_at).getTime())
+      .slice(0, 50)
+      .map((journey) => ({
+        session_id: journey.session_id,
+        mall_id: journey.mall_id,
+        mall_name: journey.mall_name,
+        started_at: journey.started_at,
+        last_event_at: journey.last_event_at,
+        active_seconds: journey.active_seconds,
+        duration_seconds: journey.duration_seconds,
+        max_scroll_percent: journey.max_scroll_percent,
+        click_count: journey.click_count,
+        last_action: journey.last_action,
+        actions: journey.actions,
+      }));
 
     const deviceBreakdown = { mobile: 0, desktop: 0, tablet: 0, unknown: 0 };
     for (const device of sessionDevices.values()) {
@@ -352,6 +467,12 @@ export async function GET(req: NextRequest) {
           order_start_sessions: orderStartSessions.size,
           checkout_starts: mallStats.reduce((sum, mall) => sum + mall.checkout_starts, 0),
           checkout_sessions: checkoutSessions.size,
+          action_clicks: mallStats.reduce((sum, mall) => sum + mall.action_clicks, 0),
+          engagement_sessions: measuredJourneys.length,
+          avg_active_seconds: average(measuredJourneys.map((journey) => journey.active_seconds)),
+          avg_duration_seconds: average(measuredJourneys.map((journey) => journey.duration_seconds)),
+          avg_clicks_per_session: average(measuredJourneys.map((journey) => journey.click_count)),
+          no_action_sessions: measuredJourneys.filter((journey) => journey.click_count === 0).length,
           orders: orders.length,
           paid_orders: paidOrders,
           revenue,
@@ -361,6 +482,11 @@ export async function GET(req: NextRequest) {
         inquiry_breakdown: inquiryBreakdown,
         device_breakdown: deviceBreakdown,
         channel_breakdown: channelBreakdown,
+        action_breakdown: [...actionBreakdown.entries()]
+          .map(([action, count]) => ({ action, count }))
+          .sort((a, b) => b.count - a.count || a.action.localeCompare(b.action, 'ko'))
+          .slice(0, 30),
+        recent_journeys: recentJourneys,
         daily: dateKeys.map((date) => {
           const stats = daily.get(date)!;
           return {

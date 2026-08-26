@@ -5,16 +5,15 @@ import Link from 'next/link';
 import {
   ArrowRight,
   Building2,
-  CircleDollarSign,
+  Clock3,
   Eye,
   Loader2,
   MessageCircle,
   MousePointerClick,
-  PackageSearch,
   QrCode,
   RefreshCw,
+  Route,
   Search,
-  ShoppingCart,
   Smartphone,
   Store,
 } from 'lucide-react';
@@ -37,6 +36,12 @@ type PerformanceData = {
     order_start_sessions: number;
     checkout_starts: number;
     checkout_sessions: number;
+    action_clicks: number;
+    engagement_sessions: number;
+    avg_active_seconds: number;
+    avg_duration_seconds: number;
+    avg_clicks_per_session: number;
+    no_action_sessions: number;
     orders: number;
     paid_orders: number;
     revenue: number;
@@ -46,6 +51,20 @@ type PerformanceData = {
   inquiry_breakdown: Record<'header_kakao' | 'header_phone' | 'other_apparel' | 'design_revision' | 'price_negotiation', number>;
   device_breakdown: { mobile: number; desktop: number; tablet: number; unknown: number };
   channel_breakdown: { direct: number; external: number };
+  action_breakdown: Array<{ action: string; count: number }>;
+  recent_journeys: Array<{
+    session_id: string;
+    mall_id: string;
+    mall_name: string;
+    started_at: string;
+    last_event_at: string;
+    active_seconds: number;
+    duration_seconds: number;
+    max_scroll_percent: number;
+    click_count: number;
+    last_action: string | null;
+    actions: Array<{ action: string; elapsed_seconds: number | null; occurred_at: string }>;
+  }>;
   daily: Array<{
     date: string;
     unique_visitors: number;
@@ -69,6 +88,11 @@ type PerformanceData = {
     inquiry_sessions: number;
     order_starts: number;
     checkout_starts: number;
+    action_clicks: number;
+    measured_sessions: number;
+    avg_active_seconds: number;
+    avg_duration_seconds: number;
+    avg_scroll_percent: number;
     orders: number;
     paid_orders: number;
     revenue: number;
@@ -96,6 +120,28 @@ const inquiryLabels: Array<{ key: keyof PerformanceData['inquiry_breakdown']; la
 const number = new Intl.NumberFormat('ko-KR');
 const currency = new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 });
 const percent = (value: number) => `${(value * 100).toFixed(value > 0 && value < 0.01 ? 1 : 0)}%`;
+const duration = (seconds: number) => {
+  const rounded = Math.max(0, Math.round(seconds));
+  if (rounded < 60) return `${rounded}초`;
+  const minutes = Math.floor(rounded / 60);
+  const rest = rounded % 60;
+  return rest > 0 ? `${minutes}분 ${rest}초` : `${minutes}분`;
+};
+
+function actionLabel(action: string | null): string {
+  if (!action) return '클릭 없이 종료';
+  if (action.startsWith('product_preview:') || action === 'product_preview') return '상품 상세 열기';
+  if (action === 'product_preview_close') return '상품 상세 닫기';
+  if (action.startsWith('order_start:') || action === 'order_start') return '주문 시작';
+  if (action === 'header_kakao_inquiry') return '상단 카카오 문의';
+  if (action === 'header_phone_inquiry') return '전화 문의';
+  if (action === 'floating_inquiry:other_apparel') return '다른 의류 제작 문의';
+  if (action === 'floating_inquiry:design_revision') return '디자인 수정 문의';
+  if (action === 'floating_inquiry:price_negotiation') return '단가 협의 문의';
+  if (action.startsWith('text:')) return action.slice(5);
+  if (action.startsWith('aria:')) return action.slice(5);
+  return action;
+}
 const kstDateTime = (value: string | null) => value
   ? new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
   : '-';
@@ -246,12 +292,78 @@ export default function PartnerMallPerformanceDashboard() {
         </div>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-          <MetricCard label="QR·링크 방문자" value={`${number.format(overview.unique_visitors)}명`} detail={`${number.format(overview.pageviews)}회 조회 · ${overview.visited_malls}/${overview.total_malls}개 몰 방문`} icon={Eye} accent="bg-blue-50 text-blue-700" />
-          <MetricCard label="상품 상세 관심" value={`${number.format(overview.product_views)}회`} detail={`${number.format(overview.product_view_sessions)}개 방문 세션에서 확인`} icon={PackageSearch} accent="bg-indigo-50 text-indigo-700" />
+          <MetricCard label="방문이 발생한 링크" value={`${overview.visited_malls}/${overview.total_malls}개`} detail="업체별 고유 파트너몰 주소 기준" icon={QrCode} accent="bg-violet-50 text-violet-700" />
+          <MetricCard label="링크 유입량" value={`${number.format(overview.unique_visitors)}명`} detail={`${number.format(overview.pageviews)}회 조회`} icon={Eye} accent="bg-blue-50 text-blue-700" />
+          <MetricCard label="평균 활성 체류" value={overview.engagement_sessions > 0 ? duration(overview.avg_active_seconds) : '측정 시작'} detail={`${number.format(overview.engagement_sessions)}개 세션 측정 · 숨김 시간 제외`} icon={Clock3} accent="bg-indigo-50 text-indigo-700" />
+          <MetricCard label="페이지 내 클릭" value={`${number.format(overview.action_clicks)}회`} detail={overview.engagement_sessions > 0 ? `세션당 평균 ${overview.avg_clicks_per_session.toFixed(1)}회` : '버튼·탭 클릭 순서 기록 중'} icon={MousePointerClick} accent="bg-emerald-50 text-emerald-700" />
           <MetricCard label="문의 버튼 클릭" value={`${number.format(overview.inquiry_clicks)}회`} detail={`${number.format(overview.inquiry_sessions)}명 · 방문 대비 ${percent(overview.inquiry_rate)}`} icon={MessageCircle} accent="bg-amber-50 text-amber-700" />
-          <MetricCard label="주문 시작" value={`${number.format(overview.order_starts)}회`} detail={`배송지 이동 ${number.format(overview.checkout_starts)}회`} icon={ShoppingCart} accent="bg-emerald-50 text-emerald-700" />
-          <MetricCard label="실제 주문" value={`${number.format(overview.orders)}건`} detail={`결제 완료 ${number.format(overview.paid_orders)}건 · 전환율 ${percent(overview.order_rate)}`} icon={Store} accent="bg-cyan-50 text-cyan-700" />
-          <MetricCard label="결제 매출" value={currency.format(overview.revenue)} detail="파트너몰 귀속 결제 완료 주문 기준" icon={CircleDollarSign} accent="bg-rose-50 text-rose-700" />
+          <MetricCard label="실제 주문" value={`${number.format(overview.orders)}건`} detail={`결제 완료 ${number.format(overview.paid_orders)}건 · ${currency.format(overview.revenue)}`} icon={Store} accent="bg-cyan-50 text-cyan-700" />
+        </div>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-[0.85fr_1.65fr]">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex items-center gap-2">
+              <MousePointerClick className="h-5 w-5 text-emerald-700" />
+              <h2 className="text-lg font-black text-slate-950">많이 누른 위치</h2>
+            </div>
+            <p className="mt-1 text-sm text-slate-500">파트너몰 안에서 실제로 선택한 버튼과 탭입니다.</p>
+            <div className="mt-5 space-y-3">
+              {data.action_breakdown.slice(0, 10).map((item, index) => (
+                <div key={item.action} className="flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-xs font-black text-slate-500 shadow-sm">{index + 1}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-800">{actionLabel(item.action)}</span>
+                  <strong className="text-sm text-slate-950">{number.format(item.count)}회</strong>
+                </div>
+              ))}
+              {data.action_breakdown.length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
+                  클릭 경로 추적을 시작했습니다.
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex items-center gap-2">
+              <Route className="h-5 w-5 text-violet-700" />
+              <h2 className="text-lg font-black text-slate-950">최근 방문 흐름</h2>
+            </div>
+            <p className="mt-1 text-sm text-slate-500">방문자가 어떤 순서로 눌러보고 어느 행동에서 나갔는지 세션별로 보여줍니다.</p>
+            <div className="mt-5 max-h-[430px] space-y-3 overflow-y-auto pr-1">
+              {data.recent_journeys.slice(0, 30).map((journey) => (
+                <div key={`${journey.mall_id}:${journey.session_id}`} className="rounded-xl border border-slate-200 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <Link href={`/partner_malls/${journey.mall_id}`} className="text-sm font-black text-slate-900 hover:text-violet-700">{journey.mall_name}</Link>
+                      <p className="mt-0.5 text-xs text-slate-400">{kstDateTime(journey.started_at)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-[11px] font-bold">
+                      <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-indigo-700">활성 체류 {journey.active_seconds > 0 ? duration(journey.active_seconds) : '측정 중'}</span>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">클릭 {journey.click_count}회</span>
+                      <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">스크롤 {journey.max_scroll_percent}%</span>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className="rounded-lg bg-slate-100 px-2 py-1 font-semibold text-slate-600">방문</span>
+                    {journey.actions.slice(0, 12).map((item, index) => (
+                      <span key={`${item.occurred_at}:${index}`} className="contents">
+                        <ArrowRight className="h-3 w-3 text-slate-300" />
+                        <span className="rounded-lg bg-violet-50 px-2 py-1 font-semibold text-violet-800">{actionLabel(item.action)}</span>
+                      </span>
+                    ))}
+                    {journey.actions.length === 0 && <><ArrowRight className="h-3 w-3 text-slate-300" /><span className="rounded-lg bg-slate-50 px-2 py-1 text-slate-500">클릭 없이 종료</span></>}
+                    <ArrowRight className="h-3 w-3 text-slate-300" />
+                    <span className="rounded-lg bg-rose-50 px-2 py-1 font-bold text-rose-700">마지막: {actionLabel(journey.last_action)}</span>
+                  </div>
+                </div>
+              ))}
+              {data.recent_journeys.length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-500">
+                  아직 기간 내 방문 기록이 없습니다.
+                </div>
+              )}
+            </div>
+          </section>
         </div>
 
         <div className="mt-6 grid gap-6 xl:grid-cols-[1.45fr_1fr]">
@@ -360,16 +472,15 @@ export default function PartnerMallPerformanceDashboard() {
             </label>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-[1120px] w-full text-sm">
+            <table className="min-w-[1040px] w-full text-sm">
               <thead className="bg-slate-50 text-xs font-bold text-slate-500">
                 <tr>
                   <th className="px-5 py-3 text-left">순위 / 파트너몰</th>
                   <th className="px-4 py-3 text-right">방문자</th>
                   <th className="px-4 py-3 text-right">조회</th>
-                  <th className="px-4 py-3 text-right">상품 상세</th>
+                  <th className="px-4 py-3 text-right">평균 활성 체류</th>
+                  <th className="px-4 py-3 text-right">페이지 내 클릭</th>
                   <th className="px-4 py-3 text-right">문의 클릭</th>
-                  <th className="px-4 py-3 text-right">문의율</th>
-                  <th className="px-4 py-3 text-right">주문 시작</th>
                   <th className="px-4 py-3 text-right">주문</th>
                   <th className="px-4 py-3 text-right">결제 매출</th>
                   <th className="px-5 py-3 text-right">최근 방문</th>
@@ -391,10 +502,9 @@ export default function PartnerMallPerformanceDashboard() {
                       </td>
                       <td className="px-4 py-4 text-right font-black text-slate-950">{number.format(mall.unique_visitors)}</td>
                       <td className="px-4 py-4 text-right text-slate-600">{number.format(mall.pageviews)}</td>
-                      <td className="px-4 py-4 text-right text-slate-600">{number.format(mall.product_views)}</td>
+                      <td className="px-4 py-4 text-right font-bold text-indigo-700">{mall.measured_sessions > 0 ? duration(mall.avg_active_seconds) : '-'}</td>
+                      <td className="px-4 py-4 text-right text-slate-600">{number.format(mall.action_clicks)}</td>
                       <td className="px-4 py-4 text-right font-bold text-amber-700">{number.format(mall.inquiry_clicks)}</td>
-                      <td className="px-4 py-4 text-right text-slate-600">{percent(mall.inquiry_rate)}</td>
-                      <td className="px-4 py-4 text-right text-slate-600">{number.format(mall.order_starts)}</td>
                       <td className="px-4 py-4 text-right font-bold text-emerald-700">{number.format(mall.orders)}</td>
                       <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(mall.revenue)}</td>
                       <td className="px-5 py-4 text-right text-xs text-slate-500">{kstDateTime(mall.last_visit_at)}</td>
