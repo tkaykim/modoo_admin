@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp, LayoutTemplate, DollarSign, Target, AlertTriangle, Megaphone } from 'lucide-react';
+import { Package, Users, BarChart3, Menu, X, ShoppingBag, MessageSquare, Factory, LayoutDashboard, Palette, Ticket, Building2, ChevronDown, Printer, ClipboardList, FileText, Truck, LineChart, UserCheck, Wallet, Receipt, TrendingUp, LayoutTemplate, DollarSign, Target, AlertTriangle, Megaphone, QrCode } from 'lucide-react';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import BugReportButton from '@/components/BugReportButton';
 
@@ -80,6 +80,7 @@ const navGroups: NavGroup[] = [
           { href: '/cobuy/presets', label: '프리셋 관리' },
         ],
       },
+      { type: 'link', href: '/partner_malls/performance', label: '박람회 성과', icon: QrCode, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/partner_malls', label: '파트너몰 관리', icon: Building2, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/coupons', label: '쿠폰 관리', icon: Ticket, roles: ['admin', 'super_admin'] },
     ],
@@ -262,7 +263,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </nav>
         </aside>
 
-        <main className="flex-1 p-3 lg:ml-64">{children}</main>
+        <main className="min-w-0 flex-1 p-3 lg:ml-64">{children}</main>
       </div>
     </div>
   );
