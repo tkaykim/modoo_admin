@@ -61,6 +61,7 @@ type PerformanceData = {
     active_seconds: number;
     duration_seconds: number;
     max_scroll_percent: number;
+    engagement_measured: boolean;
     click_count: number;
     last_action: string | null;
     actions: Array<{ action: string; elapsed_seconds: number | null; occurred_at: string }>;
@@ -338,7 +339,7 @@ export default function PartnerMallPerformanceDashboard() {
                       <p className="mt-0.5 text-xs text-slate-400">{kstDateTime(journey.started_at)}</p>
                     </div>
                     <div className="flex flex-wrap gap-2 text-[11px] font-bold">
-                      <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-indigo-700">활성 체류 {journey.active_seconds > 0 ? duration(journey.active_seconds) : '측정 중'}</span>
+                      <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-indigo-700">활성 체류 {journey.engagement_measured ? duration(journey.active_seconds) : '측정 전'}</span>
                       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">클릭 {journey.click_count}회</span>
                       <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">스크롤 {journey.max_scroll_percent}%</span>
                     </div>
@@ -351,9 +352,9 @@ export default function PartnerMallPerformanceDashboard() {
                         <span className="rounded-lg bg-violet-50 px-2 py-1 font-semibold text-violet-800">{actionLabel(item.action)}</span>
                       </span>
                     ))}
-                    {journey.actions.length === 0 && <><ArrowRight className="h-3 w-3 text-slate-300" /><span className="rounded-lg bg-slate-50 px-2 py-1 text-slate-500">클릭 없이 종료</span></>}
+                    {journey.actions.length === 0 && <><ArrowRight className="h-3 w-3 text-slate-300" /><span className="rounded-lg bg-slate-50 px-2 py-1 text-slate-500">{journey.engagement_measured ? '클릭 없이 종료' : '상세 추적 전 방문'}</span></>}
                     <ArrowRight className="h-3 w-3 text-slate-300" />
-                    <span className="rounded-lg bg-rose-50 px-2 py-1 font-bold text-rose-700">마지막: {actionLabel(journey.last_action)}</span>
+                    <span className="rounded-lg bg-rose-50 px-2 py-1 font-bold text-rose-700">마지막: {journey.engagement_measured ? actionLabel(journey.last_action) : '측정 전'}</span>
                   </div>
                 </div>
               ))}
