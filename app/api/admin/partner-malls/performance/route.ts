@@ -83,6 +83,7 @@ type MutableJourney = {
   active_seconds: number;
   duration_seconds: number;
   max_scroll_percent: number;
+  engagement_measured: boolean;
   click_count: number;
   last_action: string | null;
   actions: Array<{ action: string; elapsed_seconds: number | null; occurred_at: string }>;
@@ -296,6 +297,7 @@ export async function GET(req: NextRequest) {
           active_seconds: 0,
           duration_seconds: 0,
           max_scroll_percent: 0,
+          engagement_measured: false,
           click_count: 0,
           last_action: null,
           actions: [],
@@ -354,6 +356,7 @@ export async function GET(req: NextRequest) {
           });
         }
       } else if (event.event_type === 'partner_mall_engagement') {
+        journey.engagement_measured = true;
         const activeSeconds = Math.max(0, readMetaNumber(event.meta, 'active_seconds') ?? 0);
         const durationSeconds = Math.max(0, readMetaNumber(event.meta, 'duration_seconds') ?? 0);
         const scrollPercent = Math.min(100, Math.max(0, readMetaNumber(event.meta, 'max_scroll_percent') ?? 0));
@@ -418,7 +421,7 @@ export async function GET(req: NextRequest) {
       }))
       .sort((a, b) => b.unique_visitors - a.unique_visitors || b.inquiry_clicks - a.inquiry_clicks || a.name.localeCompare(b.name, 'ko'));
 
-    const measuredJourneys = [...journeys.values()].filter((journey) => journey.active_seconds > 0 || journey.duration_seconds > 0);
+    const measuredJourneys = [...journeys.values()].filter((journey) => journey.engagement_measured);
     const recentJourneys = [...journeys.values()]
       .filter((journey) => journey.started_at)
       .sort((a, b) => new Date(b.last_event_at).getTime() - new Date(a.last_event_at).getTime())
@@ -432,6 +435,7 @@ export async function GET(req: NextRequest) {
         active_seconds: journey.active_seconds,
         duration_seconds: journey.duration_seconds,
         max_scroll_percent: journey.max_scroll_percent,
+        engagement_measured: journey.engagement_measured,
         click_count: journey.click_count,
         last_action: journey.last_action,
         actions: journey.actions,
