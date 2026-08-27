@@ -2,6 +2,8 @@
 
 import { useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
+import ChannelPerformance from '@/components/analytics/ChannelPerformance';
+import NaverPanel from '@/components/marketing-console/NaverPanel';
 import { TrendingUp, TrendingDown, Users, ShoppingCart, MessageSquare, BadgeDollarSign, Ban } from 'lucide-react';
 import { fetcher } from '@/lib/fetcher';
 import MarketingTab from '@/components/analytics/MarketingTab';
@@ -9,7 +11,7 @@ import RealtimeTab from '@/components/analytics/RealtimeTab';
 import AdEfficiencyTab from '@/components/analytics/AdEfficiencyTab';
 
 type RangePreset = 'this_week' | 'this_month' | 'q1' | 'q2' | 'q3' | 'q4' | 'custom';
-type AnalyticsTab = 'sales' | 'ad_efficiency' | 'marketing' | 'realtime';
+type AnalyticsTab = 'channels' | 'sales' | 'ad_efficiency' | 'naver' | 'marketing' | 'realtime';
 
 type AnalyticsPayload = {
   range: { from: string; to: string; preset: RangePreset };
@@ -140,8 +142,10 @@ function periodFor(g: Granularity, offset: number, customFrom: string, customTo:
 }
 
 const TABS: { value: AnalyticsTab; label: string }[] = [
+  { value: 'channels', label: '채널 성과' },
   { value: 'sales', label: '매출 분석' },
-  { value: 'ad_efficiency', label: '광고 효율' },
+  { value: 'ad_efficiency', label: 'Meta 상세' },
+  { value: 'naver', label: '네이버 상세' },
   { value: 'marketing', label: '마케팅 (GA4)' },
   { value: 'realtime', label: '실시간' },
 ];
@@ -162,7 +166,7 @@ function buildQuery(p: Period): string {
 }
 
 export default function AnalyticsDashboard() {
-  const [tab, setTab] = useState<AnalyticsTab>('sales');
+  const [tab, setTab] = useState<AnalyticsTab>('channels');
 
   return (
     <div className="space-y-4">
@@ -183,8 +187,10 @@ export default function AnalyticsDashboard() {
         </div>
       </div>
 
+      {tab === 'channels' && <ChannelPerformance onDrill={(t) => setTab(t as AnalyticsTab)} />}
       {tab === 'sales' && <SalesTab />}
       {tab === 'ad_efficiency' && <AdEfficiencyTab />}
+      {tab === 'naver' && <NaverPanel />}
       {tab === 'marketing' && <MarketingTab />}
       {tab === 'realtime' && <RealtimeTab />}
     </div>
