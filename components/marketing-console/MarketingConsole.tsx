@@ -22,6 +22,7 @@ import {
   ZoomIn,
 } from 'lucide-react';
 import { fetcher } from '@/lib/fetcher';
+import NaverPanel from './NaverPanel';
 import DecisionsPanel from './DecisionsPanel';
 
 type Overview = {
@@ -140,6 +141,7 @@ const tabs = [
   { id: 'creatives', label: '소재 검수' },
   { id: 'upload', label: '소재 업로드' },
   { id: 'campaigns', label: '캠페인' },
+  { id: 'naver', label: '네이버 검색광고' },
 ] as const;
 
 type TabId = (typeof tabs)[number]['id'];
@@ -338,6 +340,7 @@ export default function MarketingConsole() {
                 />
               )}
 
+              {tab === 'naver' && <NaverPanel />}
               {tab === 'campaigns' && <CampaignTable campaigns={data.campaigns} adSets={data.adSets} onQuickAction={(recommendation) => setConfirm(recommendation)} />}
             </section>
 
