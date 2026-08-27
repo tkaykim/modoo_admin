@@ -47,7 +47,8 @@ export async function GET(req: NextRequest) {
         .from('analytics_events')
         .select('session_id, occurred_at, meta, utm_campaign')
         .eq('utm_source', 'naver')
-        .gte('occurred_at', sinceTs),
+        .gte('occurred_at', sinceTs)
+        .limit(20000), // 기본 1,000행 제한 방어 — naver 유입이 늘면 조용히 잘린다
       supabase
         .from('orders')
         .select('id, created_at, total_amount, utm_term, utm_campaign')
