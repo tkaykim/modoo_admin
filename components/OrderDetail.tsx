@@ -15,7 +15,7 @@ import OrderItemArtworksModal from '@/components/orders/OrderItemArtworksModal';
 import OrderItemPrintRowsInline from '@/components/orders/OrderItemPrintRowsInline';
 import OrderItemThumbnail from '@/components/orders/OrderItemThumbnail';
 import ProofAlimtalkLogPanel from '@/components/orders/ProofAlimtalkLogPanel';
-import { extractVariants } from '@/lib/orderUtils';
+import { extractVariants, getOrderItemColorLabel } from '@/lib/orderUtils';
 import FactoryPriceConfirmModal from '@/components/factory/FactoryPriceConfirmModal';
 import { coerceImageUrlsBySide, isPreviewableImageEntry, fileExtensionLabel } from '@/lib/downloadUtils';
 import { formatKstDateLong, formatKstDateTimeMedium, getKstYYYYMMDD } from '@/lib/kst';
@@ -1551,21 +1551,27 @@ export default function OrderDetail({
                             </span>
                           )}
                         </div>
-                        {item.products?.product_code && (
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            상품코드: {item.products.product_code}
-                          </p>
-                        )}
+                        {(() => {
+                          const colorLabel = getOrderItemColorLabel(item);
+                          if (!item.products?.product_code && !colorLabel) return null;
+
+                          return (
+                            <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-gray-500">
+                              {item.products?.product_code && <span>상품코드: {item.products.product_code}</span>}
+                              {colorLabel && <span>색상: {colorLabel}</span>}
+                            </p>
+                          );
+                        })()}
                         {/* Size/Variant breakdown */}
                         {(() => {
-                          const variants = extractVariants(item);
-                          return variants.length > 1 ? (
+                          const variants = extractVariants(item).filter((variant) => (variant.quantity ?? 0) > 0);
+                          return variants.length > 0 ? (
                             <div className="flex flex-wrap gap-1 mt-2">
-                              {variants.filter(v => (v.quantity ?? 0) > 0).map((v, vi) => (
+                              {variants.map((v, vi) => (
                                 <span key={vi} title={[v.color_name, v.size_name].filter(Boolean).join(' / ') || undefined} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
                                   {v.color_hex && <span title={v.color_name || undefined} className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: v.color_hex }} />}
                                   {v.size_name && <span>{v.size_name}</span>}
-                                  <span className="font-medium">x{v.quantity}</span>
+                                  <span className="font-medium">× {v.quantity}</span>
                                 </span>
                               ))}
                               <span className="inline-flex items-center px-1.5 py-0.5 bg-blue-50 rounded text-xs font-semibold text-blue-700">
@@ -1575,15 +1581,7 @@ export default function OrderDetail({
                           ) : null;
                         })()}
                         <div className="flex justify-between items-center mt-2">
-                          {(() => {
-                            const variants = extractVariants(item);
-                            if (variants.length <= 1) {
-                              const v = variants[0];
-                              const label = v?.size_name;
-                              return <span className="text-sm text-gray-600">수량: {label ? `${label} ` : ''}{item.quantity}</span>;
-                            }
-                            return <span className="text-sm text-gray-600">총 수량: {item.quantity}</span>;
-                          })()}
+                          <span className="text-sm text-gray-600">총 수량: {item.quantity}</span>
                           <div className="flex items-center gap-2">
                             {!isFactoryUser && item.design_status !== 'confirmed' && (
                               <button

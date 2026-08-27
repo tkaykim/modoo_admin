@@ -8,6 +8,32 @@ export interface VariantInfo {
   quantity?: number;
 }
 
+function cleanText(value?: string | null): string | null {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : null;
+}
+
+function includesToken(text: string, token: string): boolean {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^0-9a-z])${escaped}(?=$|[^0-9a-z])`, 'i').test(text);
+}
+
+export function formatOrderSizeName(sizeName?: string | null, sizeCode?: string | null): string {
+  const name = cleanText(sizeName);
+  const code = cleanText(sizeCode);
+
+  if (name && code && !includesToken(name, code)) return `${name} (${code})`;
+  return name || code || '사이즈 미지정';
+}
+
+export function formatOrderColor(colorName?: string | null, colorCode?: string | null): string | null {
+  const name = cleanText(colorName);
+  const code = cleanText(colorCode);
+
+  if (name && code) return `${name}(${code})`;
+  return name || code;
+}
+
 export function extractVariants(item: OrderItem): VariantInfo[] {
   const opts = item.item_options;
   if (opts?.variants && Array.isArray(opts.variants) && opts.variants.length > 0) {
@@ -41,6 +67,20 @@ export function extractVariantsFromOptions(
       quantity: totalQuantity,
     },
   ];
+}
+
+export function getOrderItemColorLabel(
+  item: Pick<OrderItem, 'quantity' | 'item_options'>
+): string | null {
+  const variants = extractVariantsFromOptions(item.item_options, item.quantity);
+  const variantWithColor = variants.find((variant) =>
+    cleanText(variant.color_name) || cleanText(variant.color_code)
+  );
+
+  return formatOrderColor(
+    variantWithColor?.color_name ?? item.item_options?.color_name,
+    variantWithColor?.color_code ?? item.item_options?.color_code,
+  );
 }
 
 /** 사이즈별 수량을 "S x2, M x3" 형태의 요약 문자열로 반환 */

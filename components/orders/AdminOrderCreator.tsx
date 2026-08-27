@@ -10,6 +10,7 @@ import {
 import { Product, SavedDesign, SizeOption } from '@/types/types';
 import OrderDetailsForm from './OrderDetailsForm';
 import QuickImageItemModal from './QuickImageItemModal';
+import { formatOrderSizeName } from '@/lib/orderUtils';
 
 type Step = 'items' | 'product-select' | 'design-select' | 'details' | 'success';
 type PaymentType = 'completed' | 'bank_transfer' | 'customer_payment';
@@ -99,6 +100,10 @@ export function getItemTotalQuantity(item: OrderItemDraft): number {
 
 export function getItemSubtotal(item: OrderItemDraft): number {
   return getItemUnitPrice(item) * getItemTotalQuantity(item);
+}
+
+export function formatDraftVariant(variant: OrderVariant): string {
+  return `${formatOrderSizeName(variant.sizeLabel, variant.sizeCode)} × ${variant.quantity}`;
 }
 
 export default function AdminOrderCreator({
@@ -527,6 +532,7 @@ export default function AdminOrderCreator({
                       const qty = getItemTotalQuantity(item);
                       const unitP = getItemUnitPrice(item);
                       const sub = getItemSubtotal(item);
+                      const selectedVariants = item.variants.filter((variant) => variant.quantity > 0);
 
                       return (
                         <div key={item.id} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
@@ -551,6 +557,18 @@ export default function AdminOrderCreator({
                               <p className="text-sm text-gray-500">
                                 {unitP.toLocaleString()}원 × {qty}개 = <span className="font-medium text-gray-700">{sub.toLocaleString()}원</span>
                               </p>
+                              {selectedVariants.length > 0 && (
+                                <div className="mt-1.5 flex flex-wrap gap-1" aria-label="선택한 사이즈별 수량">
+                                  {selectedVariants.map((variant) => (
+                                    <span
+                                      key={variant.sizeCode || variant.sizeLabel}
+                                      className="inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700"
+                                    >
+                                      {formatDraftVariant(variant)}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                             <button
                               onClick={() => setExpandedItemId(isExpanded ? null : item.id)}
@@ -1001,11 +1019,21 @@ export default function AdminOrderCreator({
 
               <div className="bg-gray-50 rounded-lg p-4 mb-4 text-left">
                 <p className="text-sm text-gray-500 mb-2">제품 ({items.length}건)</p>
-                {items.map((item, idx) => (
-                  <p key={item.id} className="font-medium text-gray-900 text-sm">
-                    {idx + 1}. {item.productTitle} ({getItemTotalQuantity(item)}개)
-                  </p>
-                ))}
+                {items.map((item, idx) => {
+                  const selectedVariants = item.variants.filter((variant) => variant.quantity > 0);
+                  return (
+                    <div key={item.id} className="mb-2 last:mb-0">
+                      <p className="font-medium text-gray-900 text-sm">
+                        {idx + 1}. {item.productTitle} ({getItemTotalQuantity(item)}개)
+                      </p>
+                      {selectedVariants.length > 0 && (
+                        <p className="mt-0.5 text-xs text-gray-600">
+                          {selectedVariants.map(formatDraftVariant).join(', ')}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
               {orderResult && (
