@@ -130,6 +130,7 @@ export async function GET(req: NextRequest) {
           .map(([id, m]) => {
             const s = statById.get(id);
             return {
+              keywordId: id,
               keyword: m.keyword,
               group: m.group,
               bid: m.bid,

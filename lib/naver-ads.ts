@@ -44,20 +44,28 @@ function buildQuery(query?: Record<string, unknown>): string {
   return qs ? `?${qs}` : '';
 }
 
-async function request<T>(path: string, creds: NaverAdCreds, query?: Record<string, unknown>): Promise<T> {
+async function request<T>(
+  path: string,
+  creds: NaverAdCreds,
+  query?: Record<string, unknown>,
+  init?: { method?: 'GET' | 'POST'; body?: unknown },
+): Promise<T> {
+  const method = init?.method ?? 'GET';
   const timestamp = String(Date.now());
   const res = await fetch(`${BASE_URL}${path}${buildQuery(query)}`, {
+    method,
     headers: {
       'Content-Type': 'application/json; charset=UTF-8',
       'X-Timestamp': timestamp,
       'X-API-KEY': creds.apiKey,
       'X-Customer': creds.customerId,
-      'X-Signature': sign(timestamp, 'GET', path, creds.secretKey),
+      'X-Signature': sign(timestamp, method, path, creds.secretKey),
     },
+    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
     cache: 'no-store',
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`[naver-ads] GET ${path} → ${res.status} ${text.slice(0, 200)}`);
+  if (!res.ok) throw new Error(`[naver-ads] ${method} ${path} → ${res.status} ${text.slice(0, 200)}`);
   return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
@@ -99,6 +107,30 @@ export async function getStats(c: NaverAdCreds, ids: string[], since: string, un
       timeRange: { since, until },
     });
     out.push(...(Array.isArray(res) ? res : (res?.data ?? [])));
+  }
+  return out;
+}
+
+/**
+ * 지정 평균 노출순위에 필요한 입찰가 추정 (조회 전용 POST).
+ * ⚠ body 는 `items: [{key, position}]` 형태다 — 문자열 배열이 아니다 (실측 확정).
+ * "현재 입찰로 몇 위에 노출되는가"는 이 곡선에 현재 입찰가를 대입해 역산한다.
+ */
+export async function estimateBidForPosition(
+  c: NaverAdCreds,
+  keywords: string[],
+  position: number,
+  device: 'PC' | 'MOBILE' = 'MOBILE',
+): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  for (let i = 0; i < keywords.length; i += 50) {
+    const res = await request<{ estimate?: Array<{ keyword: string; bid: number }> }>(
+      '/estimate/average-position-bid/keyword',
+      c,
+      undefined,
+      { method: 'POST', body: { device, items: keywords.slice(i, i + 50).map((key) => ({ key, position })) } },
+    );
+    for (const e of res?.estimate ?? []) out[e.keyword] = e.bid;
   }
   return out;
 }
