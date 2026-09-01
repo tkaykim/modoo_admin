@@ -9,6 +9,8 @@ import {
   combineArtworkPreviews,
   prepareArtwork,
   preprocessLogo,
+  preprocessPhotoWhiteLogo,
+  preprocessChromaticLogo,
   recolorProductImage,
   type ExpoManifest,
   type ManifestBrand,
@@ -400,7 +402,11 @@ async function validateBrand(
   runtimeProducts: Map<string, RuntimeProduct>,
 ) {
   const original = await readFile(path.join(sourceRoot, ...brand.localRelativePath.split('/')));
-  const processed = await preprocessLogo(original);
+  const processed = brand.sourceId === '4624'
+    ? await preprocessPhotoWhiteLogo(original)
+    : brand.sourceId === '4724'
+      ? await preprocessChromaticLogo(original)
+      : await preprocessLogo(original);
   const contrast = await analyzeLogoContrast(processed);
   const metadata = await sharp(processed).metadata();
   if (!metadata.width || !metadata.height || !metadata.hasAlpha) {
@@ -443,6 +449,11 @@ async function main() {
   if (manifest.totals.uniqueBrands !== 76) {
     throw new Error(`manifest 브랜드 수가 76개가 아닙니다: ${manifest.totals.uniqueBrands}`);
   }
+  const onlySourceId = arg('--only-source-id');
+  const brands = onlySourceId
+    ? manifest.brands.filter((brand) => brand.sourceId === onlySourceId)
+    : manifest.brands;
+  if (onlySourceId && brands.length !== 1) throw new Error(`sourceId ${onlySourceId} 브랜드를 찾을 수 없습니다.`);
 
   const client = createClient(
     requiredEnv('NEXT_PUBLIC_SUPABASE_URL'),
@@ -453,13 +464,13 @@ async function main() {
   if (commit) await assertMigration(client);
   if (previewDir) await mkdir(previewDir, { recursive: true });
 
-  console.log(`${commit ? 'COMMIT' : 'DRY-RUN'}: ${manifest.brands.length}개 브랜드를 검증합니다.`);
+  console.log(`${commit ? 'COMMIT' : 'DRY-RUN'}: ${brands.length}개 브랜드를 검증합니다.`);
   let productCount = 0;
-  for (const [index, brand] of manifest.brands.entries()) {
+  for (const [index, brand] of brands.entries()) {
     const { original, processed, logoVariants } = await validateBrand(brand, sourceRoot, runtimeProducts);
     productCount += brand.productCodes.length * 2;
 
-    if (previewDir && (index % 10 === 0 || index === manifest.brands.length - 1)) {
+    if (previewDir && (index % 10 === 0 || index === brands.length - 1)) {
       const runtime = runtimeProducts.get(brand.productCodes[0])!;
       for (const garmentColor of ['white', 'black'] as const) {
         const artwork = await buildColorwayArtwork(
@@ -546,10 +557,10 @@ async function main() {
       }
     }
 
-    console.log(`[${index + 1}/${manifest.brands.length}] ${brand.brand} · 화이트/블랙 · 앞면 왼쪽 가슴/등판 · ${brand.productCodes.join(', ')}`);
+    console.log(`[${index + 1}/${brands.length}] ${brand.brand} · 화이트/블랙 · 앞면 왼쪽 가슴/등판 · ${brand.productCodes.join(', ')}`);
   }
 
-  console.log(`${commit ? '저장' : '검증'} 완료: 몰 ${manifest.brands.length}개, 제품 ${productCount}개, 로고 ${manifest.brands.length}개`);
+  console.log(`${commit ? '저장' : '검증'} 완료: 몰 ${brands.length}개, 제품 ${productCount}개, 로고 ${brands.length}개`);
   if (!commit) console.log('데이터베이스와 Storage에는 아무것도 쓰지 않았습니다.');
 }
 

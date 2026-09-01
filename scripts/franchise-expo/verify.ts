@@ -46,7 +46,7 @@ async function main() {
   if (products.length !== 456) failures.push(`제품 ${products.length}/456`);
   if (assets.length !== 228) failures.push(`에셋 ${assets.length}/228`);
   for (const mall of malls) {
-    if (mall.is_active) failures.push(`${mall.source_key}: 활성 상태`);
+    if (!mall.is_active) failures.push(`${mall.source_key}: 비활성 상태`);
     if (!mall.share_token) failures.push(`${mall.source_key}: share token 없음`);
     if (productsByMall.get(mall.id) !== 6) failures.push(`${mall.source_key}: 제품 ${productsByMall.get(mall.id) || 0}개`);
     if (assetsByMall.get(mall.id) !== 3) failures.push(`${mall.source_key}: 로고 ${assetsByMall.get(mall.id) || 0}개`);
@@ -120,7 +120,7 @@ async function main() {
   if (failures.length > 0) {
     throw new Error(`검증 실패 (${failures.length}건)\n${failures.slice(0, 30).join('\n')}`);
   }
-  console.log('검증 완료: 비활성 몰 76개, 화이트·블랙 제품 456개, 대비 로고 에셋 228개');
+  console.log('검증 완료: 활성 몰 76개, 화이트·블랙 제품 456개, 대비 로고 에셋 228개');
 }
 
 main().catch((error) => {

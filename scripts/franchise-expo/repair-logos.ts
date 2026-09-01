@@ -7,6 +7,8 @@ import {
   buildContrastLogoVariants,
   listLocalLogoFiles,
   preprocessLogo,
+  preprocessPhotoWhiteLogo,
+  preprocessChromaticLogo,
   type ExpoManifest,
 } from './lib';
 
@@ -105,7 +107,11 @@ async function main() {
     const filePath = files.find((file) => path.basename(file) === brand.logoFilename);
     if (!filePath) throw new Error(`${brand.brand} 원본 파일 없음`);
     const original = await readFile(filePath);
-    const processed = await preprocessLogo(original);
+    const processed = brand.sourceId === '4624'
+      ? await preprocessPhotoWhiteLogo(original)
+      : brand.sourceId === '4724'
+        ? await preprocessChromaticLogo(original)
+        : await preprocessLogo(original);
     const variants = await buildContrastLogoVariants(processed, await analyzeLogoContrast(processed));
     const [oldPrimary, oldLight, oldDark] = await Promise.all([download(primary.url), download(light.url), download(dark.url)]);
     const [primaryDiff, lightDiff, darkDiff] = await Promise.all([

@@ -409,6 +409,129 @@ export async function preprocessLogo(input: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
+/** 사진 질감 배경 위의 흰색 로고에서 배경의 밝은 잡티까지 제거한다. */
+export async function preprocessPhotoWhiteLogo(input: Buffer): Promise<Buffer> {
+  const { data, info } = await sharp(input).rotate().ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const mask = new Uint8Array(info.width * info.height);
+  const threshold = 170;
+  for (let index = 0; index < mask.length; index += 1) {
+    const offset = index * info.channels;
+    mask[index] = Math.min(data[offset], data[offset + 1], data[offset + 2]) >= threshold ? 1 : 0;
+  }
+
+  const visited = new Uint8Array(mask.length);
+  for (let start = 0; start < mask.length; start += 1) {
+    if (!mask[start] || visited[start]) continue;
+    const component = [start];
+    visited[start] = 1;
+    for (let cursor = 0; cursor < component.length; cursor += 1) {
+      const index = component[cursor];
+      const x = index % info.width;
+      const y = Math.floor(index / info.width);
+      for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= info.width || ny >= info.height) continue;
+        const next = ny * info.width + nx;
+        if (mask[next] && !visited[next]) {
+          visited[next] = 1;
+          component.push(next);
+        }
+      }
+    }
+    if (component.length < 8) for (const index of component) mask[index] = 0;
+  }
+  for (let index = 0; index < mask.length; index += 1) {
+    if (!mask[index]) data[index * info.channels + 3] = 0;
+  }
+  return sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } })
+    .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .resize({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+}
+
+/** 흰 배경 위 단색 유색 로고를 분리해 글자 내부를 확실히 투명하게 만든다. */
+export async function preprocessChromaticLogo(input: Buffer): Promise<Buffer> {
+  const { data, info } = await sharp(input).rotate().ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const mask = new Uint8Array(info.width * info.height);
+  for (let index = 0; index < mask.length; index += 1) {
+    const offset = index * info.channels;
+    const red = data[offset];
+    const chroma = red - Math.max(data[offset + 1], data[offset + 2]);
+    mask[index] = red >= 100 && chroma >= 28 ? 1 : 0;
+  }
+  const visited = new Uint8Array(mask.length);
+  for (let start = 0; start < mask.length; start += 1) {
+    if (!mask[start] || visited[start]) continue;
+    const component = [start];
+    visited[start] = 1;
+    for (let cursor = 0; cursor < component.length; cursor += 1) {
+      const index = component[cursor];
+      const x = index % info.width;
+      const y = Math.floor(index / info.width);
+      for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= info.width || ny >= info.height) continue;
+        const next = ny * info.width + nx;
+        if (mask[next] && !visited[next]) {
+          visited[next] = 1;
+          component.push(next);
+        }
+      }
+    }
+    if (component.length < 8) for (const index of component) mask[index] = 0;
+  }
+  // 내부 구멍(예: 온·정의 ㅇ)은 경계 안쪽의 잔여 안티앨리어싱까지 한 픽셀 더 비운다.
+  const backgroundVisited = new Uint8Array(mask.length);
+  const holeEdge = new Uint8Array(mask.length);
+  for (let start = 0; start < mask.length; start += 1) {
+    if (mask[start] || backgroundVisited[start]) continue;
+    const component = [start];
+    backgroundVisited[start] = 1;
+    let touchesEdge = false;
+    for (let cursor = 0; cursor < component.length; cursor += 1) {
+      const index = component[cursor];
+      const x = index % info.width;
+      const y = Math.floor(index / info.width);
+      if (x === 0 || y === 0 || x === info.width - 1 || y === info.height - 1) touchesEdge = true;
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= info.width || ny >= info.height) continue;
+        const next = ny * info.width + nx;
+        if (!mask[next] && !backgroundVisited[next]) {
+          backgroundVisited[next] = 1;
+          component.push(next);
+        }
+      }
+    }
+    if (!touchesEdge) {
+      for (const index of component) {
+        const x = index % info.width;
+        const y = Math.floor(index / info.width);
+        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx >= 0 && ny >= 0 && nx < info.width && ny < info.height) holeEdge[ny * info.width + nx] = 1;
+        }
+      }
+    }
+  }
+  for (let index = 0; index < mask.length; index += 1) {
+    if (holeEdge[index]) mask[index] = 0;
+  }
+  for (let index = 0; index < mask.length; index += 1) {
+    if (!mask[index]) data[index * info.channels + 3] = 0;
+  }
+  return sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } })
+    .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .resize({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+}
+
 function nearBackgroundPixel(data: Buffer, channels: number, index: number, background: number[]): boolean {
   const offset = index * channels;
   if (data[offset + 3] < 245) return false;
