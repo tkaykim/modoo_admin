@@ -45,3 +45,8 @@ yarn-error.log*
 next-env.d.ts
 scripts/drive-backfill.mjs
 .env*.local
+
+# 세션 스크래치/광고 소재 작업 폴더 (커밋 금지)
+._meta_ads/
+.context/
+.tmp/
