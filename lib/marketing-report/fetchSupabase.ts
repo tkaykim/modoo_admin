@@ -2,6 +2,24 @@
 
 import { createAdminClient } from '@/lib/supabase-admin';
 
+type SupabaseAdmin = ReturnType<typeof createAdminClient>;
+
+type ProfitRow = {
+  order_id: string;
+  created_at?: string;
+  order_status: string | null;
+  net_revenue: number | string | null;
+  total_item_cost: number | string | null;
+  total_print_cost: number | string | null;
+  gross_profit: number | string | null;
+};
+
+type OrderStatusRow = {
+  id: string;
+  payment_status: string | null;
+  order_status: string | null;
+};
+
 export interface OrderSummary {
   orders: number;
   revenue: number;
@@ -26,19 +44,78 @@ export interface TopProductRow {
   revenue: number;
 }
 
+type ManufacturerRef = { name: string | null };
+
+type TopProductItemRow = {
+  product_title: string | null;
+  quantity: number | string | null;
+  price_per_item: number | string | null;
+  product?: {
+    manufacturer?: ManufacturerRef | ManufacturerRef[] | null;
+  } | null;
+};
+
+type AdAttributedOrderRow = {
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_content: string | null;
+  utm_term: string | null;
+  total_amount: number | string | null;
+};
+
+function toAmount(value: number | string | null | undefined): number {
+  return Number(value ?? 0);
+}
+
+function getManufacturerName(row: TopProductItemRow): string | null {
+  const manufacturer = row.product?.manufacturer;
+  if (Array.isArray(manufacturer)) return manufacturer[0]?.name ?? null;
+  return manufacturer?.name ?? null;
+}
+
+async function filterPaidProfitRows(supabase: SupabaseAdmin, rows: ProfitRow[]): Promise<ProfitRow[]> {
+  if (rows.length === 0) return [];
+
+  const orderIds = [...new Set(rows.map((r) => r.order_id).filter(Boolean))];
+  const statuses = new Map<string, OrderStatusRow>();
+  const chunkSize = 500;
+
+  for (let i = 0; i < orderIds.length; i += chunkSize) {
+    const chunk = orderIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('orders')
+      .select('id,payment_status,order_status')
+      .in('id', chunk);
+
+    if (error) throw error;
+
+    for (const order of (data ?? []) as OrderStatusRow[]) {
+      statuses.set(order.id, order);
+    }
+  }
+
+  return rows.filter((row) => {
+    const order = statuses.get(row.order_id);
+    const orderStatus = order?.order_status ?? row.order_status;
+    return order?.payment_status === 'completed' && orderStatus !== 'cancelled';
+  });
+}
+
 /** 기간 합산 매출/마진 */
 export async function fetchOrderSummary(from: string, to: string): Promise<OrderSummary> {
   const supabase = createAdminClient();
   // order_profit_summary view 사용 — UA backfill + 인쇄비 포함
   const { data, error } = await supabase
     .from('order_profit_summary')
-    .select('net_revenue,total_item_cost,total_print_cost,gross_profit')
+    .select('order_id,order_status,net_revenue,total_item_cost,total_print_cost,gross_profit')
     .gte('created_at', `${from}T00:00:00+09:00`)
     .lt('created_at', toExclusiveDate(to))
-    .not('order_status', 'in', '(cancelled,refunded)');
+    .neq('order_status', 'cancelled');
   if (error) throw error;
-  const rows = data ?? [];
-  const sum = (k: keyof typeof rows[0]): number => rows.reduce((s, r) => s + parseFloat((r[k] as any) ?? '0'), 0);
+  const rows = await filterPaidProfitRows(supabase, ((data ?? []) as ProfitRow[]));
+  const sum = (k: keyof Pick<ProfitRow, 'net_revenue' | 'total_item_cost' | 'total_print_cost' | 'gross_profit'>): number =>
+    rows.reduce((s, r) => s + toAmount(r[k]), 0);
   const revenue = sum('net_revenue');
   const itemCost = sum('total_item_cost');
   const printCost = sum('total_print_cost');
@@ -58,20 +135,21 @@ export async function fetchDailyRevenue(from: string, to: string): Promise<Daily
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from('order_profit_summary')
-    .select('created_at,net_revenue,gross_profit')
+    .select('order_id,created_at,order_status,net_revenue,total_item_cost,total_print_cost,gross_profit')
     .gte('created_at', `${from}T00:00:00+09:00`)
     .lt('created_at', toExclusiveDate(to))
-    .not('order_status', 'in', '(cancelled,refunded)');
+    .neq('order_status', 'cancelled');
   if (error) throw error;
+  const rows = await filterPaidProfitRows(supabase, ((data ?? []) as ProfitRow[]));
   // KST 일자별 집계
   const byDay = new Map<string, { orders: number; revenue: number; profit: number }>();
-  for (const r of data ?? []) {
+  for (const r of rows) {
     const kst = new Date(new Date(r.created_at as string).getTime() + 9 * 3600_000);
     const day = kst.toISOString().slice(0, 10);
     const cur = byDay.get(day) ?? { orders: 0, revenue: 0, profit: 0 };
     cur.orders += 1;
-    cur.revenue += parseFloat((r.net_revenue as any) ?? '0');
-    cur.profit += parseFloat((r.gross_profit as any) ?? '0');
+    cur.revenue += toAmount(r.net_revenue);
+    cur.profit += toAmount(r.gross_profit);
     byDay.set(day, cur);
   }
   return Array.from(byDay.entries())
@@ -98,15 +176,11 @@ export async function fetchTopProducts(from: string, to: string, limit = 10): Pr
     if (e2) throw e2;
     // 집계
     const byKey = new Map<string, TopProductRow>();
-    for (const it of items ?? []) {
-      const title = (it as any).product_title ?? '-';
-      const qty = parseInt((it as any).quantity ?? '0', 10);
-      const price = parseFloat((it as any).price_per_item ?? '0');
-      const brand =
-        (it as any).product?.manufacturer?.name ??
-        ((it as any).product?.manufacturer && Array.isArray((it as any).product.manufacturer)
-          ? (it as any).product.manufacturer[0]?.name
-          : null);
+    for (const it of (items ?? []) as TopProductItemRow[]) {
+      const title = it.product_title ?? '-';
+      const qty = Number.parseInt(String(it.quantity ?? '0'), 10);
+      const price = toAmount(it.price_per_item);
+      const brand = getManufacturerName(it);
       const k = `${brand ?? ''}::${title}`;
       const cur = byKey.get(k) ?? { product_title: title, brand: brand ?? null, orders: 0, quantity: 0, revenue: 0 };
       cur.orders += 1;
@@ -141,7 +215,7 @@ export async function fetchAdAttributedRevenue(from: string, to: string): Promis
     .not('utm_source', 'is', null);
   if (error) throw error;
   const byKey = new Map<string, AdAttributedRow>();
-  for (const o of data ?? []) {
+  for (const o of (data ?? []) as AdAttributedOrderRow[]) {
     const k = `${o.utm_source}::${o.utm_medium ?? ''}::${o.utm_campaign ?? ''}::${o.utm_content ?? ''}::${o.utm_term ?? ''}`;
     const cur = byKey.get(k) ?? {
       utm_source: o.utm_source ?? '',
@@ -153,7 +227,7 @@ export async function fetchAdAttributedRevenue(from: string, to: string): Promis
       revenue: 0,
     };
     cur.orders += 1;
-    cur.revenue += parseFloat((o.total_amount as any) ?? '0');
+    cur.revenue += toAmount(o.total_amount);
     byKey.set(k, cur);
   }
   return Array.from(byKey.values()).sort((a, b) => b.revenue - a.revenue);
