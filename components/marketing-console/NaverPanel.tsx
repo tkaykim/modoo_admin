@@ -10,6 +10,7 @@
 
 import { useState } from 'react';
 import useSWR from 'swr';
+import { InlineBar, TrendBars } from '@/components/analytics/MiniBars';
 
 type Summary = {
   spend: number;
@@ -134,6 +135,8 @@ export default function NaverPanel() {
     }
   };
 
+  const maxKwSpend = Math.max(...(data?.keywords.map((k) => k.spend) ?? [0]), 1);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -214,6 +217,25 @@ export default function NaverPanel() {
           )}
 
           <Section title="일별 추이">
+            <div className="grid gap-4 px-3 pt-3 md:grid-cols-2">
+              <div>
+                <p className="mb-1 text-[11px] font-medium text-gray-600">광고비</p>
+                <TrendBars
+                  data={data.daily.map((d) => ({ label: d.date, segments: [{ key: '광고비', value: d.spend }] }))}
+                  colors={{ 광고비: '#0d9488' }}
+                  height={100}
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-[11px] font-medium text-gray-600">클릭</p>
+                <TrendBars
+                  data={data.daily.map((d) => ({ label: d.date, segments: [{ key: '클릭', value: d.clicks }] }))}
+                  colors={{ 클릭: '#2563eb' }}
+                  height={100}
+                  valueFormat={(v) => `${Math.round(v).toLocaleString('ko-KR')}회`}
+                />
+              </div>
+            </div>
             <Table
               head={['날짜', '광고비', '노출', '클릭', 'CTR', 'CPC', '세션', '주문', '매출']}
               rows={data.daily.map((d) => [
@@ -317,7 +339,11 @@ export default function NaverPanel() {
                             <td className="whitespace-nowrap px-3 py-2 text-gray-800">{num(k.clicks)}</td>
                             <td className="whitespace-nowrap px-3 py-2 text-gray-800">{pct2(k.ctr)}</td>
                             <td className="whitespace-nowrap px-3 py-2 text-gray-800">{k.cpc ? krw(k.cpc) : '-'}</td>
-                            <td className="whitespace-nowrap px-3 py-2 text-gray-800">{k.spend ? krw(k.spend) : '-'}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-800">
+                              <InlineBar value={k.spend} max={maxKwSpend} color="#0d9488">
+                                {k.spend ? krw(k.spend) : '-'}
+                              </InlineBar>
+                            </td>
                           </tr>
                           {expanded === k.keywordId && (
                             <tr>
