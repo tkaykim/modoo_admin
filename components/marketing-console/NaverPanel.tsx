@@ -48,7 +48,29 @@ type QueryRow = {
   revenue: number;
 };
 
+type BidDiag = {
+  keywordId: string;
+  keyword: string;
+  group: string;
+  bid: number;
+  locked: boolean;
+  need: Record<string, number | null>;
+  estimatedPosition: number | null;
+  gapToP5: number;
+};
+
+type KeywordDaily = {
+  date: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  cpc: number;
+  spend: number;
+  avgRank: number;
+};
+
 type KeywordRow = {
+  keywordId: string;
   keyword: string;
   group: string;
   bid: number;
@@ -84,11 +106,33 @@ const RANGES = [7, 14, 30, 60, 90] as const;
 
 export default function NaverPanel() {
   const [days, setDays] = useState<number>(14);
+  const [device, setDevice] = useState<'MOBILE' | 'PC'>('MOBILE');
   const { data, error, isLoading } = useSWR<Payload>(
     `/api/admin/analytics/naver?days=${days}`,
     fetcher,
     { revalidateOnFocus: false },
   );
+  // 순위 진단은 추정 API 5회 호출이라 느리다 — 본 지표와 분리해 지연 로드한다.
+  const { data: bids } = useSWR<{ device: string; keywords: BidDiag[] }>(
+    `/api/admin/analytics/naver/bids?device=${device}`,
+    fetcher,
+    { revalidateOnFocus: false },
+  );
+  const bidByKey = new Map((bids?.keywords ?? []).map((b) => [`${b.group}|${b.keyword}`, b]));
+
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [dailyCache, setDailyCache] = useState<Record<string, KeywordDaily[] | 'loading' | 'error'>>({});
+  const toggleExpand = (k: KeywordRow) => {
+    const next = expanded === k.keywordId ? null : k.keywordId;
+    setExpanded(next);
+    if (next && !dailyCache[next]) {
+      setDailyCache((c) => ({ ...c, [next]: 'loading' }));
+      fetch(`/api/admin/analytics/naver/keyword?id=${encodeURIComponent(next)}&days=${days}`)
+        .then((r) => r.json())
+        .then((j) => setDailyCache((c) => ({ ...c, [next]: Array.isArray(j.daily) ? j.daily : 'error' })))
+        .catch(() => setDailyCache((c) => ({ ...c, [next]: 'error' })));
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -205,28 +249,132 @@ export default function NaverPanel() {
             />
           </Section>
 
-          <Section title="키워드별 성과" desc="활성 광고그룹의 등록 키워드입니다. QI는 네이버 품질지수(1~7).">
-            <Table
-              head={['키워드', '그룹', '입찰', 'QI', '노출', '클릭', 'CTR', 'CPC', '광고비', '평균순위']}
-              rows={data.keywords.map((k) => [
-                k.keyword,
-                k.group.replace('모두의유니폼_', ''),
-                krw(k.bid),
-                k.qiGrade === null ? '-' : String(k.qiGrade),
-                num(k.impressions),
-                num(k.clicks),
-                pct2(k.ctr),
-                k.cpc ? krw(k.cpc) : '-',
-                k.spend ? krw(k.spend) : '-',
-                k.avgRank ? k.avgRank.toFixed(1) : '-',
-              ])}
-              empty="키워드 데이터가 없습니다."
-            />
-          </Section>
+          <div className="rounded-lg border border-gray-200 bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-3 py-2">
+              <div>
+                <h3 className="text-xs font-semibold text-gray-900">키워드별 성과 · 노출 순위 진단</h3>
+                <p className="mt-0.5 text-[11px] text-gray-500">
+                  평균순위 = 기간 실측(노출된 키워드만). 예상순위 = 현재 입찰가를 순위별 필요 입찰가 곡선에 대입한 추정
+                  — 노출 0인 키워드가 &quot;왜 안 나가는지&quot;를 보여줍니다. 행을 클릭하면 일별 상세가 열립니다.
+                </p>
+              </div>
+              <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-1">
+                {(['MOBILE', 'PC'] as const).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDevice(d)}
+                    className={`rounded px-2 py-0.5 text-[11px] font-medium ${
+                      device === d ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {d === 'MOBILE' ? '모바일' : 'PC'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              {data.keywords.length === 0 ? (
+                <p className="px-3 py-6 text-center text-xs text-gray-500">키워드 데이터가 없습니다.</p>
+              ) : (
+                <table className="min-w-full text-left text-xs">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      {['키워드', '그룹', '입찰', '예상순위', '5위까지', '평균순위(실측)', 'QI', '노출', '클릭', 'CTR', 'CPC', '광고비'].map((h) => (
+                        <th key={h} className="whitespace-nowrap px-3 py-2 font-medium">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {data.keywords.map((k) => {
+                      const diag = bidByKey.get(`${k.group}|${k.keyword}`);
+                      const est = diag?.estimatedPosition;
+                      const daily = dailyCache[k.keywordId];
+                      return (
+                        <FragmentRow key={k.keywordId}>
+                          <tr
+                            className={`cursor-pointer hover:bg-gray-50 ${expanded === k.keywordId ? 'bg-blue-50/40' : ''}`}
+                            onClick={() => toggleExpand(k)}
+                          >
+                            <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">{k.keyword}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-600">{k.group.replace('모두의유니폼_', '')}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-800">{krw(k.bid)}</td>
+                            <td className="whitespace-nowrap px-3 py-2">
+                              {!bids ? (
+                                <span className="text-gray-400">…</span>
+                              ) : est ? (
+                                <span className={est <= 3 ? 'font-semibold text-emerald-700' : 'text-gray-800'}>{est}위권</span>
+                              ) : (
+                                <span className="font-medium text-red-600">5위 밖</span>
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-600">
+                              {diag && diag.gapToP5 > 0 ? `+${krw(diag.gapToP5)}` : diag ? '충족' : '-'}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-800">{k.avgRank ? k.avgRank.toFixed(1) : '-'}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-800">{k.qiGrade === null ? '-' : k.qiGrade}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-800">{num(k.impressions)}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-800">{num(k.clicks)}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-800">{pct2(k.ctr)}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-800">{k.cpc ? krw(k.cpc) : '-'}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-800">{k.spend ? krw(k.spend) : '-'}</td>
+                          </tr>
+                          {expanded === k.keywordId && (
+                            <tr>
+                              <td colSpan={12} className="bg-gray-50 px-4 py-2">
+                                {daily === 'loading' || daily === undefined ? (
+                                  <p className="py-2 text-[11px] text-gray-500">일별 상세 불러오는 중…</p>
+                                ) : daily === 'error' ? (
+                                  <p className="py-2 text-[11px] text-red-600">일별 상세 조회 실패</p>
+                                ) : (
+                                  <table className="min-w-[480px] text-[11px]">
+                                    <thead className="text-gray-500">
+                                      <tr>
+                                        {['날짜', '노출', '클릭', 'CTR', 'CPC', '광고비', '평균순위'].map((h) => (
+                                          <th key={h} className="whitespace-nowrap px-2 py-1 text-left font-medium">{h}</th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {daily.filter((d) => d.impressions > 0 || d.spend > 0).length === 0 ? (
+                                        <tr><td colSpan={7} className="px-2 py-1 text-gray-500">기간 내 노출이 없습니다.</td></tr>
+                                      ) : (
+                                        daily
+                                          .filter((d) => d.impressions > 0 || d.spend > 0)
+                                          .map((d) => (
+                                            <tr key={d.date} className="text-gray-700">
+                                              <td className="whitespace-nowrap px-2 py-1">{d.date.slice(5)}</td>
+                                              <td className="whitespace-nowrap px-2 py-1">{num(d.impressions)}</td>
+                                              <td className="whitespace-nowrap px-2 py-1">{num(d.clicks)}</td>
+                                              <td className="whitespace-nowrap px-2 py-1">{pct2(d.ctr)}</td>
+                                              <td className="whitespace-nowrap px-2 py-1">{d.cpc ? krw(d.cpc) : '-'}</td>
+                                              <td className="whitespace-nowrap px-2 py-1">{d.spend ? krw(d.spend) : '-'}</td>
+                                              <td className="whitespace-nowrap px-2 py-1">{d.avgRank ? d.avgRank.toFixed(1) : '-'}</td>
+                                            </tr>
+                                          ))
+                                      )}
+                                    </tbody>
+                                  </table>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </FragmentRow>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
         </>
       )}
     </div>
   );
+}
+
+function FragmentRow({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
 }
 
 function Stat({
