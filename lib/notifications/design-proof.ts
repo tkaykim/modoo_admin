@@ -84,7 +84,8 @@ export async function sendDesignProofEmail(params: DesignProofEmailParams): Prom
         </div>
 
         <p style="font-size:13px;color:#888;text-align:center;line-height:1.6;">
-          수정이 필요하시면 위 페이지에서 수정 요청을 해주세요.
+          수정이 필요하시면 위 페이지에서 수정 요청을 해주세요.<br/>
+          화면(RGB)과 실제 인쇄·원단(CMYK) 색상은 다소 차이가 있을 수 있습니다.
         </p>
       </div>
       <div style="border-top:1px solid #e5e7eb;padding:24px 28px;background:${BRAND_BG};">
@@ -105,6 +106,8 @@ export async function sendDesignProofEmail(params: DesignProofEmailParams): Prom
     `상품: ${itemLabel}`,
     '',
     `시안 확인하기: ${confirmUrl}`,
+    '',
+    '※ 화면(RGB)과 실제 인쇄·원단(CMYK) 색상은 다소 차이가 있을 수 있습니다.',
     '',
     '문의: 카카오톡 채널 "모두의유니폼" / 010-8140-0621',
   ].join('\n');
@@ -189,7 +192,8 @@ export async function sendDesignProofEmailBulk(params: DesignProofBulkEmailParam
         </div>
 
         <p style="font-size:13px;color:#888;text-align:center;line-height:1.6;">
-          수정이 필요하시면 위 페이지에서 상품별로 수정 요청을 해주세요.
+          수정이 필요하시면 위 페이지에서 상품별로 수정 요청을 해주세요.<br/>
+          화면(RGB)과 실제 인쇄·원단(CMYK) 색상은 다소 차이가 있을 수 있습니다.
         </p>
       </div>
       <div style="border-top:1px solid #e5e7eb;padding:24px 28px;background:${BRAND_BG};">
@@ -211,6 +215,8 @@ export async function sendDesignProofEmailBulk(params: DesignProofBulkEmailParam
     ...items.map((it) => ` - ${it.label}`),
     '',
     `시안 전체 확인하기: ${confirmUrl}`,
+    '',
+    '※ 화면(RGB)과 실제 인쇄·원단(CMYK) 색상은 다소 차이가 있을 수 있습니다.',
     '',
     '문의: 카카오톡 채널 "모두의유니폼" / 010-8140-0621',
   ].join('\n');
