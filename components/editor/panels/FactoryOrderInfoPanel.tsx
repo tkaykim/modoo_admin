@@ -13,6 +13,7 @@ import { orderCategoryLabel } from '@/lib/order-category';
 import { isAdminLike } from '@/lib/auth-helpers';
 import FactoryPriceConfirmModal, { type FactoryPriceResult } from '@/components/factory/FactoryPriceConfirmModal';
 import OrderItemThumbnail from '@/components/orders/OrderItemThumbnail';
+import VarsityPersonalizationSummary from '@/components/orders/VarsityPersonalizationSummary';
 
 interface FactoryOrderInfoPanelProps {
   orderId: string;
@@ -349,6 +350,8 @@ export default function FactoryOrderInfoPanel({
                       })()}
                       {item.products?.product_code && ` · ${item.products.product_code}`}
                     </div>
+                    {/* 과잠 빌더 항목: 부위 색·학번·명단 (공장이 바로 봐야 하는 정보) */}
+                    <VarsityPersonalizationSummary item={item} compact />
                   </div>
                   {isActive && (
                     <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />

@@ -457,6 +457,8 @@ export interface OrderItem {
       color_code?: string;
       quantity?: number;
     }>;
+    /** 과잠 빌더 개인화 명단·견적 (modoo_app varsity-order → saved_designs.personalization → 체크아웃 복사) */
+    personalization?: Record<string, unknown> | null;
   };
   thumbnail_url: string | null;
 
