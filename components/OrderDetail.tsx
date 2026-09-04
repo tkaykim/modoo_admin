@@ -15,6 +15,7 @@ import OrderItemArtworksModal from '@/components/orders/OrderItemArtworksModal';
 import OrderItemPrintRowsInline from '@/components/orders/OrderItemPrintRowsInline';
 import OrderItemThumbnail from '@/components/orders/OrderItemThumbnail';
 import VarsityPersonalizationSummary from '@/components/orders/VarsityPersonalizationSummary';
+import AiDraftSummary from '@/components/orders/AiDraftSummary';
 import ProofAlimtalkLogPanel from '@/components/orders/ProofAlimtalkLogPanel';
 import { extractVariants, getOrderItemColorLabel } from '@/lib/orderUtils';
 import FactoryPriceConfirmModal from '@/components/factory/FactoryPriceConfirmModal';
@@ -1583,6 +1584,8 @@ export default function OrderDetail({
                         })()}
                         {/* 과잠 빌더 항목: 부위 색·학번·개인화 명단·예상 견적 */}
                         <VarsityPersonalizationSummary item={item} />
+                        {/* AI 디자이너 초안: AI 생성 여부·인쇄 적합성 플래그·SVG 링크 */}
+                        <AiDraftSummary item={item} />
                         <div className="flex justify-between items-center mt-2">
                           <span className="text-sm text-gray-600">총 수량: {item.quantity}</span>
                           <div className="flex items-center gap-2">
