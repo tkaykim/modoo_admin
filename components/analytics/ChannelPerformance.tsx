@@ -17,27 +17,31 @@ import { CHANNEL_COLORS, InlineBar, TrendBars } from './MiniBars';
 type ChannelRow = {
   channel: string;
   paid: boolean;
-  spend: number;
+  spend: number | null;
   sessions: number;
   formInquiries: number;
   chatbotSessions: number;
   inquiries: number;
   orders: number;
   revenue: number;
-  aov: number;
+  aov: number | null;
   roas: number | null;
   cpa: number | null;
-  cvr: number;
+  cvr: number | null;
 };
 
 type Payload = {
-  range: { since: string; until: string; days: number };
+  generatedAt: string;
+  adsCollectedAt?: Record<string, string>;
+  range: { since: string; until: string; days: number; incomplete?: boolean };
   summary: {
-    totalSpend: number;
+    totalSpend: number | null;
     paidRevenue: number;
     totalRevenue: number;
-    blendedRoas: number;
-    paidRevenueShare: number;
+    blendedRoas: number | null;
+    mer: number | null;
+    spendShare: number | null;
+    paidRevenueShare: number | null;
     totalOrders: number;
     totalInquiries: number;
   };
@@ -47,7 +51,9 @@ type Payload = {
   notes: string[];
 };
 
-const krw = (v: number) => `₩${new Intl.NumberFormat('ko-KR').format(Math.round(v || 0))}`;
+const krw = (v: number | null) => v === null ? '미수집' : `₩${new Intl.NumberFormat('ko-KR').format(Math.round(v || 0))}`;
+const multiple = (v: number | null) => v === null ? '계산 불가' : `${v.toFixed(2)}배`;
+const percent = (v: number | null) => v === null ? '계산 불가' : `${v.toFixed(1)}%`;
 const num = (v: number) => new Intl.NumberFormat('ko-KR').format(Math.round(v || 0));
 
 const fetcher = (url: string) =>
@@ -65,7 +71,7 @@ export default function ChannelPerformance({ onDrill }: { onDrill?: (tab: string
   });
 
   const maxRevenue = Math.max(...(data?.channels.map((c) => c.revenue) ?? [0]), 1);
-  const maxSpend = Math.max(...(data?.channels.map((c) => c.spend) ?? [0]), 1);
+  const maxSpend = Math.max(...(data?.channels.map((c) => c.spend ?? 0) ?? [0]), 1);
 
   return (
     <div className="space-y-4">
@@ -103,14 +109,16 @@ export default function ChannelPerformance({ onDrill }: { onDrill?: (tab: string
         <>
           {data.adsErrors.length > 0 && (
             <p className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              일부 광고비 조회 실패 — 해당 채널의 광고비·ROAS만 비어 있습니다. ({data.adsErrors.join(' / ')})
+              광고비가 불완전해 총 광고비와 통합 효율을 계산하지 않습니다. ({data.adsErrors.join(' / ')})
             </p>
           )}
 
-          <p className="text-xs text-gray-500">기간 {data.range.since} ~ {data.range.until}</p>
+          <p className="text-xs text-gray-500">기간 {data.range.since} ~ {data.range.until} · {data.range.incomplete ? '오늘 집계 중' : '완료일 기준'} · 조회 {new Date(data.generatedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</p>
+
+          <p className="text-xs text-gray-500">{Object.entries(data.adsCollectedAt ?? {}).map(([channel, at]) => `${channel} 수집 ${new Date(at).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' })}`).join(' · ')} · 광고 자료는 최대 60초 캐시됩니다.</p>
 
           {/* 1단: 돈이 되고 있나 */}
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-4">
             <Stat label="총 광고비" value={krw(data.summary.totalSpend)} />
             <Stat
               label="광고 귀속 매출"
@@ -118,15 +126,16 @@ export default function ChannelPerformance({ onDrill }: { onDrill?: (tab: string
               tone={data.summary.paidRevenue > 0 ? 'good' : 'bad'}
             />
             <Stat
-              label="혼합 ROAS"
-              value={data.summary.blendedRoas.toFixed(2)}
-              tone={data.summary.blendedRoas >= 2 ? 'good' : data.summary.blendedRoas >= 1 ? 'warn' : 'bad'}
+              label="UTM 귀속 ROAS"
+              value={multiple(data.summary.blendedRoas)}
               hint="광고 귀속 매출 ÷ 총 광고비"
             />
-            <Stat label="전체 매출" value={krw(data.summary.totalRevenue)} />
+            <Stat label="전체 매출 효율(MER)" value={multiple(data.summary.mer)} hint="전체 확정매출 ÷ 총 광고비" />
+            <Stat label="광고비 비중" value={percent(data.summary.spendShare)} hint="총 광고비 ÷ 전체 확정매출" />
+            <Stat label="전체 확정매출" value={krw(data.summary.totalRevenue)} />
             <Stat
               label="광고 매출 비중"
-              value={`${data.summary.paidRevenueShare.toFixed(1)}%`}
+              value={percent(data.summary.paidRevenueShare)}
               hint="전체 매출 중 광고 귀속"
             />
             <Stat label="총 주문" value={`${num(data.summary.totalOrders)}건`} />
@@ -137,7 +146,7 @@ export default function ChannelPerformance({ onDrill }: { onDrill?: (tab: string
           <div className="rounded-lg border border-gray-200 bg-white">
             <div className="border-b border-gray-100 px-3 py-2">
               <h3 className="text-xs font-semibold text-gray-900">채널별 비교</h3>
-              <p className="mt-0.5 text-[11px] text-gray-500">
+              <p className="mt-0.5 text-xs text-gray-500">
                 CVR = 세션 대비 주문율. 유료 채널은 ROAS·CPA로, 자연 채널은 CVR·매출로 봅니다.
               </p>
             </div>
@@ -162,8 +171,8 @@ export default function ChannelPerformance({ onDrill }: { onDrill?: (tab: string
                         )}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-gray-800">
-                        <InlineBar value={c.spend} max={maxSpend} color="#6b7280">
-                          {c.spend ? krw(c.spend) : '-'}
+                        <InlineBar value={c.spend ?? 0} max={maxSpend} color="#6b7280">
+                          {c.paid ? krw(c.spend) : '해당 없음'}
                         </InlineBar>
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-gray-800">{num(c.sessions)}</td>
@@ -179,13 +188,13 @@ export default function ChannelPerformance({ onDrill }: { onDrill?: (tab: string
                         </InlineBar>
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-gray-800">{c.aov ? krw(c.aov) : '-'}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-gray-800">{c.sessions ? `${c.cvr.toFixed(2)}%` : '-'}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-gray-800">{c.cvr !== null ? `${c.cvr.toFixed(2)}%` : '-'}</td>
                       <td className="whitespace-nowrap px-3 py-2">
                         {c.roas === null ? (
-                          <span className="text-gray-400">-</span>
+                          <span className="text-gray-400">계산 불가</span>
                         ) : (
-                          <span className={c.roas >= 2 ? 'font-semibold text-emerald-700' : c.roas >= 1 ? 'text-amber-700' : 'font-semibold text-red-700'}>
-                            {c.roas.toFixed(2)}
+                          <span className="font-medium text-gray-800">
+                            {c.roas.toFixed(2)}배
                           </span>
                         )}
                       </td>
@@ -197,10 +206,10 @@ export default function ChannelPerformance({ onDrill }: { onDrill?: (tab: string
             </div>
             {onDrill && (
               <div className="flex gap-2 border-t border-gray-100 px-3 py-2">
-                <button type="button" onClick={() => onDrill('ad_efficiency')} className="text-[11px] font-medium text-blue-600 hover:underline">
+                <button type="button" onClick={() => onDrill('ad_efficiency')} className="text-xs font-medium text-blue-600 hover:underline">
                   Meta 상세 →
                 </button>
-                <button type="button" onClick={() => onDrill('naver')} className="text-[11px] font-medium text-blue-600 hover:underline">
+                <button type="button" onClick={() => onDrill('naver')} className="text-xs font-medium text-blue-600 hover:underline">
                   네이버 상세 →
                 </button>
               </div>
@@ -211,7 +220,7 @@ export default function ChannelPerformance({ onDrill }: { onDrill?: (tab: string
           <div className="rounded-lg border border-gray-200 bg-white">
             <div className="border-b border-gray-100 px-3 py-2">
               <h3 className="text-xs font-semibold text-gray-900">일별 매출 (주문 DB)</h3>
-              <p className="mt-0.5 text-[11px] text-gray-500">
+              <p className="mt-0.5 text-xs text-gray-500">
                 단체복은 큰 건 한 건이 주간 매출을 좌우합니다 — 일별 등락으로 판정하지 마세요 (최소 14일).
               </p>
             </div>
@@ -220,7 +229,7 @@ export default function ChannelPerformance({ onDrill }: { onDrill?: (tab: string
                 <p className="py-4 text-center text-xs text-gray-500">기간 내 주문이 없습니다.</p>
               ) : (
                 <>
-                  <TrendBars
+                  <div className="overflow-x-auto"><div style={{ minWidth: Math.max(480, data.daily.length * 20) }}><TrendBars
                     data={data.daily.map((d) => ({
                       label: d.date,
                       segments: [
@@ -231,9 +240,9 @@ export default function ChannelPerformance({ onDrill }: { onDrill?: (tab: string
                     }))}
                     colors={CHANNEL_COLORS}
                     height={140}
-                  />
+                  /></div></div>
                   <details className="mt-2">
-                    <summary className="cursor-pointer text-[11px] text-gray-500 hover:text-gray-700">표로 보기</summary>
+                    <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">표로 보기</summary>
                     <div className="mt-1 overflow-x-auto">
                       <table className="min-w-full text-left text-xs">
                         <thead className="bg-gray-50 text-gray-600">
@@ -248,8 +257,8 @@ export default function ChannelPerformance({ onDrill }: { onDrill?: (tab: string
                             <tr key={d.date} className="hover:bg-gray-50">
                               <td className="whitespace-nowrap px-3 py-2 text-gray-800">{d.date.slice(5)}</td>
                               <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">{krw(d.total)}</td>
-                              <td className="whitespace-nowrap px-3 py-2 text-gray-800">{d.meta ? krw(d.meta) : '-'}</td>
-                              <td className="whitespace-nowrap px-3 py-2 text-gray-800">{d.naver ? krw(d.naver) : '-'}</td>
+                              <td className="whitespace-nowrap px-3 py-2 text-gray-800">{krw(d.meta)}</td>
+                              <td className="whitespace-nowrap px-3 py-2 text-gray-800">{krw(d.naver)}</td>
                               <td className="whitespace-nowrap px-3 py-2 text-gray-800">{krw(Math.max(d.total - d.meta - d.naver, 0))}</td>
                             </tr>
                           ))}
@@ -262,7 +271,7 @@ export default function ChannelPerformance({ onDrill }: { onDrill?: (tab: string
             </div>
           </div>
 
-          <ul className="space-y-0.5 text-[11px] text-gray-400">
+          <ul className="space-y-0.5 text-xs text-gray-400">
             {data.notes.map((n) => (
               <li key={n}>· {n}</li>
             ))}
@@ -280,7 +289,7 @@ function Stat({ label, value, hint, tone }: { label: string; value: string; hint
     <div className="rounded-lg border border-gray-200 bg-white p-3">
       <p className="text-xs text-gray-500">{label}</p>
       <p className={`mt-1 text-lg font-semibold ${toneClass}`}>{value}</p>
-      {hint && <p className="mt-0.5 text-[11px] text-gray-400">{hint}</p>}
+      {hint && <p className="mt-0.5 text-xs text-gray-400">{hint}</p>}
     </div>
   );
 }

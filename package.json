@@ -1,6 +1,6 @@
 {
   "name": "modoo_admin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -16,7 +16,8 @@
     "franchise:manifest": "tsx scripts/franchise-expo/build-manifest.ts",
     "franchise:import": "tsx --env-file=.env.local scripts/franchise-expo/import.ts",
     "franchise:verify": "tsx --env-file=.env.local scripts/franchise-expo/verify.ts",
-    "test:franchise-expo": "tsx --test scripts/franchise-expo/*.test.ts"
+    "test:franchise-expo": "tsx --test scripts/franchise-expo/*.test.ts",
+    "test:analytics": "tsx --test lib/analytics/analytics.test.ts lib/analytics/marketing-metrics.test.ts lib/analytics/ad-efficiency.test.ts"
   },
   "dependencies": {
     "@fontsource/noto-sans-kr": "^5.2.9",

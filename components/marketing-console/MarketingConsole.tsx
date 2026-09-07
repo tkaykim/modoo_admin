@@ -25,17 +25,19 @@ import { fetcher } from '@/lib/fetcher';
 import DecisionsPanel from './DecisionsPanel';
 
 type Overview = {
+  totalSpend: number | null;
   spend: number;
   impressions: number;
   clicks: number;
   reach: number;
-  ctr: number;
-  cpc: number;
+  ctr: number | null;
+  cpc: number | null;
   dbRevenue: number;
   dbOrders: number;
-  dbRoas: number;
-  metaRevenue: number;
-  metaRoas: number;
+  dbRoas: number | null;
+  metaRevenue: number | null;
+  metaRoas: number | null;
+  utmMetaRoas: number | null;
   utmMetaRevenue: number;
   utmMetaOrders: number;
   activeCampaigns: number;
@@ -71,17 +73,18 @@ type Creative = {
   campaignName: string;
   adSetName: string;
   imageUrl: string | null;
+  imageHash?: string | null;
   mediaType: 'image' | 'video' | 'dynamic' | 'unknown';
   hasVideo: boolean;
   message: string;
   spend: number;
   impressions: number;
   clicks: number;
-  ctr: number;
-  cpc: number;
-  purchases: number;
-  purchaseValue: number;
-  roas: number;
+  ctr: number | null;
+  cpc: number | null;
+  purchases: number | null;
+  purchaseValue: number | null;
+  roas: number | null;
   verdict: 'winner' | 'watch' | 'kill' | 'fresh';
   reason: string;
 };
@@ -96,11 +99,11 @@ type AdSet = {
   spend: number;
   impressions: number;
   clicks: number;
-  ctr: number;
-  cpc: number;
-  purchases: number;
-  purchaseValue: number;
-  roas: number;
+  ctr: number | null;
+  cpc: number | null;
+  purchases: number | null;
+  purchaseValue: number | null;
+  roas: number | null;
 };
 
 type Campaign = {
@@ -120,7 +123,11 @@ type WeeklyPlan = {
 
 type Payload = {
   generatedAt: string;
-  range: { since: string; until: string; days: number };
+  adsCollectedAt?: string;
+  naverCollectedAt?: string | null;
+  adsErrors?: string[];
+  notes?: string[];
+  range: { since: string; until: string; days: number; incomplete?: boolean };
   overview: Overview;
   campaigns: Campaign[];
   adSets: AdSet[];
@@ -129,10 +136,10 @@ type Payload = {
   weeklyPlan: WeeklyPlan;
 };
 
-const krw = (value: number) => `₩${new Intl.NumberFormat('ko-KR').format(Math.round(value || 0))}`;
-const num = (value: number) => new Intl.NumberFormat('ko-KR').format(Math.round(value || 0));
-const pct = (value: number) => `${(value || 0).toFixed(0)}%`;
-const pct2 = (value: number) => `${(value || 0).toFixed(2)}%`;
+const krw = (value: number | null) => value === null ? '미수집' : `₩${new Intl.NumberFormat('ko-KR').format(Math.round(value || 0))}`;
+const num = (value: number | null) => value === null ? '미수집' : new Intl.NumberFormat('ko-KR').format(Math.round(value || 0));
+const pct = (value: number | null) => value === null ? '계산 불가' : `${value.toFixed(0)}%`;
+const pct2 = (value: number | null) => value === null ? '계산 불가' : `${value.toFixed(2)}%`;
 
 const tabs = [
   { id: 'decisions', label: '오늘의 결정' },
@@ -178,10 +185,18 @@ export default function MarketingConsole() {
     [data?.recommendations, doneIds],
   );
 
+  const imageHashes = [...new Set((data?.creatives ?? []).slice(0, 18).map((row) => row.imageHash).filter((hash): hash is string => !!hash))];
+  const imageQuery = new URLSearchParams(imageHashes.map((hash) => ['hash', hash])).toString();
+  const { data: fullImages, error: imageError } = useSWR<Record<string, { url?: string; permalink_url?: string }>>(
+    tab === 'creatives' && imageHashes.length ? `/api/admin/marketing-console/images?${imageQuery}` : null,
+    fetcher, { revalidateOnFocus: false },
+  );
   const topCreatives = useMemo(() => {
     const rows = data?.creatives ?? [];
-    return rows.slice(0, 18);
-  }, [data?.creatives]);
+    return rows.slice(0, 18).map((row) => ({ ...row,
+      imageUrl: (row.imageHash && (fullImages?.[row.imageHash]?.url || fullImages?.[row.imageHash]?.permalink_url)) || row.imageUrl,
+    }));
+  }, [data?.creatives, fullImages]);
 
   const markDone = (id: string) => {
     const next = Array.from(new Set([...doneIds, id]));
@@ -223,11 +238,12 @@ export default function MarketingConsole() {
 
   const refresh = async () => {
     setMessage(null);
-    await mutate();
+    try { await mutate(fetcher(`/api/admin/marketing-console?days=${days}&refresh=1`), { revalidate: false }); }
+    catch (error) { setMessage(error instanceof Error ? error.message : '새로고침 실패'); }
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-900">마케팅 콘솔</h1>
@@ -265,29 +281,34 @@ export default function MarketingConsole() {
 
       {data && (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
-            <Kpi icon={Target} label="광고비" value={krw(data.overview.spend)} hint={`캠페인 ${num(data.overview.activeCampaigns)}개`} />
-            <Kpi icon={BadgeDollarSign} label="주문 매출" value={krw(data.overview.dbRevenue)} hint={`주문 ${num(data.overview.dbOrders)}건`} />
-            <Kpi icon={TrendingUp} label="실 ROAS" value={pct(data.overview.dbRoas)} hint="DB 매출 기준" tone={data.overview.dbRoas >= 300 ? 'green' : data.overview.dbRoas >= 150 ? 'amber' : 'red'} />
+          <p className="text-xs text-gray-500">{data.range.since} ~ {data.range.until} · {data.range.incomplete ? '오늘 집계 중' : '완료일 기준'} · 조회 {new Date(data.generatedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} · 광고 수집 {new Date(data.adsCollectedAt ?? data.generatedAt).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' })}</p>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Kpi icon={Target} label="총 광고비" value={krw(data.overview.totalSpend)} hint={`Meta ${krw(data.overview.spend)} + 네이버`} />
+            <Kpi icon={BadgeDollarSign} label="전체 확정매출" value={krw(data.overview.dbRevenue)} hint={`주문 ${num(data.overview.dbOrders)}건`} />
+            <Kpi icon={TrendingUp} label="전체 매출 효율(MER)" value={data.overview.dbRoas === null ? '계산 불가' : `${data.overview.dbRoas.toFixed(2)}배`} hint="전체 확정매출 ÷ 총 광고비" />
+            <Kpi icon={TrendingUp} label="Meta 보고 ROAS" value={pct(data.overview.metaRoas)} hint="매체 귀속 구매가치 ÷ Meta 광고비" />
+            <Kpi icon={TrendingUp} label="UTM 귀속 ROAS" value={pct(data.overview.utmMetaRoas)} hint="유료 Meta UTM 확정매출 ÷ Meta 광고비" />
             <Kpi icon={MousePointerClick} label="CTR" value={pct2(data.overview.ctr)} hint={`클릭 ${num(data.overview.clicks)}`} />
             <Kpi icon={Target} label="CPC" value={krw(data.overview.cpc)} hint={`노출 ${num(data.overview.impressions)}`} />
             <Kpi icon={CheckCircle2} label="실행 대기" value={`${num(visibleRecommendations.filter((item) => item.action).length)}건`} hint={`활성 소재 ${num(data.overview.activeAds)}개`} />
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-            <section className="rounded-md border border-gray-200 bg-white">
+          {!!data.adsErrors?.length && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">{data.adsErrors.join(' · ')} · 총 광고비와 MER는 계산하지 않습니다.</p>}
+          <ul className="space-y-1 text-xs text-gray-500">{data.notes?.map((note) => <li key={note}>{note}</li>)}</ul>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+            <section className="min-w-0 rounded-md border border-gray-200 bg-white">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-4 py-3">
                 <div>
                   <h2 className="text-sm font-semibold text-gray-900">운영 추천</h2>
                   <p className="text-xs text-gray-500">중단·재개·예산 조정은 확인 후 즉시 Meta에 반영됩니다.</p>
                 </div>
-                <div className="inline-flex rounded-md bg-gray-100 p-0.5">
+                <div className="flex max-w-full overflow-x-auto rounded-md bg-gray-100 p-0.5">
                   {tabs.map((item) => (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => setTab(item.id)}
-                      className={`rounded px-2.5 py-1 text-xs font-medium ${tab === item.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                      className={`shrink-0 whitespace-nowrap rounded px-2.5 py-1 text-xs font-medium ${tab === item.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
                     >
                       {item.label}
                     </button>
@@ -314,6 +335,7 @@ export default function MarketingConsole() {
                 </div>
               )}
 
+              {imageError && tab === 'creatives' && <p className="px-4 pt-3 text-xs text-amber-700">원본 이미지를 불러오지 못해 미리보기를 표시합니다.</p>}
               {tab === 'creatives' && (
                 <div className="grid gap-3 p-4 md:grid-cols-2 2xl:grid-cols-3">
                   {topCreatives.map((creative) => (
@@ -341,7 +363,7 @@ export default function MarketingConsole() {
               {tab === 'campaigns' && <CampaignTable campaigns={data.campaigns} adSets={data.adSets} onQuickAction={(recommendation) => setConfirm(recommendation)} />}
             </section>
 
-            <aside className="space-y-4">
+            <aside className="min-w-0 space-y-4">
               <section className="rounded-md border border-gray-200 bg-white p-4">
                 <div className="flex items-center justify-between gap-2">
                   <h2 className="text-sm font-semibold text-gray-900">이번 주 방향</h2>
@@ -876,7 +898,7 @@ function CampaignTable({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full text-left text-sm">
+      <table className="min-w-[720px] text-left text-sm">
         <thead className="bg-gray-50 text-[11px] uppercase text-gray-500">
           <tr>
             <th className="px-4 py-2 font-semibold">광고세트</th>
@@ -1023,7 +1045,7 @@ function VerdictBadge({ verdict }: { verdict: Creative['verdict'] }) {
     kill: 'bg-red-50 text-red-700 border-red-200',
     fresh: 'bg-blue-50 text-blue-700 border-blue-200',
   }[verdict];
-  const label = { winner: 'WIN', watch: 'WATCH', kill: 'KILL', fresh: 'NEW' }[verdict];
+  const label = { winner: '성과 검토', watch: '관찰 중', kill: '효율 검토', fresh: '신규' }[verdict];
   return <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${classes}`}>{label}</span>;
 }
 

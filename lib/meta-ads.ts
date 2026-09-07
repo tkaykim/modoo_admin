@@ -422,16 +422,18 @@ export type AccountSummary = {
   impressions: number;
   clicks: number;
   reach: number;
+  actions?: MetaAction[];
+  action_values?: MetaAction[];
 };
 
 export async function fetchAccountSummary(sinceYmd: string, untilYmd: string): Promise<AccountSummary> {
   const { account } = getCreds();
-  const resp = await metaFetch<Paged<{ spend: string; impressions: string; clicks: string; reach: string }>>(
+  const resp = await metaFetch<Paged<{ spend: string; impressions: string; clicks: string; reach: string; actions?: MetaAction[]; action_values?: MetaAction[] }>>(
     `/${account}/insights`,
     {
       level: 'account',
       time_range: JSON.stringify({ since: sinceYmd, until: untilYmd }),
-      fields: 'spend,impressions,clicks,reach',
+      fields: 'spend,impressions,clicks,reach,actions,action_values',
     },
   );
   const row = resp.data?.[0];
@@ -440,6 +442,8 @@ export async function fetchAccountSummary(sinceYmd: string, untilYmd: string): P
     impressions: Number(row?.impressions ?? 0),
     clicks: Number(row?.clicks ?? 0),
     reach: Number(row?.reach ?? 0),
+    actions: row?.actions,
+    action_values: row?.action_values,
   };
 }
 

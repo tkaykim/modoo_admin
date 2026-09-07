@@ -14,33 +14,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireMarketingAccess } from '@/lib/admin/require-marketing-access';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { fetchAccountSummary, rangeFromDays as metaRange } from '@/lib/meta-ads';
-import { getCreds as getNaverCreds, getDailyStats, listCampaigns, rangeFromDays } from '@/lib/naver-ads';
+import { fetchAccountSummary } from '@/lib/meta-ads';
+import { naverSpend } from '@/lib/analytics/marketing-spend';
+
+import { channelOf, PAID_CHANNELS, isConfirmedMarketingOrder, ratio, reportingRange, reportingDays, cachedMarketingRead } from '@/lib/analytics/marketing-metrics';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-const TEST_CAMPAIGN_PREFIX = 'grp-E2E';
-
-/**
- * utm_source(+medium) → 채널 그룹.
- * ig/fb/an/msg 는 Meta 광고 시스템의 지면들이라 "Meta 광고" 하나로 묶는다 —
- * 지면별 분해는 Meta 상세 탭의 몫이고, 이 화면은 채널 간 비교가 목적이다.
- */
-function channelOf(source: string | null, medium: string | null): string {
-  const s = (source ?? '').toLowerCase();
-  const m = (medium ?? '').toLowerCase();
-  if (!s) return '직접·자연';
-  if (['ig', 'fb', 'an', 'msg', 'th'].includes(s)) return m === 'paid' ? 'Meta 광고' : 'SNS 자연';
-  if (s === 'naver') return '네이버 검색광고';
-  if (s === 'kakao') return '카카오 채널';
-  if (s === 'threads' || s === 'instagram' || s === 'facebook') return 'SNS 자연';
-  if (s === 'print' || s === 'kprint') return '오프라인·박람회';
-  return '기타';
-}
-
-/** 광고비가 실리는 채널 — 혼합 ROAS 분모·광고 귀속 매출 분자의 기준 */
-const PAID_CHANNELS = new Set(['Meta 광고', '네이버 검색광고']);
 
 const kstDay = (iso: string) => new Date(new Date(iso).getTime() + 9 * 3600_000).toISOString().slice(0, 10);
 
@@ -58,27 +38,46 @@ export async function GET(req: NextRequest) {
     if ('error' in auth && auth.error) return auth.error;
 
     const { searchParams } = new URL(req.url);
-    const days = Math.max(1, Math.min(180, Number(searchParams.get('days') ?? 14)));
-    const { since, until } = rangeFromDays(days);
-    const sinceTs = `${since}T00:00:00+09:00`;
-
+    let range;
+    try { range = reportingRange(searchParams); }
+    catch (error) { return NextResponse.json({ error: String(error instanceof Error ? error.message : error) }, { status: 400 }); }
+    const { since, until, days, fromIso: sinceTs, toExclusive } = range;
     const supabase = createAdminClient();
-
-    // ── DB: 세션·문의·주문 (광고 API가 죽어도 여기는 항상 나온다)
-    // ⚠ analytics_events 는 행이 많아(14일 1.7만+) 앱에서 읽으면 기본 1,000행에 잘린다.
-    //   세션·문의 집계는 반드시 RPC(admin_channel_stats)로 DB 에서 한다.
-    const [statsRes, ordersRes] = await Promise.all([
-      supabase.rpc('admin_channel_stats', { p_since: sinceTs }),
-      supabase
-        .from('orders')
-        .select('created_at, total_amount, utm_source, utm_medium, utm_campaign')
-        .gte('created_at', sinceTs)
-        .limit(20000),
+    const adsErrors: string[] = [];
+    const spendByChannel = new Map<string, number>();
+    const adsCollectedAt: Record<string, string> = {};
+    type Order = { id: string; created_at: string; total_amount: number | null; payment_status: string | null; order_status: string | null; utm_source: string | null; utm_medium: string | null; utm_campaign: string | null };
+    const fetchOrders = async () => {
+      const rows: Order[] = [];
+      for (let offset = 0; offset < 200000; offset += 1000) {
+        const { data, error } = await supabase.from('orders')
+          .select('id,created_at,total_amount,payment_status,order_status,utm_source,utm_medium,utm_campaign')
+          .gte('created_at', sinceTs).lt('created_at', toExclusive)
+          .order('created_at', { ascending: true }).order('id', { ascending: true }).range(offset, offset + 999);
+        if (error) throw new Error(error.message);
+        rows.push(...(data ?? []) as Order[]);
+        if (!data || data.length < 1000) return rows;
+      }
+      throw new Error('주문 조회 상한을 초과했습니다. 기간을 줄여 주세요.');
+    };
+    const [statsRes, orders] = await Promise.all([
+      supabase.rpc('admin_channel_stats_range', { p_since: sinceTs, p_until: toExclusive }),
+      fetchOrders(),
+      (async () => {
+        try {
+          const meta = await cachedMarketingRead(`channel:meta:${process.env.META_AD_ACCOUNT_ID}:${since}:${until}`, () => fetchAccountSummary(since, until), searchParams.has('refresh'));
+          spendByChannel.set('Meta 광고', Math.round(meta.value.spend));
+          adsCollectedAt['Meta 광고'] = meta.collectedAt;
+        } catch { adsErrors.push('Meta 광고비 조회 실패'); }
+      })(),
+      (async () => {
+        const naver = await naverSpend(since, until, searchParams.has('refresh'));
+        if (naver.error) adsErrors.push(naver.error);
+        if (naver.spend !== null) spendByChannel.set('네이버 검색광고', naver.spend);
+        if (naver.collectedAt) adsCollectedAt['네이버 검색광고'] = naver.collectedAt;
+      })(),
     ]);
-    if (statsRes.error) throw new Error(`admin_channel_stats: ${statsRes.error.message}`);
-    if (ordersRes.error) throw new Error(`orders: ${ordersRes.error.message}`);
-
-    const isTest = (v: unknown) => String(v ?? '').startsWith(TEST_CAMPAIGN_PREFIX);
+    if (statsRes.error) throw new Error(`채널 세션 집계: ${statsRes.error.message}`);
 
     const agg = new Map<string, ChannelAgg>();
     const get = (ch: string): ChannelAgg => {
@@ -100,8 +99,8 @@ export async function GET(req: NextRequest) {
       a.chatbotSessions += Number(r.chatbot_sessions ?? 0);
     }
 
-    for (const o of ordersRes.data ?? []) {
-      if (isTest(o.utm_campaign)) continue;
+    for (const o of orders) {
+      if (!isConfirmedMarketingOrder(o)) continue;
       const ch = channelOf(o.utm_source as string | null, o.utm_medium as string | null);
       const a = get(ch);
       const amount = Number(o.total_amount ?? 0);
@@ -114,41 +113,13 @@ export async function GET(req: NextRequest) {
       revenueDaily.set(day, d);
     }
 
-    // ── 광고비: 채널별로 독립 수집. 한쪽이 실패해도 다른 쪽은 산다.
-    const spendByChannel = new Map<string, number>();
-    const adsErrors: string[] = [];
-
-    // Meta — until 이 미래면 API 가 거부할 수 있어 meta 쪽 range 헬퍼로 맞춘다
-    try {
-      const mr = metaRange(days);
-      const meta = await fetchAccountSummary(mr.since, mr.until);
-      spendByChannel.set('Meta 광고', Math.round(Number(meta.spend ?? 0)));
-    } catch (e) {
-      adsErrors.push(`Meta 광고비: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    // 네이버
-    const naverCreds = getNaverCreds();
-    if (!naverCreds) {
-      adsErrors.push('네이버 광고비: NAVER_AD_* 미설정');
-    } else {
-      try {
-        const camps = await listCampaigns(naverCreds);
-        let spend = 0;
-        for (const c of camps) {
-          const daily = await getDailyStats(naverCreds, c.nccCampaignId, since, until);
-          spend += daily.reduce((s, r) => s + Number(r.salesAmt ?? 0), 0);
-        }
-        spendByChannel.set('네이버 검색광고', Math.round(spend));
-      } catch (e) {
-        adsErrors.push(`네이버 광고비: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
+    // Include channels that spent money but produced no sessions or orders.
+    for (const channel of PAID_CHANNELS) get(channel);
 
     // ── 채널 테이블 (매출 → 세션 순 정렬, 직접·자연은 맨 아래로)
     const channels = [...agg.entries()]
       .map(([channel, a]) => {
-        const spend = spendByChannel.get(channel) ?? 0;
+        const spend = PAID_CHANNELS.has(channel) ? spendByChannel.get(channel) ?? null : null;
         const inquiries = a.formInquiries + a.chatbotSessions;
         return {
           channel,
@@ -160,11 +131,11 @@ export async function GET(req: NextRequest) {
           inquiries,
           orders: a.orders,
           revenue: a.revenue,
-          aov: a.orders ? a.revenue / a.orders : 0,
-          roas: spend ? a.revenue / spend : null,
-          cpa: spend && a.orders ? spend / a.orders : null,
+          aov: ratio(a.revenue, a.orders),
+          roas: ratio(a.revenue, spend),
+          cpa: ratio(spend, a.orders),
           // 세션 → 주문 전환율. 채널 간 트래픽 품질 비교의 핵심 지표.
-          cvr: a.sessions ? (a.orders / a.sessions) * 100 : 0,
+          cvr: a.sessions ? (a.orders / a.sessions) * 100 : null,
         };
       })
       .sort((a, b) => {
@@ -173,29 +144,34 @@ export async function GET(req: NextRequest) {
         return b.revenue - a.revenue || b.sessions - a.sessions;
       });
 
-    const totalSpend = [...spendByChannel.values()].reduce((a, b) => a + b, 0);
+    const totalSpend = adsErrors.length ? null : [...spendByChannel.values()].reduce((a, b) => a + b, 0);
     const paidRevenue = channels.filter((c) => c.paid).reduce((a, c) => a + c.revenue, 0);
     const totalRevenue = channels.reduce((a, c) => a + c.revenue, 0);
     const totalOrders = channels.reduce((a, c) => a + c.orders, 0);
     const totalInquiries = channels.reduce((a, c) => a + c.inquiries, 0);
 
-    const daily = [...revenueDaily.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, v]) => ({
+    const daily = reportingDays(since, until).map((date) => {
+      const v = revenueDaily.get(date) ?? {};
+      return ({
         date,
         total: Math.round(v['전체'] ?? 0),
         meta: Math.round(v['Meta 광고'] ?? 0),
         naver: Math.round(v['네이버 검색광고'] ?? 0),
-      }));
+      });
+    });
 
     return NextResponse.json({
-      range: { since, until, days },
+      range: { since, until, days, incomplete: range.incomplete },
+      generatedAt: new Date().toISOString(),
+      adsCollectedAt,
       summary: {
         totalSpend,
         paidRevenue,
         totalRevenue,
-        blendedRoas: totalSpend ? paidRevenue / totalSpend : 0,
-        paidRevenueShare: totalRevenue ? (paidRevenue / totalRevenue) * 100 : 0,
+        blendedRoas: ratio(paidRevenue, totalSpend),
+        mer: ratio(totalRevenue, totalSpend),
+        spendShare: totalRevenue > 0 && totalSpend !== null ? totalSpend / totalRevenue * 100 : null,
+        paidRevenueShare: totalRevenue ? (paidRevenue / totalRevenue) * 100 : null,
         totalOrders,
         totalInquiries,
       },
@@ -204,7 +180,10 @@ export async function GET(req: NextRequest) {
       adsErrors,
       notes: [
         '문의는 프록시 지표입니다 — 폼 문의(/inquiries/new/success 도달) + 챗봇 상담 시작 세션.',
-        '매출·주문은 자사 주문 DB 기준입니다. 매체 픽셀 전환수를 쓰지 않습니다.',
+        '확정매출은 주문 생성일 기준 유효 결제 주문금액입니다. 취소·환불·결제대기·테스트 주문은 제외합니다.',
+        'MER = 전체 확정매출 ÷ Meta·네이버 총광고비. 광고 귀속 ROAS = 유료 UTM 확정매출 ÷ 같은 채널 광고비.',
+        '이 지표는 이익률이 아닙니다. 원가·수수료 및 유입 후 14·28일 전환 지연을 별도로 확인하세요.',
+        '세션은 source·medium별 고유 세션을 합산하므로 채널 간 이동은 중복될 수 있습니다.',
         '직접·자연에는 UTM 없는 재방문·북마크·매체 기여창 밖 전환이 섞입니다.',
       ],
     });

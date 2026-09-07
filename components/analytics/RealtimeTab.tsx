@@ -11,11 +11,11 @@ type RealtimeData = {
 
 const num = (n: number) => new Intl.NumberFormat('ko-KR').format(n);
 
-export default function RealtimeTab() {
+export default function RealtimeTab({ active = true }: { active?: boolean }) {
   const { data: payload, error, isLoading } = useSWR<RealtimeData>(
     '/api/admin/analytics/ga4/realtime',
     fetcher,
-    { refreshInterval: 30000, revalidateOnFocus: true },
+    { refreshInterval: active ? 30000 : 0, revalidateOnFocus: active, isPaused: () => !active },
   );
   const now = new Date();
   const updatedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
