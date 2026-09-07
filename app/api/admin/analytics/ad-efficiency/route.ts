@@ -2,118 +2,68 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireMarketingAccess } from '@/lib/admin/require-marketing-access';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { fetchAccountSummary, fetchInsightsDaily } from '@/lib/meta-ads';
-import { previousPeriodYmd, todayKstYmd } from '@/lib/analytics/period';
+import { addDays, calendarComparison, dayKey, kstIso, validateYmd } from '@/lib/analytics/time';
+import { isTestOrder, revenueState } from '@/lib/analytics/revenue';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const YMD = /^\d{4}-\d{2}-\d{2}$/;
+type OrderRow = { id: string; utm_campaign: string | null; total_amount: number | null; payment_status: string | null; order_status: string | null; created_at: string };
+type Metrics = Record<'spend' | 'impressions' | 'clicks' | 'reach' | 'ctr' | 'cpc' | 'revenue' | 'orders' | 'roas', number | null>;
+const emptyMetrics: Metrics = { spend: null, impressions: null, clicks: null, reach: null, ctr: null, cpc: null, revenue: null, orders: null, roas: null };
+const message = (e: unknown) => e instanceof Error ? e.message : '데이터 조회 실패';
 
-// KST 'YYYY-MM-DD' 00:00 → UTC ISO
-function kstYmdToUtcIso(ymd: string): string {
-  return new Date(`${ymd}T00:00:00+09:00`).toISOString();
-}
-// to(exclusive) → Meta until(inclusive) = to - 1일
-function prevDayYmd(ymd: string): string {
-  const d = new Date(`${ymd}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
-}
-function kstDateKey(iso: string): string {
-  const k = new Date(new Date(iso).getTime() + 9 * 3600000);
-  return `${k.getUTCFullYear()}-${String(k.getUTCMonth() + 1).padStart(2, '0')}-${String(k.getUTCDate()).padStart(2, '0')}`;
-}
-
-type OrderRow = { total_amount: number | null; payment_status: string | null; order_status: string | null; created_at: string };
-
-// DB 실매출 (KST [from, to)). order_profit_summary 정의와 동일: 결제완료 & 취소 제외.
+// 주문 생성일 기준 현재 유효 결제금액이며, 결제일/입금일 매출이 아니다.
 async function dbRevenueRange(admin: SupabaseClient, fromYmd: string, toYmd: string) {
-  const sinceIso = kstYmdToUtcIso(fromYmd);
-  const untilIso = kstYmdToUtcIso(toYmd);
-  const rows: OrderRow[] = [];
-  const PAGE = 1000;
-  let from = 0;
-  while (true) {
-    const { data, error } = await admin
-      .from('orders')
-      .select('total_amount,payment_status,order_status,created_at')
-      .gte('created_at', sinceIso)
-      .lt('created_at', untilIso)
-      .order('created_at', { ascending: true })
-      .range(from, from + PAGE - 1);
-    if (error) throw new Error(error.message);
-    const b = (data ?? []) as OrderRow[];
-    rows.push(...b);
-    if (b.length < PAGE) break;
-    from += PAGE;
-  }
   let total = 0;
   let orders = 0;
   const byDate = new Map<string, number>();
-  for (const o of rows) {
-    if (!(o.payment_status === 'completed' && o.order_status !== 'cancelled')) continue;
-    const amt = Number(o.total_amount ?? 0);
-    total += amt;
-    orders += 1;
-    const k = kstDateKey(o.created_at);
-    byDate.set(k, (byDate.get(k) ?? 0) + amt);
+  const PAGE = 1000;
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await admin.from('orders')
+      .select('id,utm_campaign,total_amount,payment_status,order_status,created_at')
+      .gte('created_at', kstIso(fromYmd)).lt('created_at', kstIso(toYmd))
+      .order('created_at', { ascending: true }).order('id', { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as OrderRow[];
+    for (const order of rows) {
+      if (isTestOrder(order) || revenueState(order) !== 'paid') continue;
+      const amount = Number(order.total_amount ?? 0);
+      total += amount;
+      orders += 1;
+      const date = dayKey(order.created_at);
+      byDate.set(date, (byDate.get(date) ?? 0) + amount);
+    }
+    if (rows.length < PAGE) break;
   }
   return { total, orders, byDate };
 }
 
-type Metrics = {
-  spend: number;
-  impressions: number;
-  clicks: number;
-  reach: number;
-  ctr: number;
-  cpc: number;
-  revenue: number;
-  orders: number;
-  roas: number; // 전체 실매출 ÷ 광고비 × 100 (광고 단독 귀속 아님)
-};
-
-async function computeMetrics(
-  admin: SupabaseClient,
-  fromYmd: string,
-  toYmd: string,
-): Promise<{ metrics: Metrics; byDate: Map<string, number>; metaError: string | null }> {
-  const since = fromYmd;
-  // Meta until(inclusive)은 미래로 못 가므로 오늘로 클램프. since>until(전부 미래)이면 Meta 생략.
-  const untilRaw = prevDayYmd(toYmd);
-  const today = todayKstYmd();
-  const until = untilRaw > today ? today : untilRaw;
-  const metaApplicable = since <= until;
-  let metaError: string | null = null;
-  let summary = { spend: 0, impressions: 0, clicks: 0, reach: 0 };
-  const [summaryRes, db] = await Promise.all([
-    metaApplicable
-      ? fetchAccountSummary(since, until).catch((e: unknown) => {
-          metaError = e instanceof Error ? e.message : 'Meta API error';
-          return null;
-        })
-      : Promise.resolve(null),
+async function computeMetrics(admin: SupabaseClient, fromYmd: string, toYmd: string) {
+  if (fromYmd >= toYmd) return { metrics: { ...emptyMetrics }, byDate: new Map<string, number>(), metaError: null as string | null, dbError: null as string | null };
+  const [meta, db] = await Promise.allSettled([
+    fetchAccountSummary(fromYmd, addDays(toYmd, -1)),
     dbRevenueRange(admin, fromYmd, toYmd),
   ]);
-  if (summaryRes) summary = summaryRes;
-  const ctr = summary.impressions > 0 ? (summary.clicks / summary.impressions) * 100 : 0;
-  const cpc = summary.clicks > 0 ? summary.spend / summary.clicks : 0;
-  const roas = summary.spend > 0 ? (db.total / summary.spend) * 100 : 0;
+  const summary = meta.status === 'fulfilled' ? meta.value : null;
+  const revenue = db.status === 'fulfilled' ? db.value : null;
   return {
     metrics: {
-      spend: summary.spend,
-      impressions: summary.impressions,
-      clicks: summary.clicks,
-      reach: summary.reach,
-      ctr,
-      cpc,
-      revenue: db.total,
-      orders: db.orders,
-      roas,
-    },
-    byDate: db.byDate,
-    metaError,
+      spend: summary?.spend ?? null,
+      impressions: summary?.impressions ?? null,
+      clicks: summary?.clicks ?? null,
+      reach: summary?.reach ?? null,
+      ctr: summary && summary.impressions > 0 ? summary.clicks / summary.impressions * 100 : null,
+      cpc: summary && summary.clicks > 0 ? summary.spend / summary.clicks : null,
+      revenue: revenue?.total ?? null,
+      orders: revenue?.orders ?? null,
+      roas: summary && summary.spend > 0 && revenue ? revenue.total / summary.spend * 100 : null,
+    } satisfies Metrics,
+    byDate: revenue?.byDate ?? new Map<string, number>(),
+    metaError: meta.status === 'rejected' ? message(meta.reason) : null,
+    dbError: db.status === 'rejected' ? message(db.reason) : null,
   };
 }
 
@@ -121,50 +71,63 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requireMarketingAccess();
     if ('error' in auth && auth.error) return auth.error;
-
     const { searchParams } = new URL(req.url);
     const fromYmd = searchParams.get('from') || '';
     const toYmd = searchParams.get('to') || '';
-    if (!YMD.test(fromYmd) || !YMD.test(toYmd) || fromYmd >= toYmd) {
-      return NextResponse.json({ error: 'from/to (YYYY-MM-DD, from<to exclusive) 필요' }, { status: 400 });
+    if (!validateYmd(fromYmd) || !validateYmd(toYmd) || fromYmd >= toYmd || Date.parse(toYmd) - Date.parse(fromYmd) > 732 * 86400000) {
+      return NextResponse.json({ error: '유효한 from/to 날짜와 최대 732일의 조회 기간이 필요합니다.' }, { status: 400 });
     }
-
+    const asOf = new Date();
+    const comparison = calendarComparison(fromYmd, toYmd, asOf);
+    const today = dayKey(asOf);
+    const currentRange = { fromYmd, toYmd: fromYmd >= today ? fromYmd : (toYmd < today ? toYmd : today) };
+    const comparisonDiffers = comparison.current.fromYmd !== currentRange.fromYmd || comparison.current.toYmd !== currentRange.toYmd;
+    const previousRange = comparison.previous;
+    const hasCompleteDays = currentRange.fromYmd < currentRange.toYmd;
     const admin = createAdminClient();
-    const prev = previousPeriodYmd({ fromYmd, toYmd, bucket: 'day', label: '', atCurrent: false });
-    const today = todayKstYmd();
-    const dailyUntilRaw = prevDayYmd(toYmd);
-    const dailyUntil = dailyUntilRaw > today ? today : dailyUntilRaw;
-
-    const [cur, prv, metaDaily] = await Promise.all([
-      computeMetrics(admin, fromYmd, toYmd),
-      computeMetrics(admin, prev.fromYmd, prev.toYmd),
-      fromYmd <= dailyUntil ? fetchInsightsDaily(fromYmd, dailyUntil).catch(() => []) : Promise.resolve([]),
+    const [cur, prv, dailyResult, pairedCurrent] = await Promise.all([
+      computeMetrics(admin, currentRange.fromYmd, currentRange.toYmd),
+      computeMetrics(admin, previousRange.fromYmd, previousRange.toYmd),
+      hasCompleteDays
+        ? fetchInsightsDaily(currentRange.fromYmd, addDays(currentRange.toYmd, -1))
+            .then(rows => ({ rows, error: null as string | null }))
+            .catch((e: unknown) => ({ rows: [], error: message(e) }))
+        : Promise.resolve({ rows: [], error: null as string | null }),
+      comparisonDiffers ? computeMetrics(admin, comparison.current.fromYmd, comparison.current.toYmd) : Promise.resolve(null),
     ]);
-
-    // 일자별 광고비(Meta) + 실매출(DB) 병합
     const spendByDate = new Map<string, number>();
-    for (const r of metaDaily) {
-      spendByDate.set(r.date_start, (spendByDate.get(r.date_start) ?? 0) + Number(r.spend || 0));
+    for (const row of dailyResult.rows) {
+      spendByDate.set(row.date_start, (spendByDate.get(row.date_start) ?? 0) + Number(row.spend || 0));
     }
-    const allDates = Array.from(new Set([...spendByDate.keys(), ...cur.byDate.keys()])).sort();
-    const daily = allDates.map((date) => ({
-      date,
-      spend: Math.round(spendByDate.get(date) ?? 0),
-      revenue: Math.round(cur.byDate.get(date) ?? 0),
-    }));
-
-    return NextResponse.json({
-      data: {
-        range: { from: fromYmd, to: toYmd },
-        current: cur.metrics,
-        previous: prv.metrics,
-        daily,
-        metaError: cur.metaError,
-      },
-    });
+    const daily = [];
+    for (let date = currentRange.fromYmd; date < currentRange.toYmd; date = addDays(date, 1)) {
+      daily.push({
+        date,
+        spend: dailyResult.error ? null : Math.round(spendByDate.get(date) ?? 0),
+        revenue: cur.dbError ? null : Math.round(cur.byDate.get(date) ?? 0),
+      });
+    }
+    return NextResponse.json({ data: {
+      range: { from: fromYmd, to: toYmd },
+      effectiveRange: { from: currentRange.fromYmd, to: currentRange.toYmd },
+      comparisonRange: { from: comparison.current.fromYmd, to: comparison.current.toYmd },
+      previousRange: { from: previousRange.fromYmd, to: previousRange.toYmd },
+      generatedAt: asOf.toISOString(),
+      dateBasis: 'created_at',
+      hasCompleteDays,
+      current: cur.metrics,
+      comparisonCurrent: (pairedCurrent ?? cur).metrics,
+      comparisonCurrentError: pairedCurrent ? pairedCurrent.metaError || pairedCurrent.dbError : null,
+      previous: prv.metrics,
+      daily,
+      metaError: cur.metaError,
+      previousMetaError: prv.metaError,
+      dailyMetaError: dailyResult.error,
+      dbError: cur.dbError,
+      previousDbError: prv.dbError,
+    } });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Internal error';
     console.error('[ad-efficiency] error:', e);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: message(e) }, { status: 500 });
   }
 }

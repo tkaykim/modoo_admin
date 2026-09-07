@@ -1,370 +1,130 @@
-import { SupabaseClient } from '@supabase/supabase-js';
-
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { revenueState, isTestOrder } from './revenue';
+import { bucketKey, bucketKeys, bucketStart, bucketEnd, bucketLabel, dayKey, kstIso, monthStart, weekStart, addDays, lastBucketComparison, type Grain } from './time';
+export type Bucket = Grain;
+export type DateBasis = 'created_at' | 'paid_at';
 export type RangePreset = 'this_week' | 'this_month' | 'q1' | 'q2' | 'q3' | 'q4' | 'custom';
-
-export type DateRange = {
-  fromIso: string;
-  toIso: string;
-};
-
-const KST_OFFSET_MIN = 9 * 60;
-
-function nowKst(): Date {
-  const now = new Date();
-  return new Date(now.getTime() + (KST_OFFSET_MIN - -now.getTimezoneOffset()) * 60000);
-}
-
-function kstStartOfDay(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function kstStartOfMonth(d: Date): Date {
-  const x = kstStartOfDay(d);
-  x.setDate(1);
-  return x;
-}
-
-function kstStartOfWeekMonday(d: Date): Date {
-  const x = kstStartOfDay(d);
-  const day = x.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  x.setDate(x.getDate() + diff);
-  return x;
-}
-
-function kstQuarterStart(d: Date, q: 1 | 2 | 3 | 4): Date {
-  return new Date(d.getFullYear(), (q - 1) * 3, 1);
-}
-
-function kstQuarterEndExclusive(d: Date, q: 1 | 2 | 3 | 4): Date {
-  return new Date(d.getFullYear(), q * 3, 1);
-}
-
-export function resolveRange(
-  preset: RangePreset,
-  fromParam?: string | null,
-  toParam?: string | null,
-): DateRange {
-  if (preset === 'custom' && fromParam && toParam) {
-    return { fromIso: new Date(fromParam).toISOString(), toIso: new Date(toParam).toISOString() };
+export type DateRange = {fromIso: string; toIso: string};
+export function resolveRange(preset: RangePreset, from?: string | null, to?: string | null): DateRange {
+  if (preset === 'custom') {
+    if (!from || !to || !Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to))) throw new RangeError('시작일과 종료일이 필요합니다.');
+    const range = {fromIso: new Date(from).toISOString(), toIso: new Date(to).toISOString()};
+    if (range.fromIso >= range.toIso || Date.parse(to) - Date.parse(from) > 1100 * 86400000) throw new RangeError('조회 기간은 최대 3년입니다.');
+    return range;
   }
-
-  const now = nowKst();
-  let from: Date;
-  let to: Date;
-
-  switch (preset) {
-    case 'this_week':
-      from = kstStartOfWeekMonday(now);
-      to = new Date(from);
-      to.setDate(to.getDate() + 7);
-      break;
-    case 'this_month': {
-      from = kstStartOfMonth(now);
-      to = new Date(from.getFullYear(), from.getMonth() + 1, 1);
-      break;
-    }
-    case 'q1':
-    case 'q2':
-    case 'q3':
-    case 'q4': {
-      const q = Number(preset.slice(1)) as 1 | 2 | 3 | 4;
-      from = kstQuarterStart(now, q);
-      to = kstQuarterEndExclusive(now, q);
-      break;
-    }
-    default:
-      from = kstStartOfMonth(now);
-      to = new Date(from.getFullYear(), from.getMonth() + 1, 1);
-  }
-
-  return { fromIso: from.toISOString(), toIso: to.toISOString() };
+  const today = dayKey();
+  if (preset === 'this_week') {const start = weekStart(today); return {fromIso: kstIso(start), toIso: kstIso(addDays(start, 7))};}
+  const q = /^q[1-4]$/.test(preset) ? Number(preset.slice(1)) : null;
+  const start = q ? `${today.slice(0, 4)}-${String((q - 1) * 3 + 1).padStart(2, '0')}-01` : monthStart(today);
+  return {fromIso: kstIso(start), toIso: kstIso(monthStart(start, q ? 3 : 1))};
 }
-
-export type AnalyticsPayload = {
-  range: { from: string; to: string; preset: RangePreset };
-  visitors: { unique_sessions: number; pageviews: number; note?: string };
-  orders: {
-    total_count: number;
-    paid_count: number;
-    paid_revenue: number;
-    refunded_count: number;
-    refunded_amount: number;
-    cancelled_count: number;
-    cancelled_amount: number;
-    confirmed_revenue: number;
-  };
-  orders_by_source: {
-    homepage: { count: number; paid_revenue: number };
-    external: { count: number; paid_revenue: number };
-    other: { count: number; paid_revenue: number };
-  };
-  inquiries_by_source: {
-    dashboard: number;
-    chatbot: number;
-    kakao: number;
-  };
-  daily_series: Array<{
-    date: string;
-    label: string;
-    visitors: number;
-    paid_revenue: number;
-    refunded_amount: number;
-    cancelled_amount: number;
-    confirmed_revenue: number;
-    order_count: number;
-  }>;
-  bucket: Bucket;
+export type ListedOrder = {
+  id: string; total_amount: number | null; payment_status: string | null; order_status: string | null;
+  created_at: string; paid_at: string | null; utm_campaign?: string | null;
 };
-
-type ListedOrder = {
-  id: string;
-  total_amount: number | null;
-  payment_status: string | null;
-  order_status: string | null;
-  created_at: string;
-};
-
-async function fetchOrdersInRange(admin: SupabaseClient, range: DateRange): Promise<ListedOrder[]> {
-  const PAGE = 1000;
+export async function fetchOrdersInRange(admin: SupabaseClient, range: DateRange, basis: DateBasis = 'created_at'): Promise<ListedOrder[]> {
   const out: ListedOrder[] = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await admin
-      .from('orders')
-      .select('id, total_amount, payment_status, order_status, created_at')
-      .gte('created_at', range.fromIso)
-      .lt('created_at', range.toIso)
-      .order('created_at', { ascending: true })
-      .range(from, from + PAGE - 1);
+  if (range.fromIso >= range.toIso) return out;
+  for (let from = 0; ; from += 1000) {
+    const {data, error} = await admin.from('orders').select('id,total_amount,payment_status,order_status,created_at,paid_at,utm_campaign')
+      .gte(basis, range.fromIso).lt(basis, range.toIso).order(basis).order('id').range(from, from + 999);
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as ListedOrder[];
-    out.push(...rows);
-    if (rows.length < PAGE) break;
-    from += PAGE;
+    out.push(...rows.filter(o => !isTestOrder(o)));
+    if (rows.length < 1000) break;
+    if (from >= 99000) throw new RangeError('주문이 많아 기간을 줄여야 합니다.');
   }
   return out;
 }
-
-async function fetchVisitorEvents(admin: SupabaseClient, range: DateRange) {
-  const PAGE = 1000;
-  const out: Array<{ session_id: string | null; occurred_at: string }> = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await admin
-      .from('analytics_events')
-      .select('session_id, occurred_at')
-      .eq('event_type', 'page_view')
-      .gte('occurred_at', range.fromIso)
-      .lt('occurred_at', range.toIso)
-      .range(from, from + PAGE - 1);
-    if (error) {
-      if ((error as { code?: string }).code === '42P01') return [];
-      throw new Error(error.message);
-    }
-    const rows = (data ?? []) as Array<{ session_id: string | null; occurred_at: string }>;
-    out.push(...rows);
-    if (rows.length < PAGE) break;
-    from += PAGE;
-  }
-  return out;
-}
-
-async function countInquiriesByTable(admin: SupabaseClient, table: string, range: DateRange) {
-  const { count, error } = await admin
-    .from(table)
-    .select('id', { count: 'exact', head: true })
-    .gte('created_at', range.fromIso)
-    .lt('created_at', range.toIso);
-  if (error) throw new Error(error.message);
-  return count ?? 0;
-}
-
-async function countRealDashboardInquiries(admin: SupabaseClient, range: DateRange) {
-  const { count, error } = await admin
-    .from('inquiries')
-    .select('id', { count: 'exact', head: true })
-    .gte('created_at', range.fromIso)
-    .lt('created_at', range.toIso)
-    .or('is_admin.is.null,is_admin.eq.false');
-  if (error) throw new Error(error.message);
-  return count ?? 0;
-}
-
-function classifyOrderSource(id: string): 'homepage' | 'external' | 'other' {
-  if (id.startsWith('ORD-') || id.startsWith('COBUY-')) return 'homepage';
-  if (id.startsWith('ORDER-')) return 'external';
-  return 'other';
-}
-
-export type Bucket = 'hour' | 'day' | 'month';
-
-// iso(UTC) → KST 기준 버킷 키. hour: 'YYYY-MM-DD HH', day: 'YYYY-MM-DD', month: 'YYYY-MM'
-function kstBucketKey(iso: string, bucket: Bucket): string {
-  const kst = new Date(new Date(iso).getTime() + 9 * 60 * 60000);
-  const y = kst.getUTCFullYear();
-  const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(kst.getUTCDate()).padStart(2, '0');
-  const h = String(kst.getUTCHours()).padStart(2, '0');
-  if (bucket === 'month') return `${y}-${m}`;
-  if (bucket === 'hour') return `${y}-${m}-${d} ${h}`;
-  return `${y}-${m}-${d}`;
-}
-
-// 버킷 키 → 차트 x축/툴팁 라벨
-function bucketLabel(key: string, bucket: Bucket): string {
-  if (bucket === 'hour') return `${Number(key.slice(11, 13))}시`;
-  if (bucket === 'month') return `${Number(key.slice(5, 7))}월`;
-  return `${Number(key.slice(5, 7))}/${Number(key.slice(8, 10))}`;
-}
-
-function buildBucketKeys(range: DateRange, bucket: Bucket): string[] {
-  const start = new Date(new Date(range.fromIso).getTime() + 9 * 60 * 60000);
-  const end = new Date(new Date(range.toIso).getTime() + 9 * 60 * 60000);
-  const keys: string[] = [];
-  if (bucket === 'hour') {
-    // fromIso/toIso 는 정시 경계(프론트가 T00:00:00 +09:00 전송). UTC 시간 단위로 순회하며 KST 시각 라벨링.
-    const cur = new Date(range.fromIso);
-    const stop = new Date(range.toIso);
-    while (cur < stop) {
-      keys.push(kstBucketKey(cur.toISOString(), 'hour'));
-      cur.setUTCHours(cur.getUTCHours() + 1);
-    }
-    return keys;
-  }
-  if (bucket === 'month') {
-    const cur = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
-    const stop = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
-    while (cur < stop) {
-      keys.push(`${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`);
-      cur.setUTCMonth(cur.getUTCMonth() + 1);
-    }
-    return keys;
-  }
-  const cur = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
-  const stop = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
-  while (cur < stop) {
-    const y = cur.getUTCFullYear();
-    const m = String(cur.getUTCMonth() + 1).padStart(2, '0');
-    const d = String(cur.getUTCDate()).padStart(2, '0');
-    keys.push(`${y}-${m}-${d}`);
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
-  return keys;
-}
-
-export async function buildAnalyticsPayload(
-  admin: SupabaseClient,
-  preset: RangePreset,
-  range: DateRange,
-  bucket: Bucket = 'day',
-): Promise<AnalyticsPayload> {
-  const [orders, visitorEvents, dashboardInquiries, chatbotInquiries] = await Promise.all([
-    fetchOrdersInRange(admin, range),
-    fetchVisitorEvents(admin, range),
-    countRealDashboardInquiries(admin, range),
-    countInquiriesByTable(admin, 'chatbot_inquiries', range),
-  ]);
-
-  // 주문의 매출 상태를 단일 값으로 분류한다(우선순위: 환불 > 취소 > 결제 > 미결제).
-  // 환불하면 order_status도 cancelled가 되므로, 환불건을 환불로만 계상해 환불액·취소액 이중계상을 막는다.
-  const amt = (o: ListedOrder) => Number(o.total_amount ?? 0);
-  type RevState = 'paid' | 'refunded' | 'cancelled' | 'pending';
-  const revState = (o: ListedOrder): RevState => {
-    if (o.payment_status === 'refunded') return 'refunded';
-    if (o.order_status === 'cancelled') return 'cancelled';
-    if (o.payment_status === 'completed') return 'paid';
-    return 'pending';
-  };
-
-  let keptPaid = 0, paidCount = 0;
-  let refundedAmount = 0, refundedCount = 0;
-  let cancelledAmount = 0, cancelledCount = 0;
+export function summarizeOrders(orders: ListedOrder[]) {
+  const result = {total_count: orders.length, paid_count: 0, paid_revenue: 0, refunded_count: 0, refunded_amount: 0, cancelled_count: 0, cancelled_amount: 0, confirmed_revenue: 0};
   for (const o of orders) {
-    const a = amt(o);
-    switch (revState(o)) {
-      case 'paid': keptPaid += a; paidCount += 1; break;
-      case 'refunded': refundedAmount += a; refundedCount += 1; break;
-      case 'cancelled': cancelledAmount += a; cancelledCount += 1; break;
+    const amount = Number(o.total_amount ?? 0);
+    switch (revenueState(o)) {
+      case 'paid': result.paid_count++; result.confirmed_revenue += amount; result.paid_revenue += amount; break;
+      case 'refunded': result.refunded_count++; result.refunded_amount += amount; result.paid_revenue += amount; break;
+      case 'cancelled': result.cancelled_count++; result.cancelled_amount += amount; break;
     }
   }
-  // 주문 매출액(gross) = 결제 성사분(환불 포함, 취소 제외). 확정매출 = gross − 환불 = 실제 보유분(keptPaid).
-  // 환불건은 keptPaid에 애초에 없으므로 다시 빼지 않는다(과거 이중차감 버그 수정).
-  const grossPaid = keptPaid + refundedAmount;
-  const confirmedRevenue = keptPaid;
-
-  const bySource = { homepage: { count: 0, paid_revenue: 0 }, external: { count: 0, paid_revenue: 0 }, other: { count: 0, paid_revenue: 0 } };
-  for (const o of orders) {
-    const cls = classifyOrderSource(o.id);
-    bySource[cls].count += 1;
-    if (revState(o) === 'paid') bySource[cls].paid_revenue += amt(o);
+  return result;
+}
+export type SeriesPoint = {
+  date: string; label: string; from: string; to: string; partial: boolean; available: boolean;
+  visitors: number | null; paid_revenue: number; refunded_amount: number; cancelled_amount: number;
+  confirmed_revenue: number; order_count: number; paid_count: number;
+};
+type VisitorStats = {pageviews: number; unique_sessions: number; buckets: Record<string, number>; first_event_at: string | null};
+export function aggregateSeries(orders: ListedOrder[], range: DateRange, grain: Grain, basis: DateBasis, asOf: string, firstOrder: string | null, visitors?: VisitorStats | null): SeriesPoint[] {
+  const end = new Date(Math.min(Date.parse(range.toIso), Date.parse(asOf))).toISOString();
+  const keys = bucketKeys(range.fromIso, end, grain);
+  const grouped = new Map<string, ListedOrder[]>();
+  for (const order of orders) {
+    const at = order[basis];
+    if (!at || Date.parse(at) < Date.parse(range.fromIso) || Date.parse(at) >= Date.parse(end) || isTestOrder(order)) continue;
+    const key = bucketKey(at, grain);
+    const rows = grouped.get(key) ?? []; rows.push(order); grouped.set(key, rows);
   }
-
-  const uniqueSessions = new Set(visitorEvents.map((e) => e.session_id).filter((s): s is string => !!s)).size;
-
-  const keys = buildBucketKeys(range, bucket);
-  const daily = new Map<string, { visitors: Set<string>; paid_revenue: number; refunded_amount: number; cancelled_amount: number; order_count: number }>();
-  keys.forEach((k) => daily.set(k, { visitors: new Set(), paid_revenue: 0, refunded_amount: 0, cancelled_amount: 0, order_count: 0 }));
-
-  for (const e of visitorEvents) {
-    const k = kstBucketKey(e.occurred_at, bucket);
-    const slot = daily.get(k);
-    if (slot && e.session_id) slot.visitors.add(e.session_id);
-  }
-  for (const o of orders) {
-    const k = kstBucketKey(o.created_at, bucket);
-    const slot = daily.get(k);
-    if (!slot) continue;
-    slot.order_count += 1;
-    const a = amt(o);
-    switch (revState(o)) {
-      case 'paid': slot.paid_revenue += a; break;       // 보유분(kept)
-      case 'refunded': slot.refunded_amount += a; break;
-      case 'cancelled': slot.cancelled_amount += a; break;
-    }
-  }
-
-  const daily_series = keys.map((k) => {
-    const s = daily.get(k)!;
-    const gross = s.paid_revenue + s.refunded_amount; // 주문매출(gross) = 보유분 + 환불
-    return {
-      date: k,
-      label: bucketLabel(k, bucket),
-      visitors: s.visitors.size,
-      paid_revenue: gross,
-      refunded_amount: s.refunded_amount,
-      cancelled_amount: s.cancelled_amount,
-      confirmed_revenue: s.paid_revenue, // gross − 환불 = 보유분
-      order_count: s.order_count,
-    };
+  return keys.map(key => {
+    const start = bucketStart(key, grain), stop = bucketEnd(key, grain);
+    const from = start < range.fromIso ? range.fromIso : start;
+    const to = stop > end ? end : stop;
+    const summary = summarizeOrders(grouped.get(key) ?? []);
+    return {date:key, label:bucketLabel(key,grain), from, to,
+      partial: from !== start || to !== stop || (!!firstOrder && firstOrder > from && firstOrder < to),
+      available: !!firstOrder && firstOrder < to,
+      visitors: visitors?.first_event_at && visitors.first_event_at < to ? Number(visitors.buckets[key] ?? 0) : null,
+      paid_revenue:summary.paid_revenue, refunded_amount:summary.refunded_amount, cancelled_amount:summary.cancelled_amount,
+      confirmed_revenue:summary.confirmed_revenue, order_count:summary.total_count, paid_count:summary.paid_count};
   });
-
+}
+export type AnalyticsPayload = Awaited<ReturnType<typeof buildAnalyticsPayload>>;
+export async function buildAnalyticsPayload(admin: SupabaseClient, preset: RangePreset, requested: DateRange, bucket: Bucket = 'day', basis: DateBasis = 'created_at', asOf = new Date().toISOString()) {
+  const range = {fromIso: requested.fromIso, toIso: new Date(Math.max(Date.parse(requested.fromIso), Math.min(Date.parse(requested.toIso), Date.parse(asOf)))).toISOString()};
+  bucketKeys(range.fromIso, range.toIso, bucket);
+  const errors: string[] = [];
+  const [orders, visitorsResult, firstResult, dashboard, chatbot, missing] = await Promise.all([
+    fetchOrdersInRange(admin, range, basis),
+    admin.rpc('admin_visitor_stats_v2', {p_from: range.fromIso, p_to: range.toIso, p_grain:bucket}),
+    admin.from('orders').select('created_at').order('created_at').limit(1),
+    admin.from('inquiries').select('id',{count:'exact',head:true}).gte('created_at',range.fromIso).lt('created_at',range.toIso).or('is_admin.is.null,is_admin.eq.false'),
+    admin.from('chatbot_inquiries').select('id',{count:'exact',head:true}).gte('created_at',range.fromIso).lt('created_at',range.toIso),
+    basis === 'paid_at' ? admin.from('orders').select('total_amount').is('paid_at',null).in('payment_status',['completed','refunded']).gte('created_at',range.fromIso).lt('created_at',range.toIso).limit(10000) : Promise.resolve({data:[],error:null}),
+  ]);
+  if (firstResult.error) throw new Error(firstResult.error.message);
+  if (visitorsResult.error) errors.push('방문 데이터 조회 실패');
+  if (dashboard.error || chatbot.error) errors.push('일부 문의 데이터 조회 실패');
+  if (missing.error) errors.push('결제일 누락 점검 실패');
+  const visitors = visitorsResult.error ? null : visitorsResult.data as VisitorStats;
+  const firstOrder = (firstResult.data?.[0]?.created_at as string | undefined) ?? null;
+  const bySource = {homepage:{count:0,paid_revenue:0},external:{count:0,paid_revenue:0},other:{count:0,paid_revenue:0}};
+  for (const o of orders) {
+    const source = /^(ORD-|COBUY-)/.test(o.id) ? 'homepage' : o.id.startsWith('ORDER-') ? 'external' : 'other';
+    bySource[source].count++;
+    if (revenueState(o) === 'paid') bySource[source].paid_revenue += Number(o.total_amount ?? 0);
+  }
+  async function comparison(steps = 1) {
+    const pair = lastBucketComparison(range.fromIso, range.toIso, bucket, steps);
+    if (!pair) return null;
+    if (!firstOrder || Date.parse(firstOrder) >= Date.parse(pair.current.toIso)) return null;
+    const subset = (rows: ListedOrder[], r: DateRange) => rows.filter(o=>o[basis] && Date.parse(o[basis]!) >= Date.parse(r.fromIso) && Date.parse(o[basis]!) < Date.parse(r.toIso));
+    const prior = pair.previous.fromIso >= range.fromIso ? subset(orders,pair.previous) : await fetchOrdersInRange(admin,pair.previous,basis);
+    const current = summarizeOrders(subset(orders,pair.current)).confirmed_revenue;
+    const previous = summarizeOrders(prior).confirmed_revenue;
+    const available = firstOrder !== null && firstOrder <= pair.previous.fromIso;
+    return {...pair,currentRevenue:current,previousRevenue:available?previous:null,changePct:available&&previous>0?(current-previous)/previous*100:null};
+  }
+  const [previousComparison, weekdayComparison] = await Promise.all([comparison(),bucket==='day'?comparison(7):Promise.resolve(null)]);
   return {
-    range: { from: range.fromIso, to: range.toIso, preset },
-    visitors: {
-      unique_sessions: uniqueSessions,
-      pageviews: visitorEvents.length,
-      note: visitorEvents.length === 0 ? '아직 트래킹 이벤트가 수집되지 않았습니다. modoo_app에 PageviewTracker 연결 후 집계됩니다.' : undefined,
-    },
-    orders: {
-      total_count: orders.length,
-      paid_count: paidCount,
-      paid_revenue: grossPaid,
-      refunded_count: refundedCount,
-      refunded_amount: refundedAmount,
-      cancelled_count: cancelledCount,
-      cancelled_amount: cancelledAmount,
-      confirmed_revenue: confirmedRevenue,
-    },
-    orders_by_source: bySource,
-    inquiries_by_source: {
-      dashboard: dashboardInquiries,
-      chatbot: chatbotInquiries,
-      kakao: 0,
-    },
-    daily_series,
-    bucket,
+    range:{from:range.fromIso,to:range.toIso,requestedTo:requested.toIso,preset}, bucket, basis, generatedAt:asOf,
+    orders:summarizeOrders(orders), daily_series:aggregateSeries(orders, range, bucket, basis, asOf, firstOrder, visitors), orders_by_source:bySource,
+    comparison:previousComparison,weekdayComparison,
+    visitors:{unique_sessions:visitors?.first_event_at && visitors.first_event_at < range.toIso ? visitors.unique_sessions : null,pageviews:visitors?.first_event_at && visitors.first_event_at < range.toIso ? visitors.pageviews : null},
+    inquiries_by_source:{dashboard:dashboard.error ? null : dashboard.count ?? 0,chatbot:chatbot.error ? null : chatbot.count ?? 0,kakao:null},
+    quality:{errors,firstOrderAt:firstOrder,firstEventAt:visitors?.first_event_at ?? null,
+      ordersAvailable:!!firstOrder && firstOrder < range.toIso,
+      partialCoverage:!!firstOrder && firstOrder > range.fromIso || !!visitors?.first_event_at && visitors.first_event_at > range.fromIso,
+      missingPaidAt:missing.error ? null : missing.data?.length ?? 0,
+      missingPaidAtAmount:missing.error ? null : (missing.data ?? []).reduce((sum:number,o:{total_amount:unknown}) => sum + Number(o.total_amount ?? 0),0),
+      historicalPaidAtApproximate:basis === 'paid_at' && Date.parse(range.fromIso) < Date.parse('2026-07-11T00:00:00+09:00')},
   };
 }

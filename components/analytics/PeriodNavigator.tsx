@@ -2,13 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Granularity, GRANULARITIES, Period, periodFor, todayKstYmd } from '@/lib/analytics/period';
+import { validateYmd } from '@/lib/analytics/time';
 
-// 일/주/월/연/기간선택 + ◀▶ 네비게이터. period 가 바뀔 때마다 onChange 로 올려준다.
-// 매출 분석 · 광고 효율 등 분석 탭에서 공용으로 사용 → 기간 컨트롤 통일.
-export default function PeriodNavigator({
-  initialGranularity = 'month',
-  onChange,
-}: {
+// 기간 선택은 차트의 집계 단위와 구분한다.
+export default function PeriodNavigator({ initialGranularity = 'month', onChange }: {
   initialGranularity?: Granularity;
   onChange: (p: Period) => void;
 }) {
@@ -17,75 +14,25 @@ export default function PeriodNavigator({
   const today = todayKstYmd();
   const [customFrom, setCustomFrom] = useState(today);
   const [customTo, setCustomTo] = useState(today);
-
-  const period = useMemo(
-    () => periodFor(granularity, offset, customFrom, customTo),
-    [granularity, offset, customFrom, customTo],
-  );
-
-  useEffect(() => {
-    onChange(period);
-    // onChange 는 부모가 useCallback 으로 고정. period 변화 시에만 통지.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period.fromYmd, period.toYmd, period.bucket]);
-
-  const changeGranularity = (g: Granularity) => {
-    setGranularity(g);
-    setOffset(0);
-  };
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-md p-1">
-        {GRANULARITIES.map((g) => (
-          <button
-            key={g.value}
-            onClick={() => changeGranularity(g.value)}
-            className={`px-3 py-1 text-xs font-medium rounded ${
-              granularity === g.value ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            {g.label}
-          </button>
-        ))}
-      </div>
-
-      {granularity !== 'custom' && (
-        <div className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-md p-1">
-          <button
-            onClick={() => setOffset((o) => o - 1)}
-            className="px-2 py-1 text-gray-600 hover:bg-gray-100 rounded leading-none"
-            aria-label="이전 기간"
-          >
-            ◀
-          </button>
-          <span className="px-2 text-xs font-semibold text-gray-800 text-center min-w-[80px]">{period.label}</span>
-          <button
-            onClick={() => setOffset((o) => Math.min(0, o + 1))}
-            disabled={period.atCurrent}
-            className={`px-2 py-1 rounded leading-none ${
-              period.atCurrent ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-100'
-            }`}
-            aria-label="다음 기간"
-          >
-            ▶
-          </button>
-        </div>
-      )}
-
-      {granularity !== 'custom' && offset !== 0 && (
-        <button onClick={() => setOffset(0)} className="px-2 py-1 text-xs text-blue-600 hover:underline">
-          현재로
-        </button>
-      )}
-
-      {granularity === 'custom' && (
-        <div className="flex items-center gap-1 text-xs">
-          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="border border-gray-300 rounded px-2 py-1" />
-          <span>~</span>
-          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="border border-gray-300 rounded px-2 py-1" />
-        </div>
-      )}
+  const customValid = validateYmd(customFrom) && validateYmd(customTo) && customFrom <= customTo && customTo <= today;
+  const period = useMemo(() => granularity === 'custom' && !customValid ? null : periodFor(granularity, offset, customFrom, customTo), [granularity, offset, customFrom, customTo, customValid]);
+  useEffect(() => { if (period) onChange(period); }, [period, onChange]);
+  const labels: Record<Granularity, string> = { day: '하루', week: '한 주', month: '한 달', year: '일 년', custom: '직접 선택' };
+  return <div className="flex flex-wrap items-center gap-2 min-w-0">
+    <span className="text-xs font-medium text-gray-600">조회 기간</span>
+    <div className="flex max-w-full overflow-x-auto gap-1 bg-white border border-gray-200 rounded-md p-1" role="group" aria-label="조회 기간 크기">
+      {GRANULARITIES.map(g => <button key={g.value} type="button" aria-pressed={granularity === g.value} onClick={() => { setGranularity(g.value); setOffset(0); }} className={`shrink-0 whitespace-nowrap px-3 py-2 text-xs font-medium rounded ${granularity === g.value ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>{labels[g.value]}</button>)}
     </div>
-  );
+    {granularity !== 'custom' && period && <div className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-md p-1">
+      <button type="button" onClick={() => setOffset(o => o - 1)} className="px-3 py-2 text-gray-600 hover:bg-gray-100 rounded leading-none" aria-label="이전 기간">◀</button>
+      <span className="px-2 text-xs font-semibold text-gray-800 text-center min-w-[80px] whitespace-nowrap">{period.label}</span>
+      <button type="button" onClick={() => setOffset(o => Math.min(0, o + 1))} disabled={period.atCurrent} className={`px-3 py-2 rounded leading-none ${period.atCurrent ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-100'}`} aria-label="다음 기간">▶</button>
+    </div>}
+    {granularity !== 'custom' && offset !== 0 && <button type="button" onClick={() => setOffset(0)} className="px-2 py-2 text-xs text-blue-600 hover:underline">현재로</button>}
+    {granularity === 'custom' && <div className="flex flex-wrap items-center gap-2 text-xs">
+      <label className="flex items-center gap-1">시작일<input type="date" max={customTo || today} value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="min-w-0 border border-gray-300 rounded px-2 py-2" /></label>
+      <label className="flex items-center gap-1">종료일<input type="date" min={customFrom || undefined} max={today} value={customTo} onChange={e => setCustomTo(e.target.value)} className="min-w-0 border border-gray-300 rounded px-2 py-2" /></label>
+      {!customValid && <p role="status" className="w-full text-red-600">오늘까지의 유효한 시작일과 종료일을 선택해 주세요.</p>}
+    </div>}
+  </div>;
 }
