@@ -47,7 +47,7 @@ export default function WeeklyGoalChart({ rows, future }: { rows: PastRow[]; fut
         <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-600" /> 실제 매출</span>
         <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-300" /> 이번 주(진행 중)</span>
         <span className="flex items-center gap-1"><span className="inline-block h-[2px] w-4 bg-gray-900" /><span className="inline-block h-2 w-2 rounded-full bg-gray-900 -ml-3" /> 목표(선){future.length ? ` — 향후 ${future.length}주까지` : ''}</span>
-        <span className="text-gray-400">막대 아래 % = 목표 대비 달성률</span>
+        <span className="text-gray-400">막대 위 굵은 수치 = 실매출 · 회색 "목표 N만" = 그 주 목표 · 막대 아래 % = 달성률</span>
       </div>
       <div className="overflow-x-auto">
         <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto min-w-[760px]" role="img" aria-label="주간 매출과 목표 비교">
@@ -68,12 +68,16 @@ export default function WeeklyGoalChart({ rows, future }: { rows: PastRow[]; fut
             const x = cx(i) - barW / 2; const top = y(p.gross);
             const isCur = p.status === 'current';
             const title = `${md(p.week_start)} 주\n매출 ${won(p.gross)}${p.target ? `\n목표 ${won(p.target)} · 달성 ${Math.round((p.achieved ?? 0) * 100)}%` : ''}${isCur ? '\n(진행 중)' : ''}`;
-            const labelY = Math.min(top, p.target != null ? y(p.target) : top) - 5;
+            // 실적·목표 두 수치를 모두 표기 (대표 지시 2026-09-11). 겹치면 실적 라벨을 막대 안(흰색)으로 내린다.
+            const ty = p.target != null ? y(p.target) : null;
+            const collide = ty != null && Math.abs(top - ty) < 16;
+            const actualY = collide && top >= ty! ? top + 12 : top - 5;
+            const actualFill = collide && top >= ty! ? '#ffffff' : '#111827';
             return (
               <g key={p.week_start}>
                 <title>{title}</title>
                 <rect x={x} y={top} width={barW} height={Math.max(0, PAD.t + plotH - top)} rx={2} fill={isCur ? '#93c5fd' : '#2563eb'} />
-                <text x={cx(i)} y={labelY} fontSize={10} textAnchor="middle" fill="#111827">{man(p.gross)}</text>
+                <text x={cx(i)} y={actualY} fontSize={10} fontWeight={600} textAnchor="middle" fill={actualFill}>{man(p.gross)}</text>
               </g>
             );
           })}
@@ -83,9 +87,14 @@ export default function WeeklyGoalChart({ rows, future }: { rows: PastRow[]; fut
             <g key={`t-${p.week_start}`}>
               <title>{`${md(p.week_start)} 주 목표 ${won(p.target)}`}</title>
               <circle cx={cx(i)} cy={y(p.target)} r={3.2} fill="#111827" />
-              {p.gross == null && (
-                <text x={cx(i)} y={y(p.target) - 8} fontSize={10} textAnchor="middle" fill="#111827">{man(p.target)}</text>
-              )}
+              {/* 목표 수치 — 향후 주는 진하게, 과거 주는 회색으로 실적과 구분 */}
+              {(() => {
+                const top = p.gross != null ? y(p.gross) : null;
+                const collide = top != null && Math.abs(top - y(p.target!)) < 16;
+                const below = collide && top! < y(p.target!); // 막대가 목표보다 높아 위가 막힘 → 선 아래(막대 안)
+                const ly = below ? y(p.target!) + 12 : y(p.target!) - 7;
+                return <text x={cx(i)} y={ly} fontSize={10} textAnchor="middle" fill={p.gross == null ? '#111827' : below ? '#ffffff' : '#6b7280'}>{p.gross == null ? man(p.target!) : `목표 ${man(p.target!)}`}</text>;
+              })()}
             </g>
           ))}
           {/* x 라벨 + 달성률 */}
