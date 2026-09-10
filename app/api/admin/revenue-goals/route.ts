@@ -19,7 +19,7 @@ export const runtime = 'nodejs';
 const KST_OFFSET_MS = 9 * 3600_000;
 // 요일별 주문 비중 (DB 실측 2026-06~08: 월4.92 화5.00 수5.18 목3.55 금4.30 토2.20 일2.13)
 const DOW_SHARE = [0.18, 0.18, 0.19, 0.13, 0.16, 0.08, 0.08]; // 월~일
-const GROWTH = 1.05;
+const GROWTH = 1.10; // 공격 트랙 (대표 승인 2026-09-10) — 이전 1.05
 const MAX_RATIO = 1.15;
 
 function kstNow() { return new Date(Date.now() + KST_OFFSET_MS); }
