@@ -46,7 +46,7 @@ export default function WeeklyGoalChart({ rows, future }: { rows: PastRow[]; fut
       <div className="mb-2 flex flex-wrap gap-4 text-[11px] text-gray-600">
         <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-600" /> 실제 매출</span>
         <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-300" /> 이번 주(진행 중)</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-[2px] w-4 bg-gray-900" /><span className="inline-block h-2 w-2 rounded-full bg-gray-900 -ml-3" /> 목표(선) — 향후 8주까지</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-[2px] w-4 bg-gray-900" /><span className="inline-block h-2 w-2 rounded-full bg-gray-900 -ml-3" /> 목표(선){future.length ? ` — 향후 ${future.length}주까지` : ''}</span>
         <span className="text-gray-400">막대 아래 % = 목표 대비 달성률</span>
       </div>
       <div className="overflow-x-auto">
