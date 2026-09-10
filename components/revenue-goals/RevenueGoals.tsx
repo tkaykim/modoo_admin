@@ -4,7 +4,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { Target, TrendingUp, Wallet, CalendarClock, AlertTriangle, CheckCircle2, Pencil, RotateCcw } from 'lucide-react';
 import { fetcher } from '@/lib/fetcher';
-import { TrendBars } from '@/components/analytics/MiniBars';
+import WeeklyGoalChart from '@/components/revenue-goals/WeeklyGoalChart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 주간 매출 목표 — 관리자 디자인 체계 준수 (Dashboard·MarketingTab 과 동일 토큰)
@@ -205,7 +205,6 @@ function Kpi({ icon: Icon, label, value, hint, accent }: { icon: React.Component
 // ── 지난 12주 ─────────────────────────────────────────────────────────────────
 function History({ d }: { d: Data }) {
   const rows = [...d.weeks].reverse();
-  const bars = d.weeks.map((w) => ({ label: md(w.week_start), segments: [{ key: '매출', value: w.gross }] }));
   const lw = d.last_week;
   return (
     <section className="bg-white border border-gray-200/60 rounded-md shadow-sm overflow-hidden">
@@ -216,8 +215,8 @@ function History({ d }: { d: Data }) {
         )}
       </div>
       <div className="p-4">
-        <p className="text-xs text-gray-500 mb-2">주간 매출(막대). 목표 대비는 아래 표의 달성률로 본다 — 축은 하나만.</p>
-        <TrendBars data={bars} colors={{ 매출: '#2563eb' }} height={140} />
+        <p className="text-xs text-gray-500 mb-2">지난 11주 실적과 이번 주(진행 중)를 목표선과 함께 봅니다. 향후 목표는 아래 표에 있습니다.</p>
+        <WeeklyGoalChart rows={d.weeks} />
       </div>
       <div className="overflow-x-auto border-t border-gray-200">
         <table className="w-full text-xs">
