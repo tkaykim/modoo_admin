@@ -118,8 +118,14 @@ export async function GET() {
     planned_ad_spend: g.planned_ad_spend, max_ad_spend: g.max_ad_spend, rule: g.rule,
   }));
 
-  return NextResponse.json({
+  const lastKey = ymd(addDays(thisMon, -7));
+  const lastRow = rows.find((r) => r.week_start === lastKey) ?? null;
+  const thisFreeze = (thisGoal as any)?.budget_frozen ? { frozen: true, reason: (thisGoal as any)?.freeze_reason ?? null } : { frozen: false, reason: (thisGoal as any)?.freeze_reason ?? null };
+
+  return NextResponse.json({ data: {
     asOf: now.toISOString(),
+    last_week: lastRow ? { week_start: lastRow.week_start, target: lastRow.target_gross, gross: lastRow.gross, orders: lastRow.orders, achieved: lastRow.achieved, spend: lastRow.spend, status: lastRow.status } : null,
+    freeze: thisFreeze,
     baseline: { weeks: complete.length, gross: base.gross, spend: base.spend, orders: base.orders, ad_ratio: adRatio, aov: won(aov) },
     current: {
       week_start: thisKey, target, target_orders: thisGoal?.target_orders ?? null,
@@ -130,7 +136,7 @@ export async function GET() {
     },
     weeks: rows, future,
     rules: { growth: GROWTH, max_ratio: MAX_RATIO, dow_share: DOW_SHARE },
-  });
+  } });
 }
 
 export async function POST(req: NextRequest) {

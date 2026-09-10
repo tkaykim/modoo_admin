@@ -1,6 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import useSWR from 'swr';
+import { Target, TrendingUp, Wallet, CalendarClock, AlertTriangle, CheckCircle2, Pencil, RotateCcw } from 'lucide-react';
+import { fetcher } from '@/lib/fetcher';
+import { TrendBars } from '@/components/analytics/MiniBars';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 주간 매출 목표 — 관리자 디자인 체계 준수 (Dashboard·MarketingTab 과 동일 토큰)
+//   페이지 타이틀 text-xl font-bold / 카드 bg-white border border-gray-200 border-l-4 rounded-md p-3
+//   섹션 헤더 px-4 py-3 border-b bg-gray-50 text-sm font-semibold / 표 text-xs + thead text-[11px] uppercase
+//   배지 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium / 차트 = MiniBars(TrendBars, 단일축)
+// ─────────────────────────────────────────────────────────────────────────────
 
 type WeekRow = {
   week_start: string; orders: number; gross: number; spend: number; ad_ratio: number | null;
@@ -9,6 +20,8 @@ type WeekRow = {
 };
 type Data = {
   asOf: string;
+  last_week: { week_start: string; target: number | null; gross: number; orders: number; achieved: number | null; spend: number; status: WeekRow['status'] } | null;
+  freeze: { frozen: boolean; reason: string | null };
   baseline: { weeks: number; gross: number; spend: number; orders: number; ad_ratio: number; aov: number };
   current: {
     week_start: string; target: number; target_orders: number | null; gross: number; orders: number; achieved: number;
@@ -20,34 +33,27 @@ type Data = {
   rules: { growth: number; max_ratio: number };
 };
 
-const won = (n: number | null | undefined) => n == null ? '—' : Math.round(n).toLocaleString('ko-KR') + '원';
-const man = (n: number) => (n / 10_000).toFixed(0) + '만';
-const pct = (r: number | null | undefined) => r == null ? '—' : Math.round(r * 100) + '%';
-const label = (ymd: string) => { const d = new Date(ymd + 'T00:00:00'); return `${d.getMonth() + 1}/${d.getDate()}`; };
+const won = (n: number | null | undefined) => n == null ? '—' : `₩${new Intl.NumberFormat('ko-KR').format(Math.round(n))}`;
+const pct = (r: number | null | undefined) => r == null ? '—' : `${Math.round(r * 100)}%`;
+const md = (ymd: string) => { const d = new Date(`${ymd}T00:00:00`); return `${d.getMonth() + 1}/${d.getDate()}`; };
+const weekLabel = (ymd: string) => { const d = new Date(`${ymd}T00:00:00`); const e = new Date(d); e.setDate(e.getDate() + 6); return `${md(ymd)}~${e.getMonth() + 1}/${e.getDate()}`; };
 
 const STATUS: Record<WeekRow['status'], { text: string; cls: string }> = {
-  hit: { text: '달성', cls: 'bg-emerald-100 text-emerald-800' },
-  near: { text: '근접', cls: 'bg-amber-100 text-amber-800' },
-  miss: { text: '미달', cls: 'bg-rose-100 text-rose-800' },
+  hit: { text: '달성', cls: 'bg-green-100 text-green-800' },
+  near: { text: '근접', cls: 'bg-yellow-100 text-yellow-800' },
+  miss: { text: '미달', cls: 'bg-red-100 text-red-800' },
   current: { text: '진행중', cls: 'bg-blue-100 text-blue-800' },
-  future: { text: '예정', cls: 'bg-gray-100 text-gray-600' },
+  future: { text: '예정', cls: 'bg-gray-100 text-gray-700' },
   no_goal: { text: '목표 없음', cls: 'bg-gray-100 text-gray-500' },
 };
+const Badge = ({ s }: { s: WeekRow['status'] }) => (
+  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS[s].cls}`}>{STATUS[s].text}</span>
+);
 
 export default function RevenueGoals() {
-  const [data, setData] = useState<Data | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const { data, error, isLoading, mutate } = useSWR<Data>('/api/admin/revenue-goals', fetcher, { revalidateOnFocus: false });
   const [editing, setEditing] = useState<{ week_start: string; target_gross: number; planned_ad_spend: number | null } | null>(null);
   const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    setErr(null);
-    const r = await fetch('/api/admin/revenue-goals', { cache: 'no-store' });
-    const j = await r.json();
-    if (!r.ok) { setErr(j.error ?? '불러오기 실패'); return; }
-    setData(j);
-  }, []);
-  useEffect(() => { void load(); }, [load]);
 
   const save = async () => {
     if (!editing) return;
@@ -55,144 +61,52 @@ export default function RevenueGoals() {
     const r = await fetch('/api/admin/revenue-goals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editing) });
     setSaving(false);
     if (!r.ok) { const j = await r.json().catch(() => ({})); alert(j.error ?? '저장 실패'); return; }
-    setEditing(null); void load();
+    setEditing(null); void mutate();
   };
 
-  if (err) return <div className="p-6 text-rose-700">{err}</div>;
-  if (!data) return <div className="p-6 text-gray-500">불러오는 중…</div>;
-  const c = data.current;
-  const paceCls = c.pace_ratio >= 1 ? 'text-emerald-700' : c.pace_ratio >= 0.9 ? 'text-amber-700' : 'text-rose-700';
-  const spendOver = c.spend > c.max_ad_spend;
-
-  // 차트 스케일
-  const chartRows = data.weeks;
-  const maxY = Math.max(...chartRows.map((w) => Math.max(w.gross, w.target_gross ?? 0)), 1);
-  const W = 720, H = 220, PAD = 28, bw = (W - PAD * 2) / chartRows.length;
-  const y = (v: number) => H - PAD - (v / maxY) * (H - PAD * 2);
-
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
-      <header className="flex flex-wrap items-end justify-between gap-2">
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold">주간 매출 목표</h1>
-          <p className="text-sm text-gray-500">매주 +{Math.round((data.rules.growth - 1) * 100)}% 우상향 · 적정 광고비 = 목표 × 최근 4주 광고비율 · 허용 상한 +{Math.round((data.rules.max_ratio - 1) * 100)}%</p>
+          <h1 className="text-xl font-bold text-gray-900">주간 매출 목표</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            매주 +{data ? Math.round((data.rules.growth - 1) * 100) : 10}% 우상향 · 적정 광고비 = 목표 × 최근 4주 광고비율 · 상한 +{data ? Math.round((data.rules.max_ratio - 1) * 100) : 15}%
+          </p>
         </div>
-        <span className="text-xs text-gray-400">기준 {new Date(data.asOf).toLocaleString('ko-KR')}</span>
-      </header>
+        {data && <span className="text-[11px] text-gray-400 whitespace-nowrap">기준 {new Date(data.asOf).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>}
+      </div>
 
-      {/* 이번 주 */}
-      <section className="rounded-2xl border bg-white p-4 shadow-sm md:p-6">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-semibold">이번 주 ({label(c.week_start)} 주)</h2>
-          <button className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-50" onClick={() => setEditing({ week_start: c.week_start, target_gross: c.target, planned_ad_spend: c.planned_ad_spend })}>목표 수정</button>
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded">{error.message}</div>}
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Kpi title="목표 매출" value={won(c.target)} sub={c.target_orders ? `주문 ${c.target_orders}건 목표` : undefined} />
-          <Kpi title="현재 매출" value={won(c.gross)} sub={`달성 ${pct(c.achieved)} · 주문 ${c.orders}건`} />
-          <Kpi title="페이스" value={<span className={paceCls}>{pct(c.pace_ratio)}</span>} sub={`오늘까지 기대 ${won(c.expected_to_date)}`} />
-          <Kpi title="남은 일수 / 필요 일매출" value={`${c.remain_days}일`} sub={c.remain_days > 0 ? `일 ${won(c.need_per_day)} 필요` : '이번 주 마감'} />
-        </div>
-        <div className="mt-4 rounded-xl bg-gray-50 p-3 text-sm">
-          <div className="mb-1 flex flex-wrap gap-x-6 gap-y-1">
-            <span>광고비 <b>{won(c.spend)}</b></span>
-            <span className="text-gray-500">적정 {won(c.planned_ad_spend)} (오늘까지 기대 {won(c.spend_expected_to_date)})</span>
-            <span className={spendOver ? 'text-rose-700 font-semibold' : 'text-gray-500'}>상한 {won(c.max_ad_spend)}</span>
-          </div>
-          <Bar value={c.spend} planned={c.planned_ad_spend} max={c.max_ad_spend} />
-          <p className={`mt-2 ${c.pace_ratio < 0.9 ? 'text-rose-700' : 'text-gray-700'}`}>{c.recommendation}</p>
-        </div>
-      </section>
+      )}
 
-      {/* 12주 차트 */}
-      <section className="rounded-2xl border bg-white p-4 shadow-sm md:p-6">
-        <h2 className="mb-2 font-semibold">최근 12주 — 매출(막대) · 목표(선) · 광고비(점선)</h2>
-        <div className="overflow-x-auto">
-          <svg viewBox={`0 0 ${W} ${H}`} className="h-56 w-full min-w-[640px]">
-            {chartRows.map((w, i) => {
-              const x = PAD + i * bw;
-              const fill = w.status === 'hit' ? '#10b981' : w.status === 'miss' ? '#f43f5e' : w.status === 'near' ? '#f59e0b' : w.status === 'current' ? '#3b82f6' : '#cbd5e1';
-              return (
-                <g key={w.week_start}>
-                  <rect x={x + bw * 0.2} y={y(w.gross)} width={bw * 0.6} height={H - PAD - y(w.gross)} fill={fill} rx={3} />
-                  <text x={x + bw / 2} y={H - 10} fontSize={10} textAnchor="middle" fill="#6b7280">{label(w.week_start)}</text>
-                  <text x={x + bw / 2} y={y(w.gross) - 4} fontSize={9} textAnchor="middle" fill="#374151">{man(w.gross)}</text>
-                </g>
-              );
-            })}
-            <polyline fill="none" stroke="#111827" strokeWidth={2}
-              points={chartRows.filter((w) => w.target_gross).map((w, _i, arr) => { const i = chartRows.indexOf(w); return `${PAD + i * bw + bw / 2},${y(w.target_gross!)}`; }).join(' ')} />
-            <polyline fill="none" stroke="#8b5cf6" strokeWidth={1.5} strokeDasharray="4 3"
-              points={chartRows.map((w, i) => `${PAD + i * bw + bw / 2},${y(w.spend)}`).join(' ')} />
-          </svg>
-        </div>
-      </section>
+      {data && <ThisWeek d={data} onEdit={() => setEditing({ week_start: data.current.week_start, target_gross: data.current.target, planned_ad_spend: data.current.planned_ad_spend })} />}
+      {data && <History d={data} />}
+      {data && <Future d={data} onEdit={(f) => setEditing({ week_start: f.week_start, target_gross: f.target_gross, planned_ad_spend: f.planned_ad_spend })} />}
 
-      {/* 주간 표 */}
-      <section className="rounded-2xl border bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead className="bg-gray-50 text-left text-gray-600">
-              <tr>
-                <th className="px-3 py-2">주</th><th className="px-3 py-2 text-right">목표</th><th className="px-3 py-2 text-right">실적</th>
-                <th className="px-3 py-2 text-right">달성</th><th className="px-3 py-2 text-right">주문</th>
-                <th className="px-3 py-2 text-right">광고비</th><th className="px-3 py-2 text-right">광고비율</th><th className="px-3 py-2">판정</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...data.weeks].reverse().map((w) => {
-                const s = STATUS[w.status];
-                return (
-                  <tr key={w.week_start} className="border-t">
-                    <td className="px-3 py-2">{label(w.week_start)} 주</td>
-                    <td className="px-3 py-2 text-right">{won(w.target_gross)}</td>
-                    <td className="px-3 py-2 text-right font-medium">{won(w.gross)}</td>
-                    <td className="px-3 py-2 text-right">{pct(w.achieved)}</td>
-                    <td className="px-3 py-2 text-right">{w.orders}</td>
-                    <td className="px-3 py-2 text-right">{won(w.spend)}</td>
-                    <td className={`px-3 py-2 text-right ${w.ad_ratio != null && w.ad_ratio > 0.3 ? 'text-rose-700' : ''}`}>{pct(w.ad_ratio)}</td>
-                    <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs ${s.cls}`}>{s.text}</span></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* 향후 목표 */}
-      <section className="rounded-2xl border bg-white p-4 shadow-sm md:p-6">
-        <h2 className="mb-2 font-semibold">향후 목표 (자동 산출, 수정 가능)</h2>
-        <p className="mb-3 text-sm text-gray-500">기준선 = 최근 {data.baseline.weeks}주 평균 매출 {won(data.baseline.gross / Math.max(1, data.baseline.weeks))} · 광고비율 {pct(data.baseline.ad_ratio)} · 객단가 {won(data.baseline.aov)}</p>
-        <div className="grid gap-2 md:grid-cols-2">
-          {data.future.map((f) => (
-            <div key={f.week_start} className="flex items-center justify-between rounded-xl border p-3 text-sm">
-              <div>
-                <div className="font-medium">{label(f.week_start)} 주 · {won(f.target_gross)}{f.target_orders ? ` · ${f.target_orders}건` : ''}</div>
-                <div className="text-xs text-gray-500">적정 광고비 {won(f.planned_ad_spend)} · 상한 {won(f.max_ad_spend)}</div>
-                {f.rule && <div className="text-xs text-gray-400">{f.rule}</div>}
-              </div>
-              <button className="rounded-lg border px-2 py-1 text-xs hover:bg-gray-50" onClick={() => setEditing({ week_start: f.week_start, target_gross: f.target_gross, planned_ad_spend: f.planned_ad_spend })}>수정</button>
+      {editing && data && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setEditing(null)}>
+          <div className="w-full max-w-sm bg-white border border-gray-200 rounded-md shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+              <h3 className="text-sm font-semibold text-gray-900">{weekLabel(editing.week_start)} 목표 수정</h3>
             </div>
-          ))}
-        </div>
-      </section>
-
-      {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditing(null)}>
-          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-3 font-semibold">{label(editing.week_start)} 주 목표 수정</h3>
-            <label className="block text-sm">목표 매출(원)
-              <input type="number" step={10000} className="mt-1 w-full rounded-lg border px-3 py-2" value={editing.target_gross}
-                onChange={(e) => setEditing({ ...editing, target_gross: Number(e.target.value) })} />
-            </label>
-            <label className="mt-3 block text-sm">적정 광고비(원) <span className="text-gray-400">— 비우면 자동</span>
-              <input type="number" step={10000} className="mt-1 w-full rounded-lg border px-3 py-2" value={editing.planned_ad_spend ?? ''}
-                onChange={(e) => setEditing({ ...editing, planned_ad_spend: e.target.value === '' ? null : Number(e.target.value) })} />
-            </label>
-            <p className="mt-2 text-xs text-gray-500">상한은 적정 × {data.rules.max_ratio}로 자동 계산됩니다.</p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button className="rounded-lg border px-3 py-1.5 text-sm" onClick={() => setEditing(null)}>취소</button>
-              <button className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={saving} onClick={save}>{saving ? '저장 중…' : '저장'}</button>
+            <div className="p-4 space-y-3">
+              <label className="block text-xs text-gray-600">목표 매출(원)
+                <input type="number" step={10000} className="mt-1 w-full border border-gray-300 rounded px-2 py-2 text-sm" value={editing.target_gross}
+                  onChange={(e) => setEditing({ ...editing, target_gross: Number(e.target.value) })} />
+              </label>
+              <label className="block text-xs text-gray-600">적정 광고비(원) <span className="text-gray-400">비우면 자동(목표 × 광고비율)</span>
+                <input type="number" step={10000} className="mt-1 w-full border border-gray-300 rounded px-2 py-2 text-sm" value={editing.planned_ad_spend ?? ''}
+                  onChange={(e) => setEditing({ ...editing, planned_ad_spend: e.target.value === '' ? null : Number(e.target.value) })} />
+              </label>
+              <p className="text-[11px] text-gray-400">상한은 적정 × {data.rules.max_ratio}로 자동 계산됩니다.</p>
+            </div>
+            <div className="px-4 py-3 border-t border-gray-200 flex justify-end gap-2">
+              <button className="px-3 py-2 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50" onClick={() => setEditing(null)}>취소</button>
+              <button className="px-3 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" disabled={saving} onClick={save}>{saving ? '저장 중…' : '저장'}</button>
             </div>
           </div>
         </div>
@@ -201,24 +115,192 @@ export default function RevenueGoals() {
   );
 }
 
-function Kpi({ title, value, sub }: { title: string; value: React.ReactNode; sub?: string }) {
+// ── 이번 주 ───────────────────────────────────────────────────────────────────
+function ThisWeek({ d, onEdit }: { d: Data; onEdit: () => void }) {
+  const c = d.current;
+  const onPace = c.pace_ratio >= 1, nearPace = c.pace_ratio >= 0.9;
+  const progress = Math.min(100, (c.gross / Math.max(1, c.target)) * 100);
+  const expectedMark = Math.min(100, (c.expected_to_date / Math.max(1, c.target)) * 100);
+  const spendScale = Math.max(c.max_ad_spend, c.spend, 1);
+  const p = (n: number) => `${Math.min(100, (n / spendScale) * 100)}%`;
+  const tone = onPace ? 'text-green-700' : nearPace ? 'text-yellow-700' : 'text-red-700';
+
   return (
-    <div className="rounded-xl border p-3">
-      <div className="text-xs text-gray-500">{title}</div>
-      <div className="mt-1 text-lg font-bold">{value}</div>
-      {sub && <div className="mt-0.5 text-xs text-gray-500">{sub}</div>}
+    <section className="bg-white border border-gray-200/60 rounded-md shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-900">이번 주 · {weekLabel(c.week_start)}</h3>
+        <button onClick={onEdit} className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+          <Pencil className="w-3.5 h-3.5" /> 목표 수정
+        </button>
+      </div>
+
+      <div className="p-4 space-y-4">
+        {/* 권고 한 줄 — 가장 먼저 읽을 것 */}
+        <div className={`flex items-start gap-2 text-sm rounded px-3 py-2 border ${onPace ? 'bg-green-50 border-green-200 text-green-900' : nearPace ? 'bg-yellow-50 border-yellow-200 text-yellow-900' : 'bg-red-50 border-red-200 text-red-900'}`}>
+          {onPace ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />}
+          <span>{c.recommendation}</span>
+        </div>
+        {d.freeze.frozen && (
+          <p className="text-[11px] text-red-800 bg-red-50 border border-red-200 rounded px-2.5 py-1.5">⛔ 이번 주 예산 증액 동결 — {d.freeze.reason}</p>
+        )}
+        {!d.freeze.frozen && d.freeze.reason && (
+          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">⚠ 한계 효율 경고(1주차) — {d.freeze.reason}</p>
+        )}
+
+        {/* 목표 진행 바 — 기대선 마커 */}
+        <div>
+          <div className="flex items-baseline justify-between mb-1">
+            <span className="text-xs text-gray-500">목표 대비 진행</span>
+            <span className="text-xs text-gray-700"><b className="text-gray-900">{won(c.gross)}</b> / {won(c.target)} · <span className={tone}>{pct(c.achieved)}</span></span>
+          </div>
+          <div className="relative h-2.5 w-full rounded-sm bg-gray-100 overflow-hidden">
+            <div className="absolute inset-y-0 left-0 rounded-sm bg-blue-600" style={{ width: `${progress}%` }} />
+            <div className="absolute inset-y-0 w-0.5 bg-gray-800" style={{ left: `${expectedMark}%` }} title={`오늘까지 기대 ${won(c.expected_to_date)}`} />
+          </div>
+          <div className="flex justify-between mt-1 text-[11px] text-gray-400">
+            <span>파랑 = 현재 매출 · 검정선 = 오늘까지 기대치</span>
+            <span>페이스 <b className={tone}>{pct(c.pace_ratio)}</b></span>
+          </div>
+        </div>
+
+        {/* KPI 4 */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Kpi icon={Target} accent="border-l-blue-500" label="목표 매출" value={won(c.target)} hint={c.target_orders ? `주문 ${c.target_orders}건 목표` : undefined} />
+          <Kpi icon={TrendingUp} accent="border-l-green-500" label="현재 매출" value={won(c.gross)} hint={`주문 ${c.orders}건 · 달성 ${pct(c.achieved)}`} />
+          <Kpi icon={CalendarClock} accent="border-l-amber-500" label="남은 일수 · 필요 일매출" value={`${c.remain_days}일`} hint={c.remain_days > 0 ? `일 ${won(c.need_per_day)} 필요` : '이번 주 마감'} />
+          <Kpi icon={Wallet} accent="border-l-purple-500" label="광고비" value={won(c.spend)} hint={`적정 ${won(c.planned_ad_spend)} · 상한 ${won(c.max_ad_spend)}`} />
+        </div>
+
+        {/* 광고비 바 — 적정·상한 마커 */}
+        <div>
+          <div className="flex items-baseline justify-between mb-1">
+            <span className="text-xs text-gray-500">광고비 집행 (오늘까지 기대 {won(c.spend_expected_to_date)})</span>
+            <span className={`text-xs ${c.spend > c.max_ad_spend ? 'text-red-700 font-semibold' : 'text-gray-500'}`}>{c.spend > c.max_ad_spend ? '상한 초과' : `상한까지 ${won(c.max_ad_spend - c.spend)}`}</span>
+          </div>
+          <div className="relative h-2.5 w-full rounded-sm bg-gray-100 overflow-hidden">
+            <div className="absolute inset-y-0 left-0 rounded-sm bg-purple-500" style={{ width: p(c.spend) }} />
+            <div className="absolute inset-y-0 w-0.5 bg-gray-800" style={{ left: p(c.planned_ad_spend) }} title={`적정 ${won(c.planned_ad_spend)}`} />
+            <div className="absolute inset-y-0 w-0.5 bg-red-600" style={{ left: p(c.max_ad_spend) }} title={`상한 ${won(c.max_ad_spend)}`} />
+          </div>
+          <div className="text-[11px] text-gray-400 mt-1">검정선 = 적정 · 빨간선 = 상한(+{Math.round((d.rules.max_ratio - 1) * 100)}%)</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Kpi({ icon: Icon, label, value, hint, accent }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string; hint?: string; accent: string }) {
+  return (
+    <div className={`bg-white border border-gray-200 border-l-4 ${accent} rounded-md p-3`}>
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">{label}</span>
+        <Icon className="w-4 h-4 text-gray-400" />
+      </div>
+      <p className="mt-1 text-xl font-bold text-gray-900">{value}</p>
+      {hint && <p className="mt-0.5 text-[11px] text-gray-400">{hint}</p>}
     </div>
   );
 }
 
-function Bar({ value, planned, max }: { value: number; planned: number; max: number }) {
-  const scale = Math.max(max, value, 1);
-  const p = (n: number) => `${Math.min(100, (n / scale) * 100)}%`;
+// ── 지난 12주 ─────────────────────────────────────────────────────────────────
+function History({ d }: { d: Data }) {
+  const rows = [...d.weeks].reverse();
+  const bars = d.weeks.map((w) => ({ label: md(w.week_start), segments: [{ key: '매출', value: w.gross }] }));
+  const lw = d.last_week;
   return (
-    <div className="relative h-3 w-full overflow-hidden rounded-full bg-gray-200">
-      <div className="absolute inset-y-0 left-0 rounded-full bg-blue-500" style={{ width: p(value) }} />
-      <div className="absolute inset-y-0 w-0.5 bg-gray-700" style={{ left: p(planned) }} title="적정" />
-      <div className="absolute inset-y-0 w-0.5 bg-rose-600" style={{ left: p(max) }} title="상한" />
-    </div>
+    <section className="bg-white border border-gray-200/60 rounded-md shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-900">최근 12주</h3>
+        {lw && lw.target != null && (
+          <span className="text-xs text-gray-600">지난주 {weekLabel(lw.week_start)} · {won(lw.gross)} / {won(lw.target)} · <Badge s={lw.status} /></span>
+        )}
+      </div>
+      <div className="p-4">
+        <p className="text-xs text-gray-500 mb-2">주간 매출(막대). 목표 대비는 아래 표의 달성률로 본다 — 축은 하나만.</p>
+        <TrendBars data={bars} colors={{ 매출: '#2563eb' }} height={140} />
+      </div>
+      <div className="overflow-x-auto border-t border-gray-200">
+        <table className="w-full text-xs">
+          <thead className="text-left text-[11px] uppercase tracking-wider text-gray-400 bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="px-4 py-2 font-medium">주</th>
+              <th className="px-4 py-2 font-medium text-right">목표</th>
+              <th className="px-4 py-2 font-medium text-right">실적</th>
+              <th className="px-4 py-2 font-medium">달성</th>
+              <th className="px-4 py-2 font-medium text-right">주문</th>
+              <th className="px-4 py-2 font-medium text-right">광고비</th>
+              <th className="px-4 py-2 font-medium text-right">광고비율</th>
+              <th className="px-4 py-2 font-medium">판정</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rows.map((w) => (
+              <tr key={w.week_start} className={w.status === 'current' ? 'bg-blue-50/40' : 'hover:bg-gray-50'}>
+                <td className="px-4 py-2 text-gray-800 whitespace-nowrap">{weekLabel(w.week_start)}</td>
+                <td className="px-4 py-2 text-right text-gray-600">{won(w.target_gross)}</td>
+                <td className="px-4 py-2 text-right font-medium text-gray-900">{won(w.gross)}</td>
+                <td className="px-4 py-2 min-w-[120px]">
+                  {w.achieved == null ? <span className="text-gray-300">—</span> : (
+                    <div className="flex items-center gap-2">
+                      <div className="relative h-1.5 w-16 rounded-sm bg-gray-100 overflow-hidden">
+                        <div className={`absolute inset-y-0 left-0 rounded-sm ${w.achieved >= 1 ? 'bg-green-500' : w.achieved >= 0.9 ? 'bg-yellow-500' : 'bg-red-400'}`} style={{ width: `${Math.min(100, w.achieved * 100)}%` }} />
+                      </div>
+                      <span className="text-gray-700 tabular-nums">{pct(w.achieved)}</span>
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-2 text-right text-gray-700 tabular-nums">{w.orders}</td>
+                <td className="px-4 py-2 text-right text-gray-700 tabular-nums">{won(w.spend)}</td>
+                <td className={`px-4 py-2 text-right tabular-nums ${w.ad_ratio != null && w.ad_ratio > 0.3 ? 'text-red-700' : 'text-gray-700'}`}>{pct(w.ad_ratio)}</td>
+                <td className="px-4 py-2"><Badge s={w.status} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ── 향후 목표 ─────────────────────────────────────────────────────────────────
+function Future({ d, onEdit }: { d: Data; onEdit: (f: Data['future'][number]) => void }) {
+  const b = d.baseline;
+  return (
+    <section className="bg-white border border-gray-200/60 rounded-md shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-900">향후 목표</h3>
+        <span className="text-[11px] text-gray-400 inline-flex items-center gap-1"><RotateCcw className="w-3 h-3" /> 기준선 = 최근 {b.weeks}주 평균 {won(b.gross / Math.max(1, b.weeks))} · 광고비율 {pct(b.ad_ratio)} · 객단가 {won(b.aov)}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-left text-[11px] uppercase tracking-wider text-gray-400 bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="px-4 py-2 font-medium">주</th>
+              <th className="px-4 py-2 font-medium text-right">목표 매출</th>
+              <th className="px-4 py-2 font-medium text-right">주문</th>
+              <th className="px-4 py-2 font-medium text-right">적정 광고비</th>
+              <th className="px-4 py-2 font-medium text-right">상한</th>
+              <th className="px-4 py-2 font-medium">근거</th>
+              <th className="px-4 py-2" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {d.future.map((f) => (
+              <tr key={f.week_start} className="hover:bg-gray-50">
+                <td className="px-4 py-2 text-gray-800 whitespace-nowrap">{weekLabel(f.week_start)}</td>
+                <td className="px-4 py-2 text-right font-medium text-gray-900 tabular-nums">{won(f.target_gross)}</td>
+                <td className="px-4 py-2 text-right text-gray-700 tabular-nums">{f.target_orders ?? '—'}</td>
+                <td className="px-4 py-2 text-right text-gray-700 tabular-nums">{won(f.planned_ad_spend)}</td>
+                <td className="px-4 py-2 text-right text-gray-700 tabular-nums">{won(f.max_ad_spend)}</td>
+                <td className="px-4 py-2 text-gray-500 max-w-[320px] truncate" title={f.rule ?? ''}>{f.rule ?? ''}</td>
+                <td className="px-4 py-2 text-right">
+                  <button onClick={() => onEdit(f)} className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded border border-gray-300 text-gray-700 hover:bg-gray-50"><Pencil className="w-3 h-3" /> 수정</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
