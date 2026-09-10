@@ -61,6 +61,7 @@ export async function GET() {
         ),
         partner_mall_products (
           id,
+          partner_mall_id,
           product_id,
           display_name,
           manufacturer_color_id,
@@ -105,12 +106,16 @@ export async function POST(request: Request) {
     const originalLogoUrl = payload?.original_logo_url ?? null;
     const isActive = payload?.is_active ?? true;
     const slug = payload?.slug ?? null;
+    const requestedId = payload?.id;
+    if (requestedId !== undefined && (typeof requestedId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedId))) {
+      return NextResponse.json({ error: '몰 생성 ID가 올바르지 않습니다.' }, { status: 400 });
+    }
 
     if (!name || typeof name !== 'string') {
       return NextResponse.json({ error: '파트너몰 이름이 필요합니다.' }, { status: 400 });
     }
 
-    if (!logoUrl || typeof logoUrl !== 'string') {
+    if (typeof logoUrl !== 'string') {
       return NextResponse.json({ error: '로고 URL이 필요합니다.' }, { status: 400 });
     }
 
@@ -123,6 +128,13 @@ export async function POST(request: Request) {
     }
 
     const adminClient = createAdminClient();
+
+    // A retry after an interrupted two-stage creation must reuse the same mall.
+    if (requestedId) {
+      const { data: existing, error } = await adminClient.from('partner_malls').select('*').eq('id', requestedId).maybeSingle();
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (existing) return NextResponse.json({ data: existing });
+    }
 
     // Check slug uniqueness if provided
     if (slug) {
@@ -139,6 +151,7 @@ export async function POST(request: Request) {
     const { data, error } = await adminClient
       .from('partner_malls')
       .insert({
+        ...(requestedId ? { id: requestedId } : {}),
         name,
         slug: slug || null,
         logo_url: logoUrl,
