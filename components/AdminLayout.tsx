@@ -46,6 +46,7 @@ const navGroups: NavGroup[] = [
       { type: 'link', href: '/dashboard', label: '대시보드', icon: LayoutDashboard, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/analytics', label: '분석', icon: LineChart, roles: ['admin', 'super_admin', 'marketing_manager'] },
       { type: 'link', href: '/marketing-console', label: '마케팅 콘솔', icon: Megaphone, roles: ['admin', 'super_admin', 'marketing_manager'] },
+      { type: 'link', href: '/revenue-goals', label: '주간 매출 목표', icon: Target, roles: ['admin', 'super_admin', 'marketing_manager'] },
       { type: 'link', href: '/orders', label: '주문 관리', icon: BarChart3, roles: ['admin', 'factory', 'super_admin'] },
       { type: 'link', href: '/purchase-orders', label: '발주 관리', icon: ClipboardList, roles: ['admin', 'super_admin'] },
       { type: 'link', href: '/products', label: '제품 관리', icon: Package, roles: ['admin', 'super_admin'] },

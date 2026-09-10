@@ -8,8 +8,8 @@ import { useAuthStore, type AuthStatus, type UserData } from '@/store/useAuthSto
 
 type AdminRole = 'admin' | 'factory' | 'super_admin' | 'marketing_manager';
 
-const adminRoutes = ['/dashboard', '/analytics', '/marketing-console', '/products', '/naver-commerce', '/designs', '/templates', '/content', '/orders', '/purchase-orders', '/factories', '/factory', '/cobuy', '/partner_malls', '/coupons', '/users', '/settings', '/editor', '/print-methods', '/customer-pricing', '/invoices', '/shipping', '/test', '/salespersons', '/leads', '/bug-reports'];
-const marketingRoutes = ['/analytics', '/marketing-console'];
+const adminRoutes = ['/dashboard', '/analytics', '/marketing-console', '/revenue-goals', '/products', '/naver-commerce', '/designs', '/templates', '/content', '/orders', '/purchase-orders', '/factories', '/factory', '/cobuy', '/partner_malls', '/coupons', '/users', '/settings', '/editor', '/print-methods', '/customer-pricing', '/invoices', '/shipping', '/test', '/salespersons', '/leads', '/bug-reports'];
+const marketingRoutes = ['/analytics', '/marketing-console', '/revenue-goals'];
 
 const allowedRoutesByRole: Record<AdminRole, string[]> = {
   admin: adminRoutes,
