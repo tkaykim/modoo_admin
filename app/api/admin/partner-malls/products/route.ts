@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
-import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
+import { isAdminLike } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
+import { normalizeMallCanvas } from '@/lib/partner-mall-design';
+
+const validPrice = (price: unknown) => price === null || (typeof price === 'number' && Number.isFinite(price) && Number.isInteger(price) && price >= 0);
+const validUuid = (id: unknown) => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 
 const requireAdmin = async () => {
   const supabase = await createClient();
@@ -83,7 +87,9 @@ export async function POST(request: Request) {
     const partnerMallId = payload?.partner_mall_id;
     const productId = payload?.product_id;
     const logoPlacements = payload?.logo_placements ?? {};
-    const canvasState = payload?.canvas_state ?? {};
+    let canvasState;
+    try { canvasState = normalizeMallCanvas(payload?.canvas_state ?? {}); }
+    catch { return NextResponse.json({ error: '캔버스 상태 형식이 올바르지 않습니다.' }, { status: 400 }); }
     const previewUrl = payload?.preview_url ?? null;
     const displayName = payload?.display_name ?? null;
     const manufacturerColorId = payload?.manufacturer_color_id ?? null;
@@ -91,6 +97,7 @@ export async function POST(request: Request) {
     const colorName = payload?.color_name ?? null;
     const colorCode = payload?.color_code ?? null;
     const price = payload?.price ?? null;
+    if (!validPrice(price)) return NextResponse.json({ error: '판매가는 0 이상의 정수여야 합니다.' }, { status: 400 });
 
     if (!partnerMallId || typeof partnerMallId !== 'string') {
       return NextResponse.json({ error: '파트너몰 ID가 필요합니다.' }, { status: 400 });
@@ -166,8 +173,19 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: '제품 목록이 필요합니다.' }, { status: 400 });
     }
 
+    for (const p of products) {
+      if (!p || typeof p.product_id !== 'string' || !p.product_id || !validPrice(p.price ?? null) || (p.id !== undefined && !validUuid(p.id))) {
+        return NextResponse.json({ error: '상품 정보 또는 판매가가 올바르지 않습니다.' }, { status: 400 });
+      }
+      try { p.canvas_state = normalizeMallCanvas(p.canvas_state ?? {}); }
+      catch { return NextResponse.json({ error: '캔버스 상태 형식이 올바르지 않습니다.' }, { status: 400 }); }
+    }
+    const hasIds = products.every(p => p.id);
+    if (products.some(p => p.id) && !hasIds) return NextResponse.json({ error: '상품 생성 ID가 누락됐습니다.' }, { status: 400 });
+
     const now = new Date().toISOString();
     const insertData = products.map((p: {
+      id?: string;
       product_id: string;
       logo_placements?: Record<string, unknown>;
       canvas_state?: Record<string, unknown>;
@@ -179,6 +197,7 @@ export async function PUT(request: Request) {
       color_code?: string | null;
       price?: number | null;
     }) => ({
+      ...(p.id ? { id: p.id } : {}),
       partner_mall_id: partnerMallId,
       product_id: p.product_id,
       logo_placements: p.logo_placements ?? {},
@@ -195,9 +214,15 @@ export async function PUT(request: Request) {
     }));
 
     const adminClient = createAdminClient();
-    const { data, error } = await adminClient
-      .from('partner_mall_products')
-      .insert(insertData)
+    if (hasIds) {
+      const { data: existing, error } = await adminClient.from('partner_mall_products').select('id,partner_mall_id').in('id', products.map(p => p.id));
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (existing?.some(row => row.partner_mall_id !== partnerMallId)) return NextResponse.json({ error: '다른 몰의 상품 생성 ID는 사용할 수 없습니다.' }, { status: 409 });
+    }
+    const query = hasIds
+      ? adminClient.from('partner_mall_products').upsert(insertData, { onConflict: 'id' })
+      : adminClient.from('partner_mall_products').insert(insertData);
+    const { data, error } = await query
       .select(`
         *,
         product:products (
@@ -246,7 +271,8 @@ export async function PATCH(request: Request) {
       if (typeof payload.canvas_state !== 'object') {
         return NextResponse.json({ error: '캔버스 상태 형식이 올바르지 않습니다.' }, { status: 400 });
       }
-      updateData.canvas_state = payload.canvas_state;
+      try { updateData.canvas_state = normalizeMallCanvas(payload.canvas_state); }
+      catch { return NextResponse.json({ error: '캔버스 상태 형식이 올바르지 않습니다.' }, { status: 400 }); }
     }
 
     if (payload?.preview_url !== undefined) {
@@ -277,7 +303,7 @@ export async function PATCH(request: Request) {
     }
 
     if (payload?.price !== undefined) {
-      if (payload.price !== null && typeof payload.price !== 'number') {
+      if (!validPrice(payload.price)) {
         return NextResponse.json({ error: '가격 형식이 올바르지 않습니다.' }, { status: 400 });
       }
       updateData.price = payload.price;

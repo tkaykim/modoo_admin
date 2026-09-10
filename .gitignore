@@ -50,3 +50,4 @@ scripts/drive-backfill.mjs
 ._meta_ads/
 .context/
 .tmp/
+/e2e/artifacts/partner-mall/
