@@ -57,8 +57,8 @@ export default function WeeklyGoalChart({ rows }: { rows: Row[] }) {
               {r.target_gross != null && (
                 <line x1={x - 4} x2={x + barW + 4} y1={y(r.target_gross)} y2={y(r.target_gross)} stroke="#111827" strokeWidth={2} />
               )}
-              {/* 값 */}
-              <text x={cx} y={top - 4} fontSize={10} textAnchor="middle" fill="#111827">{man(r.gross)}</text>
+              {/* 값 — 목표선과 겹치면 목표선 위로 올린다 */}
+              <text x={cx} y={Math.min(top, r.target_gross != null ? y(r.target_gross) : top) - 4} fontSize={10} textAnchor="middle" fill="#111827">{man(r.gross)}</text>
               {/* 주 라벨 + 달성률 */}
               <text x={cx} y={H - 20} fontSize={10} textAnchor="middle" fill="#6b7280">{md(r.week_start)}</text>
               {r.achieved != null && (
