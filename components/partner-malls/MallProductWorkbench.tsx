@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Search, ImageOff, PackagePlus, Copy, Trash2, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import type { Product, SavedDesign } from '@/types/types';
 import { createMallDraft, type MallProductDraft } from '@/lib/partner-mall-design';
 import MallProductDesignEditor from './MallProductDesignEditor';
@@ -21,7 +22,14 @@ export default function MallProductWorkbench({ value, onChange, logoUrl }: {
   const [editing, setEditing] = useState<MallProductDraft | null>(null);
   const [opening, setOpening] = useState(false);
   const valueRef = useRef(value);
+  const sectionRef = useRef<HTMLElement>(null);
   valueRef.current = value;
+  const changePage = (next: number) => {
+    setPage(next);
+    const section = sectionRef.current;
+    const scroller = section?.closest<HTMLElement>('[data-mall-scroll]');
+    if (section && scroller) scroller.scrollTop += section.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 24;
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -61,42 +69,46 @@ export default function MallProductWorkbench({ value, onChange, logoUrl }: {
   };
 
   const filtered = products.filter(p => p.is_active !== false && `${p.title} ${p.product_code || ''}`.toLowerCase().includes(query.toLowerCase()));
-  const shown = source === 'existing' ? designs : filtered;
-  return <section className="space-y-4">
-    <div className="flex flex-wrap gap-2">
-      <button type="button" aria-pressed={source === 'new'} onClick={() => { setSource('new'); setPage(1); setQuery(''); }} className={`rounded-lg border px-4 py-2 ${source === 'new' ? 'bg-blue-600 text-white' : 'bg-white'}`}>새 디자인</button>
-      <button type="button" aria-pressed={source === 'existing'} onClick={() => { setSource('existing'); setPage(1); setQuery(''); }} className={`rounded-lg border px-4 py-2 ${source === 'existing' ? 'bg-blue-600 text-white' : 'bg-white'}`}>기존 디자인 불러오기</button>
-    </div>
-    <input aria-label="제품 및 디자인 검색" placeholder={source === 'existing' ? '디자인명, 고객명, 제품명, 주문번호 검색' : '제품명, 제품코드 검색'} value={query} onChange={e => { setQuery(e.target.value); setPage(1); }} className="w-full rounded-lg border p-3 text-sm" />
-    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-    {loading ? <p className="py-6 text-sm">목록을 불러오는 중...</p> : <>
-      <div className="grid max-h-80 grid-cols-2 gap-3 overflow-auto md:grid-cols-4">
+  const currentPages = source === 'existing' ? pages : Math.max(1, Math.ceil(filtered.length / 12));
+  const shown = source === 'existing' ? designs : filtered.slice((page - 1) * 12, page * 12);
+  return <section ref={sectionRef} className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_272px]">
+    <div className="min-w-0 space-y-4">
+      <div className="flex w-fit max-w-full gap-1 rounded-lg bg-gray-100 p-1">
+        <button type="button" aria-pressed={source === 'new'} onClick={() => { setSource('new'); setPage(1); setQuery(''); }} className={`rounded-md px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-blue-600 ${source === 'new' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>새 디자인</button>
+        <button type="button" aria-pressed={source === 'existing'} onClick={() => { setSource('existing'); setPage(1); setQuery(''); }} className={`rounded-md px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-blue-600 ${source === 'existing' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>기존 디자인 불러오기</button>
+      </div>
+      <div className="relative"><Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><input aria-label="제품 및 디자인 검색" placeholder={source === 'existing' ? '디자인명, 고객명, 제품명, 주문번호 검색' : '제품명, 제품코드 검색'} value={query} onChange={e => { setQuery(e.target.value); setPage(1); }} className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-9 pr-3 text-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" /></div>
+      <p className="text-xs leading-5 text-gray-500">{source === 'existing' ? '디자인을 선택해 편집한 뒤 진열 목록에 추가하세요.' : '제품을 선택해 새 디자인을 만들어보세요.'}</p>
+      {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      {loading ? <div className="flex items-center justify-center gap-2 py-20 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" />목록을 불러오는 중...</div> : <>
+      <div data-design-grid className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {shown.map(item => {
           const design = source === 'existing' ? item as SavedDesign : undefined;
           const product = source === 'new' ? item as Product : undefined;
           const preview = design?.preview_url || product?.thumbnail_image_link?.[0];
-          return <button type="button" disabled={opening} key={item.id} onClick={() => choose(product, design)} className="rounded-lg border bg-white p-3 text-left hover:border-blue-600">
-            {preview ? <img src={preview} alt="" className="h-24 w-full object-contain" /> : <div className="flex h-24 items-center justify-center bg-gray-50 text-xs">미리보기 없음</div>}
-            <p className="mt-2 text-sm font-medium">{item.title || '이름 없는 디자인'}</p>
-            <p className="text-xs text-gray-500">{design?.product?.title || product?.product_code}</p>
-            {design?.user?.name && <p className="text-xs text-gray-500">{design.user.name}</p>}
+          return <button type="button" disabled={opening} key={item.id} onClick={() => choose(product, design)} className="group min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white text-left transition-colors hover:border-blue-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-60">
+            <div className="flex aspect-[4/3] items-center justify-center bg-gray-50 p-3">{preview ? <img src={preview} alt="" className="h-full w-full object-contain transition-transform group-hover:scale-105" /> : <div className="flex flex-col items-center gap-2 text-xs text-gray-400"><ImageOff className="h-6 w-6" />미리보기 없음</div>}</div>
+            <div className="space-y-1 p-3"><p className="line-clamp-2 text-sm font-medium leading-5 text-gray-900" title={item.title || undefined}>{item.title || '이름 없는 디자인'}</p>
+            <p className="truncate text-xs leading-5 text-gray-500" title={design?.product?.title || product?.product_code || ''}>{design?.product?.title || product?.product_code || '제품'}</p>
+            {design?.user?.name && <p className="truncate text-xs text-gray-400">{design.user.name}</p>}</div>
           </button>;
         })}
       </div>
-      {shown.length === 0 && <p className="text-sm text-gray-500">검색 결과가 없습니다.</p>}
-      {source === 'existing' && <div className="flex items-center justify-center gap-4 text-sm"><button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>이전</button><span>{page} / {pages}</span><button type="button" disabled={page >= pages} onClick={() => setPage(page + 1)}>다음</button></div>}
+      {shown.length === 0 && <p className="py-12 text-center text-sm text-gray-500">검색 결과가 없습니다.</p>}
+      <div className="flex items-center justify-center gap-3 pt-2 text-sm"><button type="button" disabled={page <= 1} onClick={() => changePage(page - 1)} className="flex h-9 items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 text-gray-600 hover:bg-gray-50 disabled:opacity-40"><ChevronLeft className="h-4 w-4" />이전</button><span className="min-w-16 text-center text-xs text-gray-500">{page} / {currentPages}</span><button type="button" disabled={page >= currentPages} onClick={() => changePage(page + 1)} className="flex h-9 items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 text-gray-600 hover:bg-gray-50 disabled:opacity-40">다음<ChevronRight className="h-4 w-4" /></button></div>
     </>}
-    <div className="border-t pt-4">
-      <h3 className="mb-3 font-semibold">진열할 상품 {value.length}개</h3>
-      {value.length === 0 && <p className="text-sm text-gray-500">디자인을 선택하고 전체 면을 확인한 뒤 편집을 완료해주세요.</p>}
-      <div className="space-y-2">{value.map(item => <div key={item.key} className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
-        {item.preview_url && <img src={item.preview_url} alt="" className="h-16 w-16 object-contain" />}
-        <div className="min-w-0 flex-1"><p className="text-sm font-medium">{item.display_name}</p><p className="text-xs text-gray-500">{item.color_name || item.color_hex} · {Object.keys(item.canvas_state).length}개 면 · {item.price === null ? '기본 가격' : `${item.price.toLocaleString()}원`}</p></div>
-        <button type="button" onClick={() => setEditing(item)} className="rounded border px-3 py-2 text-sm">전체 면 수정</button>
-        <button type="button" onClick={() => onChange([...value, { ...structuredClone(item), key: crypto.randomUUID(), display_name: `${item.display_name} 복사본` }])} className="rounded border px-3 py-2 text-sm">복제</button>
-        <button type="button" onClick={() => onChange(value.filter(v => v.key !== item.key))} className="px-2 text-sm text-red-600">목록에서 빼기</button>
-      </div>)}</div>
     </div>
+    <aside className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 lg:sticky lg:top-0">
+      <h3 className="text-sm font-semibold text-gray-900">진열할 상품 {value.length}개</h3>
+      {value.length === 0 && <div className="flex flex-col items-center py-8 text-center"><PackagePlus className="mb-3 h-8 w-8 text-gray-300" /><p className="text-sm text-gray-500">아직 담은 상품이 없습니다.</p><p className="mt-2 text-xs leading-5 text-gray-400">디자인을 선택하고 편집을 완료하면<br />이곳에 상품이 추가됩니다.</p></div>}
+      <div className="mt-3 space-y-3">{value.map(item => <div key={item.key} className="rounded-lg bg-gray-50 p-3">
+        <div className="flex items-start gap-3">{item.preview_url && <img src={item.preview_url} alt="" className="h-14 w-14 shrink-0 rounded-md bg-white object-contain" />}
+        <div className="min-w-0 flex-1"><p className="break-words text-sm font-medium leading-5">{item.display_name}</p><p className="mt-1 text-xs leading-5 text-gray-500">{Object.keys(item.canvas_state).length}개 면 · {item.price === null ? '기본 가격' : `${item.price.toLocaleString()}원`}</p>{(item.color_name || item.color_hex) && <p className="text-xs text-gray-500">{item.color_name || item.color_hex}</p>}</div></div>
+        <div className="mt-3 flex gap-1"><button type="button" onClick={() => setEditing(item)} className="flex-1 rounded-md border border-gray-200 bg-white px-2 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100">전체 면 수정</button>
+        <button type="button" aria-label="복제" title="복제" onClick={() => onChange([...value, { ...structuredClone(item), key: crypto.randomUUID(), display_name: `${item.display_name} 복사본` }])} className="rounded-md p-2 text-gray-500 hover:bg-gray-200"><Copy className="h-4 w-4" /></button>
+        <button type="button" aria-label="목록에서 빼기" title="목록에서 빼기" onClick={() => onChange(value.filter(v => v.key !== item.key))} className="rounded-md p-2 text-gray-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button></div>
+      </div>)}</div>
+    </aside>
     {editing && <MallProductDesignEditor key={editing.key} draft={editing} logoUrl={logoUrl} onCancel={() => setEditing(null)} onSave={next => {
       const current = valueRef.current;
       onChange(current.some(v => v.key === next.key) ? current.map(v => v.key === next.key ? next : v) : [...current, next]);

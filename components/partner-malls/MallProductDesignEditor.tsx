@@ -11,6 +11,7 @@ import { useFontStore } from '@/store/useFontStore';
 import { serializeCanvasState, pickPreviewCanvas } from '@/lib/canvasUtils';
 import { mergeCustomFonts } from '@/lib/font-contract';
 import { extractMallFonts, mallDraftPayload, type MallProductDraft } from '@/lib/partner-mall-design';
+import { MallOverlay } from './MallModalFrame';
 
 type Color = { id: string; hex: string; name: string; color_code: string };
 
@@ -147,7 +148,7 @@ export default function MallProductDesignEditor({ draft, logoUrl, onCancel, onSa
     finally { saveLock.current = false; setSaving(false); }
   };
 
-  return <div role="dialog" aria-label="파트너몰 전체 면 편집" className="fixed inset-0 z-[70] flex flex-col bg-neutral-700">
+  return <MallOverlay className="fixed inset-0 z-[70] bg-neutral-700"><div role="dialog" aria-modal="true" aria-label="파트너몰 전체 면 편집" className="flex h-[100dvh] w-full flex-col overflow-hidden">
     <header className="flex flex-wrap items-center justify-between gap-2 bg-neutral-900 p-3 text-white">
       <button disabled={saving} onClick={onCancel}>편집 취소</button>
       <strong className="text-sm">전체 면 디자인 편집</strong>
@@ -158,7 +159,7 @@ export default function MallProductDesignEditor({ draft, logoUrl, onCancel, onSa
     </header>
     {error && <p role="alert" className="bg-red-50 p-2 text-sm text-red-700">{error}</p>}
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-      <div className="relative min-h-[300px] flex-1">
+      <div className="relative min-h-0 flex-1">
         {mounted && <EditorCanvas sides={sides} isEditing canvasStates={initialStates} productColor={draft.color_hex || '#FFFFFF'} customFonts={fonts} onCanvasReady={onReady} productId={draft.product.id} leftToolbarWidth={36} />}
         {mounted && <div className="absolute left-0 top-2 z-20"><Toolbar sides={sides} handleExitEditMode={() => {}} variant="editor" productId={draft.product.id} onSelectedObjectChange={setSelected} /></div>}
         <div className="absolute bottom-2 left-12 right-2 flex flex-wrap gap-1">
@@ -167,17 +168,17 @@ export default function MallProductDesignEditor({ draft, logoUrl, onCancel, onSa
         </div>
       </div>
       <aside className="max-h-[38vh] w-full space-y-3 overflow-auto bg-white p-4 md:max-h-none md:w-72">
-        <label className="block text-sm">상품명<input aria-label="상품명" value={name} onChange={e => setName(e.target.value)} className="mt-1 w-full rounded border p-2" /></label>
-        <label className="block text-sm">판매가 (원)<input aria-label="판매가" type="number" min="0" step="1" value={price} onChange={e => setPrice(e.target.value)} placeholder="비워두면 제품가 + 기본 인쇄비" className="mt-1 w-full rounded border p-2" /></label>
-        <label className="block text-sm">의류 색상<select aria-label="의류 색상" value={color?.id || ''} className="mt-1 w-full rounded border p-2" onChange={e => { const c = colors.find(c => c.id === e.target.value); if (c) { setColor(c); useCanvasStore.getState().setProductColor(c.hex); } }}>
+        <label className="block text-sm font-medium text-gray-700">상품명<input aria-label="상품명" value={name} onChange={e => setName(e.target.value)} className="mt-2 w-full rounded-lg border border-gray-200 p-2.5 text-sm font-normal focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" /></label>
+        <label className="block text-sm font-medium text-gray-700">판매가 (원)<input aria-label="판매가" type="number" min="0" step="1" value={price} onChange={e => setPrice(e.target.value)} placeholder="비워두면 제품가 + 기본 인쇄비" className="mt-2 w-full rounded-lg border border-gray-200 p-2.5 text-sm font-normal focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" /></label>
+        <label className="block text-sm font-medium text-gray-700">의류 색상<select aria-label="의류 색상" value={color?.id || ''} className="mt-2 w-full rounded-lg border border-gray-200 p-2.5 text-sm font-normal focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" onChange={e => { const c = colors.find(c => c.id === e.target.value); if (c) { setColor(c); useCanvasStore.getState().setProductColor(c.hex); } }}>
           <option value="">{color ? `${color.name || color.hex} (불러온 색상)` : '색상 선택'}</option>
           {colors.map(c => <option key={c.id} value={c.id}>{c.name} ({c.color_code})</option>)}
         </select></label>
-        {logoUrl && <button onClick={addLogo} className="w-full rounded border p-2 text-sm">선택한 면에 몰 로고 추가</button>}
+        {logoUrl && <button onClick={addLogo} className="w-full rounded-lg border border-gray-200 p-2.5 text-sm text-gray-700 hover:bg-gray-50">선택한 면에 몰 로고 추가</button>}
         {activeSide?.layers?.length ? <LayerColorSelector sideId={activeSide.id} layers={activeSide.layers} compact /> : null}
         {selected && /text/i.test(selected.type) && <TextStylePanel selectedObject={selected as fabric.IText} variant="desktop" compact />}
         <p className="text-xs leading-5 text-gray-500">제품이 제공하는 모든 면에서 이미지·문구·배치·크기를 수정할 수 있습니다.<br />불러온 원본 디자인과 기존 주문은 변경되지 않습니다.</p>
       </aside>
     </div>
-  </div>;
+  </div></MallOverlay>;
 }
