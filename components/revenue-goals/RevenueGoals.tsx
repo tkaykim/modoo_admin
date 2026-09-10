@@ -209,14 +209,13 @@ function History({ d }: { d: Data }) {
   return (
     <section className="bg-white border border-gray-200/60 rounded-md shadow-sm overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-900">최근 12주</h3>
+        <h3 className="text-sm font-semibold text-gray-900">주간 매출 vs 목표 — 지난 11주 · 이번 주 · 향후 {d.future.length}주</h3>
         {lw && lw.target != null && (
           <span className="text-xs text-gray-600">지난주 {weekLabel(lw.week_start)} · {won(lw.gross)} / {won(lw.target)} · <Badge s={lw.status} /></span>
         )}
       </div>
       <div className="p-4">
-        <p className="text-xs text-gray-500 mb-2">지난 11주 실적과 이번 주(진행 중)를 목표선과 함께 봅니다. 향후 목표는 아래 표에 있습니다.</p>
-        <WeeklyGoalChart rows={d.weeks} />
+        <WeeklyGoalChart rows={d.weeks} future={d.future.map((f) => ({ week_start: f.week_start, target_gross: f.target_gross }))} />
       </div>
       <div className="overflow-x-auto border-t border-gray-200">
         <table className="w-full text-xs">
