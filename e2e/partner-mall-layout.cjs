@@ -9,8 +9,9 @@ const out=path.resolve('e2e/artifacts/partner-mall/layout');fs.mkdirSync(out,{re
  await p.route('**/api/admin/**',r=>{if(r.request().method()!=='GET'){writes.push(r.request().url());return r.abort();}return r.continue();});
  try{
   await p.goto(base+'/login?redirect=/partner_malls');await p.locator('input[type=email]').fill(process.env.E2E_ADMIN_EMAIL);await p.locator('input[type=password]').fill(process.env.E2E_ADMIN_PASSWORD);await p.getByRole('button',{name:'로그인',exact:true}).click();await p.waitForURL(u=>u.pathname==='/partner_malls');
+  const malls=await ctx.request.get(base+'/api/admin/partner-malls');assert(malls.ok());const mallId=process.env.E2E_MALL_ID||(await malls.json()).data.find(m=>m.partner_mall_products?.length)?.id;assert(mallId);
   for(const size of [{width:1920,height:1080},{width:1440,height:900},{width:1280,height:720},{width:390,height:844}]){
-   await p.setViewportSize(size);await p.goto(base+'/partner_malls/e3c3283c-979a-4c09-a519-2f496c559d28');
+   await p.setViewportSize(size);await p.goto(base+'/partner_malls/'+mallId);
    await p.getByRole('button',{name:'제품 추가',exact:true}).waitFor();await p.evaluate(()=>window.scrollTo(0,600));
    await p.getByRole('button',{name:'제품 추가',exact:true}).click();const dialog=p.getByRole('dialog',{name:'파트너몰 상품 추가',exact:true});
    await dialog.getByRole('button',{name:'다음',exact:true}).waitFor();

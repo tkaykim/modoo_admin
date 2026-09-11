@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import MallProductWorkbench from './MallProductWorkbench';
 import MallModalFrame from './MallModalFrame';
-import { mallDraftPayload, type MallProductDraft } from '@/lib/partner-mall-design';
+import { mallDraftPayload, requireMallPrices, type MallProductDraft } from '@/lib/partner-mall-design';
 
 export default function AddProductsModal({ partnerMallId, partnerMallName, logoUrl, logoAssets = [], onClose, onProductsAdded }: {
   partnerMallId: string; partnerMallName: string; logoUrl: string;
@@ -20,6 +20,7 @@ export default function AddProductsModal({ partnerMallId, partnerMallName, logoU
     if (!items.length) { setError('상품을 1개 이상 추가해주세요.'); return; }
     lock.current = true; setSaving(true); setError('');
     try {
+      requireMallPrices(items);
       const response = await fetch('/api/admin/partner-malls/products', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partner_mall_id: partnerMallId, products: items.map(item => ({ ...mallDraftPayload(item), id: item.key })) }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || '상품을 추가하지 못했습니다.');

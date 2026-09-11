@@ -44,6 +44,11 @@ fs.mkdirSync(out,{recursive:true});
     await page.getByLabel('상품명',{exact:true}).fill('뒷면 새 디자인 상품');
     await page.getByRole('button',{name:'편집 완료',exact:true}).click();
     await page.getByRole('heading',{name:'진열할 상품 2개'}).waitFor();
+    // Missing price blocks persistence without creating a partial mall.
+    await page.getByRole('button',{name:'파트너몰 저장',exact:true}).click();
+    await page.getByRole('alert').filter({hasText:'판매가를 입력해주세요'}).waitFor();
+    assert.equal((await (await fetch('http://127.0.0.1:3199/__state')).json()).db.partner_malls.length,0);
+    await page.getByLabel('뒷면 새 디자인 상품 판매가',{exact:true}).fill('11900');
     await page.screenshot({path:path.join(out,'03-mixed-drafts.png')});
     // Inject a DB failure, exercising real Next API retry behavior.
     await fetch('http://127.0.0.1:3199/__fail');
@@ -107,12 +112,29 @@ fs.mkdirSync(out,{recursive:true});
     assert.equal(updated.price,25800); assert.equal(JSON.parse(updated.canvas_state.left).objects.length,3);
     assert.equal(JSON.stringify(state.db.saved_designs),sourceSnapshot);
     assert.deepEqual(state.db.partner_mall_products.find(p=>p.id===imported.id),importedSnapshot);
+    // Edit just the price from the always-visible product action; design stays byte-identical.
+    await copyCard.getByRole('button',{name:'가격 수정',exact:true}).click();
+    const pricing=page.getByRole('dialog',{name:'상품 가격 수정',exact:true});
+    await pricing.getByLabel('판매가',{exact:true}).fill('11900');
+    await pricing.getByRole('button',{name:'취소',exact:true}).click();
+    assert.equal((await (await fetch('http://127.0.0.1:3199/__state')).json()).db.partner_mall_products.find(p=>p.id===copy.id).price,25800);
+    await copyCard.getByRole('button',{name:'가격 수정',exact:true}).click();
+    await pricing.getByLabel('판매가',{exact:true}).fill('11900');
+    await fetch('http://127.0.0.1:3199/__fail');
+    await pricing.getByRole('button',{name:'가격 저장',exact:true}).click();
+    await pricing.getByRole('alert').waitFor();
+    assert.equal(await pricing.getByLabel('판매가',{exact:true}).inputValue(),'11900');
+    await pricing.getByRole('button',{name:'가격 저장',exact:true}).click();
+    await pricing.waitFor({state:'hidden'});
+    const repriced=(await (await fetch('http://127.0.0.1:3199/__state')).json()).db.partner_mall_products.find(p=>p.id===copy.id);
+    assert.equal(repriced.price,11900); assert.deepEqual(repriced.canvas_state,updated.canvas_state);
     // Add another existing design through the already-created mall.
     await page.getByRole('button',{name:'제품 추가',exact:true}).click();
     await page.getByRole('button',{name:/기존 확정 4면 디자인/}).click();
     await page.getByText('4개 면 준비 완료',{exact:true}).waitFor();
     await page.getByLabel('상품명',{exact:true}).fill('추가 등록 상품');
     await page.getByRole('button',{name:'편집 완료',exact:true}).click();
+    await page.getByLabel('추가 등록 상품 판매가',{exact:true}).fill('11900');
     await page.getByRole('button',{name:'몰에 상품 추가',exact:true}).click();
     await page.getByRole('dialog',{name:'파트너몰 상품 추가'}).waitFor({state:'hidden'});
     // Actual server API rejects invalid state/prices and unauthenticated writes.

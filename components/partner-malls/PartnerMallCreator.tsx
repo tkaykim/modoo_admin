@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import MallProductWorkbench from './MallProductWorkbench';
 import MallModalFrame from './MallModalFrame';
 import LogoCapture from './LogoCapture';
-import { mallDraftPayload, type MallProductDraft } from '@/lib/partner-mall-design';
+import { mallDraftPayload, requireMallPrices, type MallProductDraft } from '@/lib/partner-mall-design';
 
 export default function PartnerMallCreator({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('');
@@ -26,6 +26,7 @@ export default function PartnerMallCreator({ onClose, onCreated }: { onClose: ()
     if (!items.length) { setError('진열할 상품을 1개 이상 추가해주세요.'); return; }
     lock.current = true; setSaving(true);
     try {
+      requireMallPrices(items);
       const products = items.map(item => ({ ...mallDraftPayload(item), id: item.key }));
       mallId.current ||= crypto.randomUUID();
       const response = await fetch('/api/admin/partner-malls', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: mallId.current, name: name.trim(), slug: slug || null, logo_url: logo, original_logo_url: originalLogo || null, is_active: false }) });
