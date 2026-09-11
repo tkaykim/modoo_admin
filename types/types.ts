@@ -576,7 +576,7 @@ export interface Profile {
   email: string;
   name: string | null;
   phone_number: string | null;
-  role: 'customer' | 'admin' | 'factory' | 'super_admin' | 'marketing_manager';
+  role: 'customer' | 'admin' | 'factory' | 'super_admin' | 'marketing_manager' | 'marketing_analyst';
   manufacturer_id?: string | null;
   created_at: string;
   updated_at: string;
@@ -1233,7 +1233,7 @@ export interface Invoice {
 
 export interface EditorChatMessageSender {
   name: string | null;
-  role: 'admin' | 'customer' | 'factory' | 'super_admin' | 'marketing_manager';
+  role: 'admin' | 'customer' | 'factory' | 'super_admin' | 'marketing_manager' | 'marketing_analyst';
   email: string;
 }
 
