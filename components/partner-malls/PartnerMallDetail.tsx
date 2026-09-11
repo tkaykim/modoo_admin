@@ -23,6 +23,7 @@ import { PartnerMall, PartnerMallProduct, PartnerMallAsset } from '@/types/types
 import PartnerMallInfoEditor from './PartnerMallInfoEditor';
 import SingleProductPlacementEditor from './SingleProductPlacementEditor';
 import AddProductsModal from './AddProductsModal';
+import MallProductPriceEditor from './MallProductPriceEditor';
 import AssigneePicker from '@/components/common/AssigneePicker';
 import { formatKstDateLong } from '@/lib/kst';
 
@@ -32,11 +33,13 @@ const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://modoouniform.co
 function ProductPreviewCard({
   mallProduct,
   onEdit,
+  onPriceEdit,
   onRemove,
   isDeleting,
 }: {
   mallProduct: PartnerMallProduct;
   onEdit: () => void;
+  onPriceEdit: () => void;
   onRemove: () => void;
   isDeleting: boolean;
 }) {
@@ -44,7 +47,7 @@ function ProductPreviewCard({
   const previewUrl = mallProduct.preview_url;
 
   return (
-    <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden group">
+    <div data-mall-product-id={mallProduct.id} className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden group">
       <div className="relative aspect-4/5 bg-white">
         {previewUrl ? (
           <img
@@ -99,11 +102,7 @@ function ProductPreviewCard({
             {mallProduct.color_name || product?.product_code || ''}
           </p>
         </div>
-        {mallProduct.price !== null && mallProduct.price !== undefined && (
-          <p className="text-xs sm:text-sm font-semibold text-blue-600 mt-1">
-            {mallProduct.price.toLocaleString()}원
-          </p>
-        )}
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-blue-600 sm:text-sm">{mallProduct.price == null ? '판매가 미설정' : `${mallProduct.price.toLocaleString()}원`}</p><button type="button" onClick={onPriceEdit} className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-blue-300 hover:text-blue-600">가격 수정</button></div>
         {/* Mobile action buttons */}
         <div className="flex items-center gap-2 mt-2 sm:hidden">
           <button
@@ -146,6 +145,7 @@ export default function PartnerMallDetail({
   const [togglingActive, setTogglingActive] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [showAddProducts, setShowAddProducts] = useState(false);
+  const [pricingProduct, setPricingProduct] = useState<PartnerMallProduct | null>(null);
   const [editingProduct, setEditingProduct] = useState<PartnerMallProduct | null>(null);
   const [showEditInfo, setShowEditInfo] = useState(false);
   const [generatingLink, setGeneratingLink] = useState(false);
@@ -602,6 +602,7 @@ export default function PartnerMallDetail({
                       key={mallProduct.id}
                       mallProduct={mallProduct}
                       onEdit={() => setEditingProduct(mallProduct)}
+                      onPriceEdit={() => setPricingProduct(mallProduct)}
                       onRemove={() => removeProduct(mallProduct)}
                       isDeleting={deletingProductId === mallProduct.id}
                     />
@@ -614,6 +615,7 @@ export default function PartnerMallDetail({
       </div>
 
       {/* Edit Info Modal */}
+      {pricingProduct && <MallProductPriceEditor product={pricingProduct} hasDiscount={Boolean(partnerMall.source_key?.startsWith('franchise-coex:84:') || partnerMall.salesman_id)} onClose={() => setPricingProduct(null)} onSaved={() => { setPricingProduct(null); onUpdate(); }} />}
       {showEditInfo && (
         <PartnerMallInfoEditor
           partnerMall={partnerMall}

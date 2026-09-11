@@ -71,3 +71,10 @@ export function mallDraftPayload(draft: MallProductDraft) {
     price: draft.price,
   };
 }
+
+export function requireMallPrices(items: MallProductDraft[]) {
+  for (const item of items) {
+    if (item.price === null) throw new Error(`${item.display_name}의 판매가를 입력해주세요.`);
+    if (!Number.isSafeInteger(item.price) || item.price < 0) throw new Error('판매가는 0 이상의 정수로 입력해주세요.');
+  }
+}

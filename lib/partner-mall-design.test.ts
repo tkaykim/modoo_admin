@@ -1,9 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createMallDraft, extractMallFonts, mallDraftPayload, normalizeMallCanvas } from './partner-mall-design';
+import { createMallDraft, extractMallFonts, mallDraftPayload, normalizeMallCanvas, requireMallPrices } from './partner-mall-design';
 import type { Product, SavedDesign } from '@/types/types';
 
 const product = { id: 'product', title: 'Shirt', configuration: [] } as unknown as Product;
+test('new mall products require an explicit price before persistence', () => {
+  const draft = createMallDraft(product);
+  for (const price of [null, -1, 1.5, NaN, Infinity]) assert.throws(() => requireMallPrices([{ ...draft, price }]));
+  for (const price of [0, 11900]) assert.doesNotThrow(() => requireMallPrices([{ ...draft, price }]));
+  assert.throws(() => requireMallPrices([{ ...draft, price: 11900 }, draft]));
+});
 test('copies all mixed-format sides and nested font/image metadata without mutating source', () => {
   const source = { title: 'Original', product_id: product.id, color_selections: { productColor: '#123456' }, price_per_item: 99999, canvas_state: { front: { objects: [{ type: 'IText', text: 'KEEP', data: { fontUrl: '/font.woff2' } }] }, back: JSON.stringify({ objects: [{ type: 'Image', src: '/logo.png' }] }), left: { objects: [] }, right: { objects: [] }, retired: { objects: [{ type: 'Rect' }] } } } as unknown as SavedDesign;
   const before = structuredClone(source);

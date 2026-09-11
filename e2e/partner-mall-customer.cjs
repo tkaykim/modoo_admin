@@ -19,7 +19,7 @@ const out=path.resolve('e2e/artifacts/partner-mall');
     await p.screenshot({path:path.join(out,`customer-side-${side}.png`)});
   }
   await p.screenshot({path:path.join(out,'07-customer-four-sides.png')});
-  assert(await p.getByText('25,800원',{exact:true}).count()>0);
+  assert(await p.getByText('11,900원',{exact:true}).count()>0);
   await p.setViewportSize({width:390,height:844});
   await p.screenshot({path:path.join(out,'08-customer-mobile.png')});
   assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
@@ -32,7 +32,7 @@ const out=path.resolve('e2e/artifacts/partner-mall');
   const cart=await p.evaluate(()=>JSON.parse(localStorage.getItem('modoo-cart-storage')||localStorage.getItem('cart-storage')||'null'));
   assert.equal(cart.state.items.length,1);
   assert.equal(cart.state.items[0].quantity,2);
-  assert.equal(cart.state.items[0].pricePerItem,25800);
+  assert.equal(cart.state.items[0].pricePerItem,11900);
   assert.equal(Object.keys(cart.state.items[0].canvasState).length,4);
   assert(cart.state.items[0].partnerMallId);
   fs.writeFileSync(path.join(out,'checkout-cart.json'),JSON.stringify(cart,null,2));
