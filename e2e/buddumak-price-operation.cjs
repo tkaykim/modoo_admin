@@ -15,6 +15,7 @@ const preserved=p=>createHash('sha256').update(JSON.stringify({product_id:p.prod
   await p.reload();const after=await read();for(const item of after){assert.equal(item.price,11900);assert.equal(preserved(item),previous.find(v=>v.id===item.id).designHash);}
   await p.screenshot({path:out+'/buddumak-admin-prices.png'});
   const anon=await b.newContext({viewport:{width:390,height:844}});const c=await anon.newPage();c.setDefaultTimeout(60000);c.on('pageerror',e=>errors.push(e.message));
+  await c.route('**/api/analytics/track',r=>r.fulfill({status:204}));
   await c.goto('https://www.modoouniform.com/mall/buddumak');const res=await anon.request.get('https://www.modoouniform.com/api/partner-mall/buddumak');assert(res.ok());const data=(await res.json()).data;assert.equal(data.id,mallId);assert.equal(data.partner_mall_products.length,2);assert(data.partner_mall_products.every(v=>v.price===11900));
   await c.getByRole('button',{name:/상세 보기$/}).first().click();await c.getByText('11,900원',{exact:true}).first().waitFor();await c.screenshot({path:out+'/buddumak-customer-price.png'});
   await c.getByRole('button',{name:'사이즈·수량 선택하고 주문하기',exact:true}).click();await c.locator('input[type=number]').first().fill('2');await c.getByRole('button',{name:'바로 구매하기',exact:true}).click();await c.waitForURL(u=>u.pathname==='/checkout');

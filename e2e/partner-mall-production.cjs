@@ -59,6 +59,7 @@ const out=path.resolve('e2e/artifacts/partner-mall');fs.mkdirSync(out,{recursive
   const repriced=(await products()).find(v=>v.id===copy.id);assert.equal(repriced.price,11900);assert.deepEqual(repriced.canvas_state,designBeforePrice);passed.push('production price-only update preserves design');
   await p.setViewportSize({width:1440,height:1000});await p.getByRole('button',{name:'비활성',exact:true}).click();await p.getByRole('button',{name:'활성',exact:true}).waitFor();
   const anon=await browser.newContext({viewport:{width:1440,height:1000}});const c=await anon.newPage();c.setDefaultTimeout(60000);c.on('pageerror',e=>errors.push(e.message));
+  await c.route('**/api/analytics/track',r=>r.fulfill({status:204}));
   await c.route(/google-analytics|googletagmanager|facebook\.net|clarity\.ms/,r=>r.abort());
   await c.goto(customer+'/mall/'+slug);await c.getByRole('button',{name:'E2E 별도 저장 상품 상세 보기',exact:true}).click();
   await c.waitForFunction(()=>document.querySelectorAll('canvas.lower-canvas').length>=4);
