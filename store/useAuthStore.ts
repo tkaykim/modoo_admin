@@ -11,7 +11,7 @@ export interface UserData {
   name?: string;
   avatar_url?: string;
   phone?: string;
-  role?: 'admin' | 'customer' | 'factory' | 'super_admin' | 'marketing_manager';
+  role?: 'admin' | 'customer' | 'factory' | 'super_admin' | 'marketing_manager' | 'marketing_analyst';
   manufacturer_id?: string | null;
   manufacturer_name?: string | null;
   created_at?: string;

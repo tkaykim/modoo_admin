@@ -22,6 +22,8 @@ import {
   ZoomIn,
 } from 'lucide-react';
 import { fetcher } from '@/lib/fetcher';
+import { canExecuteMarketingActions } from '@/lib/auth-helpers';
+import { useAuthStore } from '@/store/useAuthStore';
 import DecisionsPanel from './DecisionsPanel';
 
 type Overview = {
@@ -152,6 +154,10 @@ const tabs = [
 type TabId = (typeof tabs)[number]['id'];
 
 export default function MarketingConsole() {
+  const authUser = useAuthStore((state) => state.user);
+  // 열람 전용(marketing_analyst): 실행 버튼·업로드 탭을 숨긴다. 서버 쓰기 API 도 별도로 403 을 반환한다.
+  const readOnly = !canExecuteMarketingActions(authUser?.role);
+  const visibleTabs = readOnly ? tabs.filter((item) => item.id !== 'upload') : tabs;
   const [days, setDays] = useState(14);
   const [tab, setTab] = useState<TabId>('decisions');
   const [confirm, setConfirm] = useState<Recommendation | null>(null);
@@ -300,10 +306,10 @@ export default function MarketingConsole() {
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-4 py-3">
                 <div>
                   <h2 className="text-sm font-semibold text-gray-900">운영 추천</h2>
-                  <p className="text-xs text-gray-500">중단·재개·예산 조정은 확인 후 즉시 Meta에 반영됩니다.</p>
+                  <p className="text-xs text-gray-500">{readOnly ? '열람 전용 계정입니다. 중단·재개·예산 변경은 운영자에게 요청해 주세요.' : '중단·재개·예산 조정은 확인 후 즉시 Meta에 반영됩니다.'}</p>
                 </div>
                 <div className="flex max-w-full overflow-x-auto rounded-md bg-gray-100 p-0.5">
-                  {tabs.map((item) => (
+                  {visibleTabs.map((item) => (
                     <button
                       key={item.id}
                       type="button"
@@ -316,7 +322,7 @@ export default function MarketingConsole() {
                 </div>
               </div>
 
-              {tab === 'decisions' && <DecisionsPanel onChanged={() => mutate()} />}
+              {tab === 'decisions' && <DecisionsPanel onChanged={() => mutate()} readOnly={readOnly} />}
 
               {tab === 'tasks' && (
                 <div className="divide-y divide-gray-100">
@@ -327,6 +333,7 @@ export default function MarketingConsole() {
                       busy={busyId === recommendation.id}
                       onDone={() => markDone(recommendation.id)}
                       onConfirm={() => setConfirm(recommendation)}
+                      readOnly={readOnly}
                     />
                   ))}
                   {visibleRecommendations.length === 0 && (
@@ -344,12 +351,13 @@ export default function MarketingConsole() {
                       creative={creative}
                       onPreview={() => setPreviewCreative(creative)}
                       onQuickAction={(recommendation) => setConfirm(recommendation)}
+                      readOnly={readOnly}
                     />
                   ))}
                 </div>
               )}
 
-              {tab === 'upload' && (
+              {tab === 'upload' && !readOnly && (
                 <CreativeUploadPanel
                   adSets={data.adSets}
                   onCreated={async (result) => {
@@ -360,7 +368,7 @@ export default function MarketingConsole() {
                 />
               )}
 
-              {tab === 'campaigns' && <CampaignTable campaigns={data.campaigns} adSets={data.adSets} onQuickAction={(recommendation) => setConfirm(recommendation)} />}
+              {tab === 'campaigns' && <CampaignTable campaigns={data.campaigns} adSets={data.adSets} onQuickAction={(recommendation) => setConfirm(recommendation)} readOnly={readOnly} />}
             </section>
 
             <aside className="min-w-0 space-y-4">
@@ -457,11 +465,13 @@ function RecommendationRow({
   busy,
   onDone,
   onConfirm,
+  readOnly = false,
 }: {
   recommendation: Recommendation;
   busy: boolean;
   onDone: () => void;
   onConfirm: () => void;
+  readOnly?: boolean;
 }) {
   return (
     <div className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
@@ -478,15 +488,17 @@ function RecommendationRow({
         <button type="button" onClick={onDone} className="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
           확인
         </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onConfirm}
-          className="inline-flex items-center gap-1.5 rounded-md bg-gray-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-700 disabled:opacity-50"
-        >
-          {buttonIcon(recommendation)}
-          {busy ? '실행 중' : recommendation.actionLabel}
-        </button>
+        {(!readOnly || !recommendation.action) && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onConfirm}
+            className="inline-flex items-center gap-1.5 rounded-md bg-gray-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-700 disabled:opacity-50"
+          >
+            {buttonIcon(recommendation)}
+            {busy ? '실행 중' : recommendation.actionLabel}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -496,10 +508,12 @@ function CreativeCard({
   creative,
   onPreview,
   onQuickAction,
+  readOnly = false,
 }: {
   creative: Creative;
   onPreview: () => void;
   onQuickAction: (recommendation: Recommendation) => void;
+  readOnly?: boolean;
 }) {
   const isActive = creative.effectiveStatus === 'ACTIVE';
   const quickAction: Recommendation = isActive
@@ -573,10 +587,12 @@ function CreativeCard({
             {creative.hasVideo ? <Video className="h-3.5 w-3.5" /> : <ImageIcon className="h-3.5 w-3.5" />}
             {creative.mediaType}
           </span>
-          <button type="button" onClick={() => onQuickAction(quickAction)} className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50">
-            {isActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-            {isActive ? '중단' : '재개'}
-          </button>
+          {!readOnly && (
+            <button type="button" onClick={() => onQuickAction(quickAction)} className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50">
+              {isActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+              {isActive ? '중단' : '재개'}
+            </button>
+          )}
         </div>
       </div>
     </article>
@@ -891,10 +907,12 @@ function CampaignTable({
   campaigns,
   adSets,
   onQuickAction,
+  readOnly = false,
 }: {
   campaigns: Campaign[];
   adSets: AdSet[];
   onQuickAction: (recommendation: Recommendation) => void;
+  readOnly?: boolean;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -924,8 +942,14 @@ function CampaignTable({
               <td className="px-3 py-3 text-right font-mono text-xs text-gray-700">{pct(adSet.roas)}</td>
               <td className="px-4 py-3">
                 <div className="flex justify-end gap-1.5">
-                  <BudgetButton adSet={adSet} direction="down" onQuickAction={onQuickAction} />
-                  <BudgetButton adSet={adSet} direction="up" onQuickAction={onQuickAction} />
+                  {readOnly ? (
+                    <span className="text-[11px] text-gray-400">열람 전용</span>
+                  ) : (
+                    <>
+                      <BudgetButton adSet={adSet} direction="down" onQuickAction={onQuickAction} />
+                      <BudgetButton adSet={adSet} direction="up" onQuickAction={onQuickAction} />
+                    </>
+                  )}
                 </div>
               </td>
             </tr>

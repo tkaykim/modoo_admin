@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMarketingAccess } from '@/lib/admin/require-marketing-access';
+import { requireMarketingWriteAccess } from '@/lib/admin/require-marketing-access';
 import { updateAdSetBudget, updateAdStatus } from '@/lib/meta-ads';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +20,7 @@ function bad(message: string, status = 400) {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireMarketingAccess();
+    const auth = await requireMarketingWriteAccess();
     if ('error' in auth && auth.error) return auth.error;
 
     const body = (await req.json().catch(() => null)) as MarketingActionBody | null;

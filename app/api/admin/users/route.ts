@@ -3,7 +3,7 @@ import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 
-const allowedRoles = new Set(['customer', 'admin', 'factory', 'super_admin', 'marketing_manager']);
+const allowedRoles = new Set(['customer', 'admin', 'factory', 'super_admin', 'marketing_manager', 'marketing_analyst']);
 
 export async function GET(request: Request) {
   try {

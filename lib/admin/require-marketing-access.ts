@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { canAccessMarketingArea } from '@/lib/auth-helpers';
+import { canAccessMarketingArea, canExecuteMarketingActions } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 
 export async function requireMarketingAccess() {
@@ -19,4 +19,14 @@ export async function requireMarketingAccess() {
   }
 
   return { user, role: profile.role as string };
+}
+
+/** 쓰기(광고 상태·예산·소재 업로드·승인·목표 저장) 전용 가드. 열람 전용 marketing_analyst 는 403. */
+export async function requireMarketingWriteAccess() {
+  const auth = await requireMarketingAccess();
+  if ('error' in auth && auth.error) return auth;
+  if (!('role' in auth) || !canExecuteMarketingActions(auth.role)) {
+    return { error: NextResponse.json({ error: '열람 전용 계정입니다. 실행 권한(마케팅관리자 이상)이 필요합니다.' }, { status: 403 }) };
+  }
+  return auth;
 }

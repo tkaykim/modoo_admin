@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMarketingAccess } from '@/lib/admin/require-marketing-access';
+import { requireMarketingAccess, requireMarketingWriteAccess } from '@/lib/admin/require-marketing-access';
 import { createHubClient } from '@/lib/hub-supabase';
 import { createImageAdCreative, createPausedAd, updateAdStatus } from '@/lib/meta-ads';
 
@@ -83,7 +83,7 @@ type DecisionBody = {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireMarketingAccess();
+    const auth = await requireMarketingWriteAccess();
     if ('error' in auth && auth.error) return auth.error;
 
     const body = (await req.json().catch(() => null)) as DecisionBody | null;

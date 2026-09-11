@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMarketingAccess } from '@/lib/admin/require-marketing-access';
+import { requireMarketingAccess, requireMarketingWriteAccess } from '@/lib/admin/require-marketing-access';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { fetchAccountSummary } from '@/lib/meta-ads';
 
@@ -140,7 +140,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireMarketingAccess();
+  const auth = await requireMarketingWriteAccess();
   if ('error' in auth) return auth.error;
   const body = await req.json().catch(() => null) as { week_start?: string; target_gross?: number; target_orders?: number | null; planned_ad_spend?: number | null; max_ad_spend?: number | null; rule?: string } | null;
   if (!body?.week_start || !/^\d{4}-\d{2}-\d{2}$/.test(body.week_start)) return NextResponse.json({ error: 'week_start(YYYY-MM-DD, 월요일) 필요' }, { status: 400 });

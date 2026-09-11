@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase-client';
 import { normalizeProfileRole, assertModooAdminAppProfileRole, isModooAdminAppRole } from '@/lib/auth-helpers';
 import { useAuthStore, type AuthStatus, type UserData } from '@/store/useAuthStore';
 
-type AdminRole = 'admin' | 'factory' | 'super_admin' | 'marketing_manager';
+type AdminRole = 'admin' | 'factory' | 'super_admin' | 'marketing_manager' | 'marketing_analyst';
 
 const adminRoutes = ['/dashboard', '/analytics', '/marketing-console', '/revenue-goals', '/products', '/naver-commerce', '/designs', '/templates', '/content', '/orders', '/purchase-orders', '/factories', '/factory', '/cobuy', '/partner_malls', '/coupons', '/users', '/settings', '/editor', '/print-methods', '/customer-pricing', '/invoices', '/shipping', '/test', '/salespersons', '/leads', '/bug-reports'];
 const marketingRoutes = ['/analytics', '/marketing-console', '/revenue-goals'];
@@ -16,6 +16,7 @@ const allowedRoutesByRole: Record<AdminRole, string[]> = {
   factory: ['/orders', '/users', '/editor', '/factory'],
   super_admin: [...adminRoutes, '/finance'],
   marketing_manager: marketingRoutes,
+  marketing_analyst: marketingRoutes,
 };
 
 const defaultRouteByRole: Record<AdminRole, string> = {
@@ -23,6 +24,7 @@ const defaultRouteByRole: Record<AdminRole, string> = {
   factory: '/orders',
   super_admin: '/dashboard',
   marketing_manager: '/analytics',
+  marketing_analyst: '/analytics',
 };
 
 interface UseAdminAuthOptions {
@@ -120,7 +122,7 @@ export function useAdminAuth(options: UseAdminAuthOptions = {}): UseAdminAuthRes
         const canonicalRole = normalizeProfileRole(profile.role);
         if (!assertModooAdminAppProfileRole(canonicalRole)) {
           console.error(
-            '[모두관리] 허용되지 않은 역할입니다. 필요: admin · factory · super_admin · marketing_manager. 현재값:',
+            '[모두관리] 허용되지 않은 역할입니다. 필요: admin · factory · super_admin · marketing_manager · marketing_analyst. 현재값:',
             profile.role,
             '→ 정규화:',
             canonicalRole

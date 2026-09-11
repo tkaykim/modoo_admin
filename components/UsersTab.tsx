@@ -16,7 +16,7 @@ interface PaginatedResponse {
   totalPages: number;
 }
 
-type EditableRole = 'customer' | 'admin' | 'factory' | 'marketing_manager';
+type EditableRole = 'customer' | 'admin' | 'factory' | 'marketing_manager' | 'marketing_analyst';
 
 const paginatedFetcher = async (url: string): Promise<PaginatedResponse> => {
   const res = await fetch(url);
@@ -162,12 +162,14 @@ export default function UsersTab() {
   const getRoleColor = (role: string) => {
     if (isAdminLike(role)) return 'bg-purple-100 text-purple-800';
     if (role === 'marketing_manager') return 'bg-sky-100 text-sky-800';
+    if (role === 'marketing_analyst') return 'bg-teal-100 text-teal-800';
     if (role === 'factory') return 'bg-orange-100 text-orange-800';
     return 'bg-gray-100 text-gray-800';
   };
 
   const getRoleLabel = (role: string) => {
     if (role === 'marketing_manager') return '마케팅관리자';
+    if (role === 'marketing_analyst') return '마케팅분석가(열람)';
     if (isAdminLike(role)) return '관리자';
     if (role === 'factory') return '공장';
     return '일반 사용자';
@@ -347,6 +349,7 @@ export default function UsersTab() {
               { value: 'factory', label: '공장' },
               { value: 'admin', label: '관리자' },
               { value: 'marketing_manager', label: '마케팅관리자' },
+              { value: 'marketing_analyst', label: '마케팅분석가(열람)' },
             ].map((filter) => (
               <button
                 key={filter.value}
@@ -448,7 +451,7 @@ export default function UsersTab() {
                       )}`}
                     >
                       {isAdminLike(user.role) && <Shield className="w-3 h-3" />}
-                      {user.role === 'marketing_manager' && <Megaphone className="w-3 h-3" />}
+                      {(user.role === 'marketing_manager' || user.role === 'marketing_analyst') && <Megaphone className="w-3 h-3" />}
                       {user.role === 'factory' && <FactoryIcon className="w-3 h-3" />}
                       {getRoleLabel(user.role)}
                     </span>
@@ -508,6 +511,7 @@ export default function UsersTab() {
                           <option value="factory">공장</option>
                           <option value="admin">관리자</option>
                           <option value="marketing_manager">마케팅관리자</option>
+                          <option value="marketing_analyst">마케팅분석가(열람)</option>
                         </select>
                         {updatingUserId === user.id && (
                           <div className="flex items-center gap-1 text-xs text-gray-500">
@@ -558,7 +562,7 @@ export default function UsersTab() {
                     </div>
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 ${getRoleColor(user.role)}`}>
                       {isAdminLike(user.role) && <Shield className="w-3 h-3" />}
-                      {user.role === 'marketing_manager' && <Megaphone className="w-3 h-3" />}
+                      {(user.role === 'marketing_manager' || user.role === 'marketing_analyst') && <Megaphone className="w-3 h-3" />}
                       {user.role === 'factory' && <FactoryIcon className="w-3 h-3" />}
                       {getRoleLabel(user.role)}
                     </span>
@@ -584,6 +588,7 @@ export default function UsersTab() {
                         <option value="factory">공장</option>
                         <option value="admin">관리자</option>
                         <option value="marketing_manager">마케팅관리자</option>
+                          <option value="marketing_analyst">마케팅분석가(열람)</option>
                       </select>
                       {user.role === 'factory' && (
                         <select

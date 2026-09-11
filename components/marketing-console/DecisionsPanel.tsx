@@ -54,7 +54,7 @@ const KIND_LABEL: Record<string, string> = {
   note: '📝 기록',
 };
 
-export default function DecisionsPanel({ onChanged }: { onChanged?: () => void }) {
+export default function DecisionsPanel({ onChanged, readOnly = false }: { onChanged?: () => void; readOnly?: boolean }) {
   const { data, error, isLoading, mutate } = useSWR<DecisionsData>('/api/admin/marketing-console/decisions', fetcher, {
     revalidateOnFocus: false,
   });
@@ -130,6 +130,9 @@ export default function DecisionsPanel({ onChanged }: { onChanged?: () => void }
                     {draft.based_on ? ` (참고: ${draft.based_on})` : ''}
                   </p>
                 )}
+                {readOnly ? (
+                  <p className="mt-auto pt-1 text-[11px] text-gray-400">열람 전용 — 승인·기각은 운영자가 처리합니다.</p>
+                ) : (
                 <div className="mt-auto flex gap-2 pt-1">
                   <button
                     type="button"
@@ -150,6 +153,7 @@ export default function DecisionsPanel({ onChanged }: { onChanged?: () => void }
                     기각
                   </button>
                 </div>
+                )}
               </div>
             </div>
           ))}
