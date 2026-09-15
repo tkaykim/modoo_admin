@@ -3,6 +3,7 @@ import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { resolveColorByHex } from '@/lib/colorLookup';
+import { randomBytes } from 'crypto';
 
 const toNumber = (value: unknown) => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -91,6 +92,31 @@ async function recalcOrderTotals(adminClient: ReturnType<typeof createAdminClien
     .eq('id', orderId);
 
   return { newOriginalAmount, newTotalAmount };
+}
+
+type CustomerEditableFields = { quantities?: boolean; customerInfo?: boolean; shipping?: boolean } | null;
+
+/**
+ * "고객이 직접 입력" 상품이 주문에 들어가면 주문 자체를 고객 수량 입력 모드로 전환한다.
+ * - orders.customer_editable_fields.quantities = true (기존 customerInfo/shipping 설정은 유지)
+ * - 결제 링크 토큰이 없으면 생성 (고객이 /order/custom/[token] 에서 사이즈별 수량을 채우고 결제)
+ * 주문 생성(create route)의 customerEditableFields.quantities 와 같은 데이터 형태라 고객앱 수정 없이 동작한다.
+ */
+async function enableCustomerQuantities(
+  adminClient: ReturnType<typeof createAdminClient>,
+  orderId: string,
+  currentFields: CustomerEditableFields,
+  currentToken: string | null,
+) {
+  const fields = { ...(currentFields || {}), quantities: true };
+  const update: Record<string, unknown> = { customer_editable_fields: fields, updated_at: new Date().toISOString() };
+  let token = currentToken;
+  if (!token) {
+    token = randomBytes(16).toString('hex');
+    update.payment_link_token = token;
+  }
+  await adminClient.from('orders').update(update).eq('id', orderId);
+  return { fields, token };
 }
 
 const requireAdminOrFactory = async () => {
@@ -245,6 +271,18 @@ export async function PATCH(request: Request) {
       const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
       const { variants, pricePerItem, designId, productId } = payload;
+      // 고객이 결제 링크에서 사이즈별 수량을 직접 입력: 수량 0 허용, 모든 사이즈 행 보존
+      const customerEditableQuantities = payload?.customerEditableQuantities === true;
+      if (customerEditableQuantities) {
+        const { data: parentOrder } = await adminClient
+          .from('orders')
+          .select('payment_status')
+          .eq('id', orderId)
+          .single();
+        if (parentOrder?.payment_status === 'completed') {
+          return NextResponse.json({ error: '결제 완료된 주문은 고객 수량 입력으로 전환할 수 없습니다.' }, { status: 400 });
+        }
+      }
 
       // Design change
       if (designId && productId) {
@@ -291,7 +329,7 @@ export async function PATCH(request: Request) {
       // Variants / quantity change
       if (variants && Array.isArray(variants) && variants.length > 0) {
         const totalQty = variants.reduce((s: number, v: { quantity: number }) => s + (v.quantity || 0), 0);
-        if (totalQty <= 0) {
+        if (!customerEditableQuantities && totalQty <= 0) {
           return NextResponse.json({ error: '총 수량은 1개 이상이어야 합니다.' }, { status: 400 });
         }
 
@@ -304,8 +342,8 @@ export async function PATCH(request: Request) {
         // 변경 후 productId 기준으로 색상명/코드 조회 (디자인 미변경 시 기존 행의 product_id 사용)
         const variantProductId = (updateData.product_id as string | undefined) ?? existingItem?.product_id;
         const resolvedColor = await resolveColorByHex(adminClient, variantProductId, productColor);
-        const orderVariants = variants
-          .filter((v: { quantity: number }) => v.quantity > 0)
+        // 고객 입력 모드는 수량 0 사이즈도 보존해야 고객이 결제 링크에서 그 사이즈를 고를 수 있다.
+        const orderVariants = (customerEditableQuantities ? variants : variants.filter((v: { quantity: number }) => v.quantity > 0))
           .map((v: { sizeCode: string; sizeLabel: string; quantity: number }) => ({
             size_id: v.sizeCode,
             size_name: v.sizeLabel,
@@ -336,6 +374,20 @@ export async function PATCH(request: Request) {
         .eq('id', orderItemId)
         .select('*, products(product_code)')
         .single();
+
+      if (!error && customerEditableQuantities) {
+        const { data: orderRow } = await adminClient
+          .from('orders')
+          .select('customer_editable_fields, payment_link_token')
+          .eq('id', orderId)
+          .single();
+        await enableCustomerQuantities(
+          adminClient,
+          orderId,
+          (orderRow?.customer_editable_fields as CustomerEditableFields) ?? null,
+          (orderRow?.payment_link_token as string | null) ?? null,
+        );
+      }
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
@@ -512,6 +564,8 @@ export async function POST(request: Request) {
     }
 
     const { orderId, designId, productId, variants, pricingMode, customUnitPrice } = payload;
+    // 고객이 결제 링크에서 사이즈별 수량을 직접 입력하는 상품: 수량 0으로 추가하고 모든 사이즈 행을 보존한다.
+    const customerEditableQuantities = payload?.customerEditableQuantities === true;
     // 간이 이미지 항목: 디자인(목업) 없이 "완성 이미지 + 제품"만으로 추가. 목업은 결제 후 에디터에서 채움.
     const isQuick = payload?.quickImage === true;
     const quickThumbnailUrl = typeof payload?.thumbnailUrl === 'string' ? payload.thumbnailUrl : null;
@@ -535,7 +589,7 @@ export async function POST(request: Request) {
     }
 
     const totalQty = variants.reduce((s: number, v: { quantity: number }) => s + (v.quantity || 0), 0);
-    if (totalQty <= 0) {
+    if (!customerEditableQuantities && totalQty <= 0) {
       return NextResponse.json({ error: '총 수량은 1개 이상이어야 합니다.' }, { status: 400 });
     }
 
@@ -543,7 +597,7 @@ export async function POST(request: Request) {
 
     const { data: order, error: orderError } = await adminClient
       .from('orders')
-      .select('id, order_category, payment_status')
+      .select('id, order_category, payment_status, customer_editable_fields, payment_link_token')
       .eq('id', orderId)
       .single();
 
@@ -611,8 +665,8 @@ export async function POST(request: Request) {
     // hex → 색상명/코드 조회 (발주서에 색상명 표시)
     const resolvedColor = await resolveColorByHex(adminClient, productId, productColor);
 
-    const orderVariants = variants
-      .filter((v: { quantity: number }) => v.quantity > 0)
+    // 고객 입력 모드는 수량 0 사이즈도 보존 — 고객앱(/order/custom/[token])이 item_options.variants 를 그대로 입력칸으로 쓴다.
+    const orderVariants = (customerEditableQuantities ? variants : variants.filter((v: { quantity: number }) => v.quantity > 0))
       .map((v: { sizeCode: string; sizeLabel: string; quantity: number }) => ({
         size_id: v.sizeCode,
         size_name: v.sizeLabel,
@@ -667,6 +721,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
+    let paymentLinkToken: string | null = (order.payment_link_token as string | null) ?? null;
+    if (customerEditableQuantities) {
+      const enabled = await enableCustomerQuantities(
+        adminClient,
+        orderId,
+        (order.customer_editable_fields as CustomerEditableFields) ?? null,
+        paymentLinkToken,
+      );
+      paymentLinkToken = enabled.token;
+    }
+
     const { newOriginalAmount, newTotalAmount } = await recalcOrderTotals(adminClient, orderId);
 
     const { data: updatedOrder } = await adminClient
@@ -675,7 +740,7 @@ export async function POST(request: Request) {
       .eq('id', orderId)
       .single();
 
-    return NextResponse.json({ data: { item: newItem, order: updatedOrder, originalAmount: newOriginalAmount, totalAmount: newTotalAmount } });
+    return NextResponse.json({ data: { item: newItem, order: updatedOrder, originalAmount: newOriginalAmount, totalAmount: newTotalAmount, paymentLinkToken, customerEditableQuantities } });
   } catch (error) {
     const message = error instanceof Error ? error.message : '주문 상품 추가에 실패했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });

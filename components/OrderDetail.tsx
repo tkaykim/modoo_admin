@@ -1567,6 +1567,16 @@ export default function OrderDetail({
                         {/* Size/Variant breakdown */}
                         {(() => {
                           const variants = extractVariants(item).filter((variant) => (variant.quantity ?? 0) > 0);
+                          // 고객 수량 입력 모드 + 아직 수량 0 → 고객이 결제 링크에서 채우기를 기다리는 항목
+                          if (variants.length === 0 && order.customer_editable_fields?.quantities && (item.quantity ?? 0) === 0) {
+                            return (
+                              <div className="flex flex-wrap gap-1 mt-2">
+                                <span className="inline-flex items-center px-1.5 py-0.5 bg-amber-50 border border-amber-200 rounded text-xs font-semibold text-amber-700" data-testid="customer-qty-pending-badge">
+                                  고객 수량 입력 대기 · 결제 링크에서 사이즈별 수량을 입력합니다
+                                </span>
+                              </div>
+                            );
+                          }
                           return variants.length > 0 ? (
                             <div className="flex flex-wrap gap-1 mt-2">
                               {variants.map((v, vi) => (
@@ -3263,6 +3273,7 @@ export default function OrderDetail({
         onAdded={handleItemAdded}
         initialDesignId={initialAddItemDesignId}
         editingItem={editingOrderItem}
+        orderCustomerEditableQuantities={!!order.customer_editable_fields?.quantities}
       />
 
       <OrderProfitSection order={order} orderItems={orderItems} />
