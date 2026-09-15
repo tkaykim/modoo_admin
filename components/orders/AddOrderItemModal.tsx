@@ -28,10 +28,14 @@ interface AddOrderItemModalProps {
   onAdded: () => void;
   initialDesignId?: string | null;
   editingItem?: OrderItem | null;
+  /** 주문이 이미 "고객 수량 입력" 모드(orders.customer_editable_fields.quantities)면 토글을 켠 상태로 연다. */
+  orderCustomerEditableQuantities?: boolean;
 }
 
-export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, initialDesignId, editingItem }: AddOrderItemModalProps) {
+export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, initialDesignId, editingItem, orderCustomerEditableQuantities }: AddOrderItemModalProps) {
   const isEditMode = !!editingItem;
+  // 고객이 결제 링크에서 사이즈별 수량을 직접 입력 — 켜면 수량 0으로 저장하고 모든 사이즈 행을 보존한다.
+  const [customerFillsQty, setCustomerFillsQty] = useState(false);
   const [tab, setTab] = useState<'existing' | 'new' | 'quick'>('existing');
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -95,6 +99,7 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
     setQuickProductId('');
     setQuickImageUrl(null);
     setQuickUploading(false);
+    setCustomerFillsQty(!!orderCustomerEditableQuantities);
 
     if (editingItem) {
       const designEntry: DesignEntry = {
@@ -225,12 +230,15 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
     ? parseFloat(customUnitPrice)
     : autoUnitPrice;
 
+  // 고객 입력 모드: 수량 0인 사이즈도 그대로 보내 고객앱 입력칸이 전 사이즈로 열리게 한다.
+  const submitVariants = customerFillsQty ? variants : variants.filter(v => v.quantity > 0);
+
   const handleSubmit = async () => {
     // 간이 이미지 항목 추가 (디자인 없이 이미지+제품+가격)
     if (isQuickTab) {
       if (!quickProductId) { setError('제품을 선택해주세요.'); return; }
       if (!quickImageUrl) { setError('완성 이미지를 업로드해주세요.'); return; }
-      if (totalQty <= 0) { setError('수량을 선택해주세요.'); return; }
+      if (!customerFillsQty && totalQty <= 0) { setError('수량을 선택해주세요.'); return; }
       setSubmitting(true);
       setError(null);
       try {
@@ -242,7 +250,8 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
             quickImage: true,
             productId: quickProductId,
             thumbnailUrl: quickImageUrl,
-            variants: variants.filter(v => v.quantity > 0),
+            variants: submitVariants,
+            customerEditableQuantities: customerFillsQty,
             pricingMode,
             customUnitPrice: pricingMode === 'custom_unit_price' ? parseFloat(customUnitPrice) : undefined,
           }),
@@ -260,7 +269,7 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
     }
 
     if (!selectedDesign) return;
-    if (totalQty <= 0) { setError('수량을 선택해주세요.'); return; }
+    if (!customerFillsQty && totalQty <= 0) { setError('수량을 선택해주세요.'); return; }
 
     setSubmitting(true);
     setError(null);
@@ -270,7 +279,8 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
         const body: Record<string, unknown> = {
           orderItemId: editingItem.id,
           updateMode: 'admin_edit',
-          variants: variants.filter(v => v.quantity > 0),
+          variants: submitVariants,
+          customerEditableQuantities: customerFillsQty,
           pricePerItem: pricingMode === 'custom_unit_price' ? parseFloat(customUnitPrice) : undefined,
         };
         if (designChanged) {
@@ -292,7 +302,8 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
             orderId,
             designId: selectedDesign.id,
             productId: selectedDesign.product_id,
-            variants: variants.filter(v => v.quantity > 0),
+            variants: submitVariants,
+            customerEditableQuantities: customerFillsQty,
             pricingMode,
             customUnitPrice: pricingMode === 'custom_unit_price' ? parseFloat(customUnitPrice) : undefined,
           }),
@@ -329,9 +340,31 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
       {/* Size/Quantity */}
       {variants.length > 0 && (
         <div>
-          <button onClick={() => setShowVariants(!showVariants)} className="flex items-center gap-1 text-sm font-medium text-gray-700 mb-2">
-            사이즈별 수량 {showVariants ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
+          <div className="flex items-center justify-between mb-2">
+            <button type="button" onClick={() => setShowVariants(!showVariants)} className="flex items-center gap-1 text-sm font-medium text-gray-700">
+              사이즈별 수량 {showVariants ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCustomerFillsQty(prev => !prev)}
+              aria-pressed={customerFillsQty}
+              data-testid="customer-fills-qty-toggle"
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                customerFillsQty
+                  ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium'
+                  : 'border-gray-300 text-gray-500 hover:border-gray-400'
+              }`}
+            >
+              고객이 직접 입력
+            </button>
+          </div>
+          {customerFillsQty && (
+            <p className="mb-2 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2" data-testid="customer-fills-qty-note">
+              고객이 결제 링크에서 사이즈별 수량을 직접 입력합니다.
+              {' '}수량을 비워 두고 저장할 수 있으며, 아래에 미리 넣은 수량은 고객 화면의 초기값이 됩니다.
+              {' '}저장하면 이 주문의 결제 링크가 고객 수량 입력 모드로 전환됩니다.
+            </p>
+          )}
           {showVariants && (
             <div className="space-y-2">
               {variants.map((v, i) => (
@@ -354,7 +387,9 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
               ))}
             </div>
           )}
-          <p className="text-xs text-gray-500 mt-2">총 수량: {totalQty}개</p>
+          <p className="text-xs text-gray-500 mt-2">
+            총 수량: {totalQty}개{customerFillsQty && totalQty === 0 ? ' (고객 입력 대기)' : ''}
+          </p>
         </div>
       )}
 
@@ -630,7 +665,7 @@ export default function AddOrderItemModal({ orderId, isOpen, onClose, onAdded, i
             <button onClick={onClose} className="flex-1 px-4 py-2.5 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">취소</button>
             <button
               onClick={handleSubmit}
-              disabled={submitting || totalQty <= 0}
+              disabled={submitting || (!customerFillsQty && totalQty <= 0)}
               className="flex-1 px-4 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : isEditMode ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
