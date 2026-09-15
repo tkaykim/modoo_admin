@@ -1491,7 +1491,7 @@ export default function OrderDetail({
                         alt={item.product_title}
                         className="w-20 h-20 rounded"
                       />
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         {/* 디자인 이름 — 공장·관리자·고객이 모두 같이 보는 라벨. 빈 칸이면 빨강 강조. */}
                         <div className="mb-1.5" onClick={(e) => e.stopPropagation()}>
                           <input
@@ -1597,9 +1597,9 @@ export default function OrderDetail({
                         <VarsityPersonalizationSummary item={item} />
                         {/* AI 디자이너 초안: AI 생성 여부·인쇄 적합성 플래그·SVG 링크 */}
                         <AiDraftSummary item={item} />
-                        <div className="flex justify-between items-center mt-2">
+                        <div className="flex flex-wrap justify-between items-center gap-2 mt-2">
                           <span className="text-sm text-gray-600">총 수량: {item.quantity}</span>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center justify-end gap-2 min-w-0">
                             {!isFactoryUser && item.design_status !== 'confirmed' && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleSendDesign(item.id); }}
