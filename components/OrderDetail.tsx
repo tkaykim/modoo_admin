@@ -23,6 +23,7 @@ import { coerceImageUrlsBySide, isPreviewableImageEntry, fileExtensionLabel } fr
 import { formatKstDateLong, formatKstDateTimeMedium, getKstYYYYMMDD } from '@/lib/kst';
 import { orderCategoryBadgeClass, orderCategoryLabel } from '@/lib/order-category';
 import ContactEditModal from '@/components/order/ContactEditModal';
+import { getCommonOrderUnit, getOrderItemUnit } from '@/lib/orderUnit';
 import { checkPhone, formatPhone } from '@/lib/phone';
 import AssigneePicker from '@/components/common/AssigneePicker';
 
@@ -1673,11 +1674,23 @@ export default function OrderDetail({
                                 </button>
                               </>
                             )}
-                            {!isFactoryUser && (
-                              <span className="font-semibold text-gray-900">
-                                {((item.price_per_item ?? 0) * (item.quantity ?? 0)).toLocaleString()}원
-                              </span>
-                            )}
+                            {!isFactoryUser && (() => {
+                              // 벌당 단가 = 제품가 + 인쇄비 + 관리자 단가 조정이 반영된 저장 단가.
+                              // 주문 단위 할인·쿠폰·추가금은 여기 없고 주문 요약의 실결제 평균에 반영된다.
+                              const unit = getOrderItemUnit(item.products?.category);
+                              const unitPrice = item.price_per_item ?? 0;
+                              const qty = item.quantity ?? 0;
+                              return (
+                                <span className="flex flex-col items-end leading-tight" data-testid="order-item-price">
+                                  <span className="font-semibold text-gray-900">{(unitPrice * qty).toLocaleString()}원</span>
+                                  <span className="text-[11px] text-gray-500 whitespace-nowrap" data-testid="order-item-unit-price">
+                                    {qty > 0
+                                      ? `${unitPrice.toLocaleString()}원 × ${qty.toLocaleString()}${unit}`
+                                      : `${unitPrice.toLocaleString()}원/${unit} · 수량 입력 대기`}
+                                  </span>
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
                         {!isFactoryUser && item.design_status && item.design_status !== 'pending' && (
@@ -2041,6 +2054,23 @@ export default function OrderDetail({
                     {(order.total_amount ?? 0).toLocaleString()}원
                   </span>
                 </div>
+                {(() => {
+                  // 고객이 실제로 낸 돈을 수량으로 나눈 값. 주문 단위 할인·쿠폰·추가금이 반영되고 배송비는 뺀다.
+                  const totalQty = orderItems.reduce((sum, i) => sum + (i.quantity ?? 0), 0);
+                  if (totalQty <= 0) return null;
+                  const unit = getCommonOrderUnit(orderItems.map((i) => i.products?.category));
+                  const paidForItems = Math.max(0, (order.total_amount ?? 0) - (order.delivery_fee ?? 0));
+                  const average = Math.round(paidForItems / totalQty);
+                  return (
+                    <div className="flex justify-between gap-3 text-xs text-gray-500 -mt-1" data-testid="order-avg-unit-price">
+                      <span>
+                        실결제 기준 1{unit}당 평균
+                        <span className="block text-[10px] text-gray-400">배송비 제외 · 할인·추가금 반영 · 총 {totalQty.toLocaleString()}{unit}</span>
+                      </span>
+                      <span className="font-medium text-gray-700 whitespace-nowrap">{average.toLocaleString()}원</span>
+                    </div>
+                  );
+                })()}
                 {(order.admin_discount ?? 0) > 0 && subtotal === 0 && (
                   <p className="text-xs text-gray-500 -mt-1">
                     고객이 수량을 입력하면 할인이 자동 적용됩니다.
@@ -2373,13 +2403,30 @@ export default function OrderDetail({
                     <p className="text-sm font-medium text-gray-900">{order.country_code}</p>
                   </div>
                 )}
-                {(order.postal_code || order.address_line_1) && (
+                {(order.shipping_method === 'domestic' || order.postal_code || order.address_line_1) && (
                   <div>
-                    <p className="text-xs text-gray-500">주소</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {order.postal_code && `[${order.postal_code}] `}
-                      {order.address_line_1}
-                      {order.address_line_2 && ` ${order.address_line_2}`}
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-gray-500">주소</p>
+                      {order.shipping_method === 'domestic' && (
+                        <button
+                          onClick={() => setShowContactEdit(true)}
+                          className="text-[11px] text-gray-500 hover:text-gray-900 underline underline-offset-2"
+                          data-testid="address-edit-button"
+                        >
+                          배송지 정정
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-sm font-medium text-gray-900" data-testid="order-shipping-address">
+                      {order.postal_code || order.address_line_1 ? (
+                        <>
+                          {order.postal_code && `[${order.postal_code}] `}
+                          {order.address_line_1}
+                          {order.address_line_2 && ` ${order.address_line_2}`}
+                        </>
+                      ) : (
+                        <span className="text-red-600">주소 없음</span>
+                      )}
                     </p>
                   </div>
                 )}

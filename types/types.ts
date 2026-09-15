@@ -491,7 +491,7 @@ export interface OrderItem {
   factory_payment_status: 'pending' | 'completed' | 'cancelled' | null;
 
   // Joined from products table
-  products?: { product_code: string | null } | null;
+  products?: { product_code: string | null; category?: string | null } | null;
 
   // Joined manufacturer info
   manufacturers?: { id: string; name: string; email: string | null } | null;

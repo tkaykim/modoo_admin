@@ -194,7 +194,7 @@ export async function GET(request: Request) {
 
     let itemsQuery = adminClient
       .from('order_items')
-      .select('*, products(product_code)')
+      .select('*, products(product_code, category)')
       .eq('order_id', orderId)
       .order('created_at', { ascending: true });
 
@@ -372,7 +372,7 @@ export async function PATCH(request: Request) {
         .from('order_items')
         .update(updateData)
         .eq('id', orderItemId)
-        .select('*, products(product_code)')
+        .select('*, products(product_code, category)')
         .single();
 
       if (!error && customerEditableQuantities) {
@@ -714,7 +714,7 @@ export async function POST(request: Request) {
     const { data: newItem, error: insertError } = await adminClient
       .from('order_items')
       .insert(itemPayload)
-      .select('*, products(product_code)')
+      .select('*, products(product_code, category)')
       .single();
 
     if (insertError) {

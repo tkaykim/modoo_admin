@@ -427,7 +427,7 @@ export async function PATCH(request: Request) {
 
     const { data: existingOrder } = await adminClient
       .from('orders')
-      .select('customer_note, share_token, order_status, payment_status, customer_name, customer_email, customer_phone, recipient_name, recipient_phone, recipient_same_as_orderer, tracking_number, shipping_method, logen_registered_at')
+      .select('customer_note, share_token, order_status, payment_status, customer_name, customer_email, customer_phone, recipient_name, recipient_phone, recipient_same_as_orderer, tracking_number, shipping_method, logen_registered_at, logen_slip_printed, postal_code, address_line_1, address_line_2, state, city')
       .eq('id', orderId)
       .single();
 
@@ -505,6 +505,59 @@ export async function PATCH(request: Request) {
         if (prev !== next) {
           updateData[field] = next;
           contactChanges.push({ field, old_value: prev, new_value: next });
+        }
+      }
+
+      // 배송지 정정 — 받는 분 주소를 운영자가 고친다.
+      // 로젠은 접수를 고치거나 지우는 API가 없어서, DB만 바꾸면 이미 접수된 옛 주소로 택배가 나간다.
+      // 그래서 송장 출력·배송 시작 뒤에는 막고, 접수만 된 주문은 로젠 지점 요청 확인을 받는다.
+      const ADDRESS_FIELDS = ['postal_code', 'address_line_1', 'address_line_2', 'state', 'city'] as const;
+      const addressChanges: { field: string; old_value: string | null; new_value: string | null }[] = [];
+      for (const field of ADDRESS_FIELDS) {
+        if (!Object.prototype.hasOwnProperty.call(contactUpdateInput, field)) continue;
+        const raw = String(contactUpdateInput[field] ?? '').trim();
+        const next = (field === 'postal_code' ? raw.replace(/[^0-9]/g, '') : raw) || null;
+        const prev = (existing[field] as string | null) ?? null;
+        if ((prev ?? '') !== (next ?? '')) {
+          addressChanges.push({ field, old_value: prev, new_value: next });
+        }
+      }
+
+      if (addressChanges.length > 0) {
+        const orderStatus = String(existing.order_status ?? '');
+        if (existing.shipping_method !== 'domestic') {
+          return NextResponse.json({ error: '국내 배송 주문만 배송지를 수정할 수 있습니다.' }, { status: 400 });
+        }
+        if (['cancelled', 'partially_cancelled'].includes(orderStatus) || existing.payment_status === 'refunded') {
+          return NextResponse.json({ error: '취소·환불된 주문은 배송지를 수정할 수 없습니다.' }, { status: 400 });
+        }
+        if (existing.logen_slip_printed || existing.tracking_number || ['shipping', 'delivered'].includes(orderStatus)) {
+          return NextResponse.json(
+            { error: '송장이 출력됐거나 배송이 시작된 주문은 배송지를 수정할 수 없습니다. 로젠에서 직접 변경해 주세요.' },
+            { status: 400 },
+          );
+        }
+        if (existing.logen_registered_at && contactUpdateInput.logenAddressAcknowledged !== true) {
+          return NextResponse.json(
+            { error: '로젠에 이미 접수된 주문입니다. 로젠 지점에 주소 변경을 요청했는지 확인해 주세요.' },
+            { status: 400 },
+          );
+        }
+
+        const finalValue = (field: string) => {
+          const change = addressChanges.find((c) => c.field === field);
+          return change ? change.new_value : ((existing[field] as string | null) ?? null);
+        };
+        if (!/^\d{5}$/.test(finalValue('postal_code') ?? '')) {
+          return NextResponse.json({ error: '우편번호 5자리가 필요합니다. 주소 검색으로 입력해 주세요.' }, { status: 400 });
+        }
+        if (!finalValue('address_line_1')) {
+          return NextResponse.json({ error: '기본 주소를 입력해주세요.' }, { status: 400 });
+        }
+
+        for (const change of addressChanges) {
+          updateData[change.field] = change.new_value;
+          contactChanges.push(change);
         }
       }
 
