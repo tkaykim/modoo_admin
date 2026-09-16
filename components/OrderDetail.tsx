@@ -111,6 +111,11 @@ export default function OrderDetail({
 
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [showSurchargeModal, setShowSurchargeModal] = useState(false);
+  // 재결제용 주문 복사 (다른 카드로 다시 결제하려는 고객 대응)
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicatePaymentType, setDuplicatePaymentType] = useState<'customer_payment' | 'bank_transfer'>('customer_payment');
+  const [duplicating, setDuplicating] = useState(false);
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
   // 이 주문에 연결된 차액(추가) 주문 목록 (이 주문이 원주문일 때)
   const [childSurcharges, setChildSurcharges] = useState<Array<{ id: string; total_amount: number; payment_status: string; order_status: string }>>([]);
   const [factoryAccordionOpen, setFactoryAccordionOpen] = useState(false);
@@ -418,6 +423,39 @@ export default function OrderDetail({
       onUpdate();
     } catch (error) {
       alert(error instanceof Error ? error.message : '담당자 변경에 실패했습니다.');
+    }
+  };
+
+  /**
+   * 주문 복사 — 주문정보·디자인·사이즈별 수량·주소지·금액을 그대로 둔 채 결제만 다시 받는다.
+   * 원주문은 그대로 남으므로, 취소·환불은 운영자가 별도로 판단해 처리한다.
+   */
+  const handleDuplicateOrder = async () => {
+    setDuplicating(true);
+    setDuplicateError(null);
+    try {
+      const response = await fetch(`/api/admin/orders/${order.id}/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentType: duplicatePaymentType }),
+      });
+
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(json?.error || '주문 복사에 실패했습니다.');
+      }
+
+      const newOrderId = json?.data?.orderId as string | undefined;
+      if (!newOrderId) {
+        throw new Error('복사된 주문 번호를 받지 못했습니다.');
+      }
+
+      setShowDuplicateModal(false);
+      router.push(`/orders/${newOrderId}`);
+    } catch (error) {
+      setDuplicateError(error instanceof Error ? error.message : '주문 복사에 실패했습니다.');
+    } finally {
+      setDuplicating(false);
     }
   };
 
@@ -1241,6 +1279,19 @@ export default function OrderDetail({
           </div>
         </div>
 
+        <div className="flex items-center gap-2">
+        {/* 주문 복사 — 다른 카드로 재결제하려는 고객용. 결제만 대기 상태로 새 주문 생성 */}
+        {canAssign && (
+          <button
+            onClick={() => { setDuplicateError(null); setDuplicatePaymentType('customer_payment'); setShowDuplicateModal(true); }}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+            title="주문정보·디자인·수량·주소지를 그대로 복사해 결제만 다시 받습니다"
+          >
+            <Copy className="w-4 h-4" />
+            주문 복사
+          </button>
+        )}
+
         {/* Share Link Button - Admin only, requires factory assignment */}
         {canAssign && getItemFactoryIds().length > 0 && (
           <div className="flex items-center gap-2">
@@ -1277,7 +1328,86 @@ export default function OrderDetail({
             )}
           </div>
         )}
+        </div>
       </div>
+
+      {/* 주문 복사 확인 모달 */}
+      {showDuplicateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md bg-white rounded-xl shadow-xl">
+            <div className="px-5 py-4 border-b border-gray-200">
+              <h3 className="text-base font-semibold text-gray-900">주문 복사</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                주문번호 {order.id} 를 그대로 복사해 결제만 다시 받습니다.
+              </p>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <div className="rounded-lg bg-gray-50 px-3 py-3 text-sm text-gray-700 space-y-1">
+                <p>· 주문자·받는 분 정보, 배송지, 배송비가 그대로 복사됩니다.</p>
+                <p>· 디자인·목업·사이즈별 수량·단가가 그대로 복사됩니다.</p>
+                <p>· 할인·할증을 포함한 결제금액 {(order.total_amount ?? 0).toLocaleString()}원이 유지됩니다.</p>
+                <p>· 새 주문은 결제 대기 상태로 만들어집니다.</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-900">결제 방식</p>
+                <label className="flex items-start gap-2 text-sm text-gray-700">
+                  <input
+                    type="radio"
+                    name="duplicate-payment-type"
+                    className="mt-1"
+                    checked={duplicatePaymentType === 'customer_payment'}
+                    onChange={() => setDuplicatePaymentType('customer_payment')}
+                  />
+                  <span>
+                    결제 링크 (고객이 다른 카드로 직접 결제)
+                    <span className="block text-xs text-gray-500">복사 후 주문 상세에서 결제 링크를 복사해 고객에게 전달하세요.</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm text-gray-700">
+                  <input
+                    type="radio"
+                    name="duplicate-payment-type"
+                    className="mt-1"
+                    checked={duplicatePaymentType === 'bank_transfer'}
+                    onChange={() => setDuplicatePaymentType('bank_transfer')}
+                  />
+                  <span>무통장 입금 대기</span>
+                </label>
+              </div>
+
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                원주문은 그대로 남습니다.
+                새 주문이 결제되면 원주문 취소·환불은 별도로 처리해 주세요.
+              </div>
+
+              {duplicateError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {duplicateError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 px-5 py-4 border-t border-gray-200 bg-gray-50/50">
+              <button
+                onClick={() => setShowDuplicateModal(false)}
+                disabled={duplicating}
+                className="flex-1 px-4 py-2.5 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-60"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleDuplicateOrder}
+                disabled={duplicating}
+                className="flex-1 px-4 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
+              >
+                {duplicating ? (<><Loader2 className="w-4 h-4 animate-spin" /> 복사 중...</>) : '주문 복사'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Share Error */}
       {shareError && (
