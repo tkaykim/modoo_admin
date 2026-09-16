@@ -12,7 +12,8 @@ export const runtime = 'nodejs';
 //   · 적정 광고비 = 목표 × 최근 4주 광고비율 / 허용 상한 = 적정 × 1.15
 //   · 페이스가 뒤처지면 상한까지 증액을 권고한다 (매출 상향 우선)
 //
-// 매출 정의 = orders.total_amount(gross), 취소·환불 제외 — reference_modoo_analytics_revenue 와 동일.
+// 매출 정의 = orders.total_amount(gross), 취소·환불·미결제(payment_pending) 제외 — reference_modoo_analytics_revenue 와 동일.
+// 2026-09-16: 9/15 '고객 입력 대기' 400,000×4 초안이 주간 매출을 160만 부풀려 미결제를 제외함.
 // 광고비 = Meta 계정 insights(KRW, 소수단위 없음).
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ export async function GET() {
     .from('orders')
     .select('created_at,total_amount,order_status')
     .gte('created_at', addDays(firstMon, -1).toISOString())
-    .not('order_status', 'in', '("cancelled","canceled","refunded")');
+    .not('order_status', 'in', '("cancelled","canceled","refunded","payment_pending")'); // payment_pending = 미결제 초안("고객 입력 대기") — 매출 아님
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const weeks = new Map<string, { orders: number; gross: number }>();
