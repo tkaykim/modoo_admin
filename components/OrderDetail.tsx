@@ -24,6 +24,7 @@ import { formatKstDateLong, formatKstDateTimeMedium, getKstYYYYMMDD } from '@/li
 import { orderCategoryBadgeClass, orderCategoryLabel } from '@/lib/order-category';
 import ContactEditModal from '@/components/order/ContactEditModal';
 import { getCommonOrderUnit, getOrderItemUnit } from '@/lib/orderUnit';
+import { allocateOrderAdjustments, getPaidForItems } from '@/lib/orderEffectivePrice';
 import { checkPhone, formatPhone } from '@/lib/phone';
 import AssigneePicker from '@/components/common/AssigneePicker';
 
@@ -692,6 +693,14 @@ export default function OrderDetail({
   const subtotal = orderItems.reduce(
     (sum, item) => sum + (item.price_per_item ?? 0) * (item.quantity ?? 0),
     0
+  );
+  // 쿠폰·관리자 할인·추가금은 주문 단위로만 저장된다. 품목 정가 소계 비율로 나눠 품목별 실결제 단가를 만든다.
+  const effectiveItemPrices = useMemo(
+    () => allocateOrderAdjustments(
+      orderItems.map((item) => ({ id: item.id, unitPrice: item.price_per_item ?? 0, quantity: item.quantity ?? 0 })),
+      getPaidForItems(order.total_amount, order.delivery_fee),
+    ),
+    [orderItems, order.total_amount, order.delivery_fee],
   );
   const orderSourceInfo = getOrderSourceInfo(order);
 
@@ -1805,17 +1814,41 @@ export default function OrderDetail({
                               </>
                             )}
                             {!isFactoryUser && (() => {
-                              // 벌당 단가 = 제품가 + 인쇄비 + 관리자 단가 조정이 반영된 저장 단가.
-                              // 주문 단위 할인·쿠폰·추가금은 여기 없고 주문 요약의 실결제 평균에 반영된다.
+                              // 정가 단가 = 제품가 + 인쇄비 + 관리자 단가 조정이 반영된 저장 단가.
+                              // 쿠폰·관리자 할인·추가금은 주문 단위라, 품목 비율로 나눈 실결제 단가를 따로 보여준다.
                               const unit = getOrderItemUnit(item.products?.category);
                               const unitPrice = item.price_per_item ?? 0;
                               const qty = item.quantity ?? 0;
+                              const listSubtotal = unitPrice * qty;
+                              const effective = effectiveItemPrices.get(item.id);
+                              const adjusted = !!effective && effective.effectiveSubtotal !== listSubtotal;
+                              const isDiscount = adjusted && effective!.effectiveSubtotal < listSubtotal;
                               return (
                                 <span className="flex flex-col items-end leading-tight" data-testid="order-item-price">
-                                  <span className="font-semibold text-gray-900">{(unitPrice * qty).toLocaleString()}원</span>
-                                  <span className="text-[11px] text-gray-500 whitespace-nowrap" data-testid="order-item-unit-price">
+                                  {adjusted ? (
+                                    <>
+                                      <span className="font-semibold text-gray-900" data-testid="order-item-effective-subtotal">
+                                        {effective!.effectiveSubtotal.toLocaleString()}원
+                                      </span>
+                                      <span className="text-[11px] text-gray-400 line-through whitespace-nowrap" data-testid="order-item-list-subtotal">
+                                        {listSubtotal.toLocaleString()}원
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <span className="font-semibold text-gray-900">{listSubtotal.toLocaleString()}원</span>
+                                  )}
+                                  {adjusted ? (
+                                    <span
+                                      className={`text-[11px] font-medium whitespace-nowrap ${isDiscount ? 'text-emerald-700' : 'text-indigo-700'}`}
+                                      data-testid="order-item-unit-price"
+                                      title={`정가 ${unitPrice.toLocaleString()}원/${unit}에 주문 ${isDiscount ? '할인·쿠폰' : '추가금'}을 품목 금액 비율로 나눠 반영`}
+                                    >
+                                      {isDiscount ? '할인 반영' : '추가금 반영'} {effective!.effectiveUnitPrice.toLocaleString()}원 × {qty.toLocaleString()}{unit}
+                                    </span>
+                                  ) : null}
+                                  <span className={`text-[11px] whitespace-nowrap ${adjusted ? 'text-gray-400' : 'text-gray-500'}`} data-testid={adjusted ? 'order-item-list-unit-price' : 'order-item-unit-price'}>
                                     {qty > 0
-                                      ? `${unitPrice.toLocaleString()}원 × ${qty.toLocaleString()}${unit}`
+                                      ? (adjusted ? `정가 ${unitPrice.toLocaleString()}원/${unit}` : `${unitPrice.toLocaleString()}원 × ${qty.toLocaleString()}${unit}`)
                                       : `${unitPrice.toLocaleString()}원/${unit} · 수량 입력 대기`}
                                   </span>
                                 </span>
@@ -2195,7 +2228,7 @@ export default function OrderDetail({
                     <div className="flex justify-between gap-3 text-xs text-gray-500 -mt-1" data-testid="order-avg-unit-price">
                       <span>
                         실결제 기준 1{unit}당 평균
-                        <span className="block text-[10px] text-gray-400">배송비 제외 · 할인·추가금 반영 · 총 {totalQty.toLocaleString()}{unit}</span>
+                        <span className="block text-[10px] text-gray-400">배송비 제외 · 쿠폰·할인·추가금 반영 · 총 {totalQty.toLocaleString()}{unit}</span>
                       </span>
                       <span className="font-medium text-gray-700 whitespace-nowrap">{average.toLocaleString()}원</span>
                     </div>
