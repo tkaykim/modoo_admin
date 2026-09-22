@@ -45,7 +45,7 @@ export async function GET(request: Request) {
       .from('order_items')
       .select(`
         id, order_id, product_id, product_title, design_title, quantity, item_options,
-        thumbnail_url, purchase_order_status, purchase_ordered_at, created_at,
+        purchase_order_status, purchase_ordered_at, created_at,
         assigned_manufacturer_id,
         products(product_code),
         manufacturers(id, name, address),
@@ -73,13 +73,60 @@ export async function GET(request: Request) {
       query = query.lt(col, endDate.toISOString());
     }
 
-    const { data, error } = await query;
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    // thumbnail_url은 대부분 base64 data URL(행당 평균 30KB, 전체 약 26MB)이라 목록에서 통째로 싣지 않는다.
+    // 2026-09-22 DB 인스턴스 다운 직전 이 쿼리가 statement timeout을 반복했다.
+    // 목록에는 짧은 URL만 싣고, data URL은 /api/admin/order-items/[id]/thumbnail 에서 필요할 때 받는다.
+    // PostgREST 기본 1,000행 절단을 피하려고 range로 끝까지 읽는다.
+    const PAGE = 1000;
+    const rows: Record<string, unknown>[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await query.range(from, from + PAGE - 1);
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      rows.push(...((data || []) as unknown as Record<string, unknown>[]));
+      if (!data || data.length < PAGE) break;
     }
 
-    return NextResponse.json({ data: data || [] });
+    const thumbnails = new Map<string, string>();
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await adminClient
+        .from('order_items')
+        .select('id, thumbnail_url')
+        .not('thumbnail_url', 'is', null)
+        .not('thumbnail_url', 'like', 'data:%')
+        .order('id')
+        .range(from, from + PAGE - 1);
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      for (const r of data || []) thumbnails.set(r.id, r.thumbnail_url as string);
+      if (!data || data.length < PAGE) break;
+    }
+
+    const inlineIds = new Set<string>();
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await adminClient
+        .from('order_items')
+        .select('id')
+        .like('thumbnail_url', 'data:%')
+        .order('id')
+        .range(from, from + PAGE - 1);
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      for (const r of data || []) inlineIds.add(r.id);
+      if (!data || data.length < PAGE) break;
+    }
+
+    const result = rows.map((row) => {
+      const id = row.id as string;
+      const thumbnail_url = thumbnails.get(id)
+        ?? (inlineIds.has(id) ? `/api/admin/order-items/${id}/thumbnail` : null);
+      return { ...row, thumbnail_url };
+    });
+
+    return NextResponse.json({ data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : '발주 데이터를 불러오지 못했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });
