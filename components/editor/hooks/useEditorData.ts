@@ -107,12 +107,22 @@ export function useEditorData({
     const supabase = createClient();
     const { data, error } = await supabase
       .from('order_items')
-      .select('*, products(product_code)')
+      .select('*, products(product_code), order_item_factory_settlements(factory_amount, factory_unit_price)')
       .eq('id', itemId)
       .single();
 
+    // During a rolling deployment the private relationship may not exist yet.
+    // Keep the editor usable without ever exposing the legacy price columns.
+    if (error && ['PGRST200', 'PGRST205', '42P01'].includes(error.code)) {
+      const fallback = await supabase.from('order_items')
+        .select('*, products(product_code)').eq('id', itemId).single();
+      if (fallback.error) throw new Error(`주문 항목을 불러올 수 없습니다: ${fallback.error.message}`);
+      return { ...fallback.data, factory_amount: null, factory_unit_price: null } as OrderItem;
+    }
     if (error) throw new Error(`주문 항목을 불러올 수 없습니다: ${error.message}`);
-    return data as OrderItem;
+    const { order_item_factory_settlements: settlement, ...item } = data;
+    const values = Array.isArray(settlement) ? settlement[0] : settlement;
+    return { ...item, ...values } as OrderItem;
   }, []);
 
   // Fetch templates

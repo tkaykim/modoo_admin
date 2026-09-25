@@ -4,7 +4,8 @@ import { createAdminClient } from '@/lib/supabase-admin';
 import { sendFactoryAssignmentEmail } from '@/lib/gmail';
 import { ensureWorkFolderForOrderItem } from '@/lib/google-drive';
 import { randomBytes } from 'crypto';
-import { isAdminLike } from '@/lib/auth-helpers';
+import { isAdminLike, isSuperAdmin } from '@/lib/auth-helpers';
+import { withFactorySettlements } from '@/lib/factory-settlements';
 
 interface ItemAllocation {
   orderItemId: string;
@@ -40,6 +41,10 @@ export async function PATCH(request: NextRequest) {
 
     const body = await request.json();
     const { orderId, items } = body as { orderId: string; items: ItemAllocation[] };
+
+    if (!isSuperAdmin(profile?.role) && Array.isArray(items) && items.some(item => item.factory_amount !== undefined)) {
+      return NextResponse.json({ error: '공장 정산 단가는 슈퍼관리자만 관리할 수 있습니다.' }, { status: 403 });
+    }
 
     if (!orderId || !items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
@@ -275,7 +280,7 @@ export async function PATCH(request: NextRequest) {
       .select('id, assigned_manufacturer_id, factory_status, factory_amount, deadline, factory_payment_date, factory_payment_status')
       .eq('order_id', orderId);
 
-    return NextResponse.json({ data: updatedItems });
+    return NextResponse.json({ data: await withFactorySettlements(adminClient, updatedItems || [], profile!) });
   } catch (error) {
     console.error('Factory allocation error:', error);
     return NextResponse.json(

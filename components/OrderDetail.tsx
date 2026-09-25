@@ -27,6 +27,8 @@ import { getCommonOrderUnit, getOrderItemUnit } from '@/lib/orderUnit';
 import { allocateOrderAdjustments, getPaidForItems } from '@/lib/orderEffectivePrice';
 import { checkPhone, formatPhone } from '@/lib/phone';
 import AssigneePicker from '@/components/common/AssigneePicker';
+import { useAuthStore } from '@/store/useAuthStore';
+import { isSuperAdmin } from '@/lib/auth-helpers';
 
 type CoBuyParticipantSummary = Pick<
   CoBuyParticipant,
@@ -85,6 +87,7 @@ export default function OrderDetail({
   initialAddItemDesignId,
 }: OrderDetailProps) {
   const router = useRouter();
+  const canManageCosts = isSuperAdmin(useAuthStore(state => state.user?.role));
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showContactEdit, setShowContactEdit] = useState(false);
@@ -805,7 +808,7 @@ export default function OrderDetail({
           items: [{
             orderItemId: itemId,
             assigned_manufacturer_id: alloc.factory_id,
-            factory_amount: alloc.amount ? Number(alloc.amount) : null,
+            ...(canManageCosts ? { factory_amount: alloc.amount ? Number(alloc.amount) : null } : {}),
             deadline: alloc.deadline || null,
             factory_payment_date: alloc.pay_date || null,
             factory_payment_status: alloc.pay_status || 'pending',
@@ -846,7 +849,7 @@ export default function OrderDetail({
               return {
                 orderItemId: item.id,
                 assigned_manufacturer_id: a.factory_id,
-                factory_amount: a.amount ? Number(a.amount) : null,
+                ...(canManageCosts ? { factory_amount: a.amount ? Number(a.amount) : null } : {}),
                 deadline: a.deadline || null,
                 factory_payment_date: a.pay_date || null,
                 factory_payment_status: a.pay_status || 'pending',
@@ -2353,7 +2356,7 @@ export default function OrderDetail({
                           </div>
 
                           {/* 인쇄 행 인라인 — 공장 선택 직후 자연스러운 순서. 행 변경 시 자동 저장 */}
-                          {!isFactoryUser && (
+                          {canManageCosts && (
                             <OrderItemPrintRowsInline
                               orderItemId={item.id}
                               itemQuantity={item.quantity}
@@ -2368,7 +2371,7 @@ export default function OrderDetail({
                           )}
 
                           <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
-                            <div>
+                            {canManageCosts && <div>
                               <label className="block text-[11px] text-gray-500 mb-0.5">
                                 금액 <span className="text-gray-400">(인쇄 합계 자동)</span>
                               </label>
@@ -2380,7 +2383,7 @@ export default function OrderDetail({
                                 className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 bg-gray-50"
                                 title="인쇄 행이 있으면 합계로 자동 갱신됩니다. 수기 수정도 가능하지만 인쇄 행 변경 시 다시 덮어쓰일 수 있습니다."
                               />
-                            </div>
+                            </div>}
                             <div>
                               <label className="block text-[11px] text-gray-500 mb-0.5">마감일</label>
                               <input
@@ -3309,8 +3312,8 @@ export default function OrderDetail({
                         <option value="shipped">출고완료</option>
                       </select>
                     </div>
-                    {/* 관리자 정산 확정(잠금) — 확정 후 공장은 단가 수정 불가 */}
-                    {!isFactoryUser && (
+                    {/* 슈퍼관리자 정산 확정(잠금) */}
+                    {canManageCosts && (
                       <div className="flex items-center justify-between rounded-md bg-gray-50 px-2 py-1.5">
                         <span className="text-xs text-gray-600">
                           정산 단가{' '}
@@ -3356,10 +3359,10 @@ export default function OrderDetail({
                         <p className="text-gray-500">마감일</p>
                         <p className="font-medium text-gray-900">{item.deadline ? formatKstDateLong(item.deadline) : '-'}</p>
                       </div>
-                      <div>
+                      {(canManageCosts || isFactoryUser) && <div>
                         <p className="text-gray-500">금액</p>
                         <p className="font-medium text-gray-900">{item.factory_amount ? `${item.factory_amount.toLocaleString()}원` : '-'}</p>
-                      </div>
+                      </div>}
                       <div>
                         <p className="text-gray-500">결제 예정일</p>
                         <p className="font-medium text-gray-900">{item.factory_payment_date ? formatKstDateLong(item.factory_payment_date) : '-'}</p>

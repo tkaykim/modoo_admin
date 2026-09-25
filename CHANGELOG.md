@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Isolate factory settlements from shared order records while preserving stored amounts.
+- Restrict internal costs to super administrators and factory prices to the assigned factory.
+- Remove internal freight amounts from ordinary administrator and public-link responses.
+- Add database role checks and financial-access regression tests.
+
 ## 0.1.1 — 2026-09-07
 
 - Separate sales grain from date range with daily, weekly and monthly history.

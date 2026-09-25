@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { redactShippingCosts } from '@/lib/shipping-cost-access';
 import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
@@ -174,11 +175,11 @@ export async function POST(request: Request) {
           goodsNm,
         }]);
         if (reg.sttsCd === 'FAIL') {
-          return NextResponse.json({ error: reg.sttsMsg, logenResponse: reg }, { status: 500 });
+          return NextResponse.json({ error: reg.sttsMsg, logenResponse: redactShippingCosts(reg, profile.role) }, { status: 500 });
         }
         const ok = Array.isArray(reg.data) && reg.data.some((it: any) => it.fixTakeNo === suffixedFixNo && it.resultCd === 'TRUE');
         if (!ok) {
-          return NextResponse.json({ error: '로젠 접수가 완료되지 않았습니다.', logenResponse: reg }, { status: 500 });
+          return NextResponse.json({ error: '로젠 접수가 완료되지 않았습니다.', logenResponse: redactShippingCosts(reg, profile.role) }, { status: 500 });
         }
       }
 
@@ -320,7 +321,7 @@ export async function POST(request: Request) {
     const result = await registerOrder(registerData);
 
     if (result.sttsCd === 'FAIL') {
-      return NextResponse.json({ error: result.sttsMsg, logenResponse: result }, { status: 500 });
+      return NextResponse.json({ error: result.sttsMsg, logenResponse: redactShippingCosts(result, profile.role) }, { status: 500 });
     }
 
     const successIds: string[] = [];
@@ -339,7 +340,7 @@ export async function POST(request: Request) {
     if (successIds.length === 0 && registerData.length > 0) {
       return NextResponse.json({
         error: `로젠 접수가 거절되었습니다 — ${failedMsgs.join(' / ') || result.sttsMsg}`,
-        logenResponse: result,
+        logenResponse: redactShippingCosts(result, profile.role),
         skipped,
       }, { status: 502 });
     }
@@ -404,7 +405,7 @@ export async function POST(request: Request) {
         skipped,
         failed: failedMsgs,
         takeDt,
-        logenResponse: result,
+        logenResponse: redactShippingCosts(result, profile.role),
       },
     });
   } catch (err: any) {

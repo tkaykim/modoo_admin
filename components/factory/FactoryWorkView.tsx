@@ -62,6 +62,7 @@ export default function FactoryWorkView({
   updatingItemId = null,
   onApply,
   onOpenDesign,
+  canViewPrices = true,
 }: {
   items: FactoryWorkItem[];
   title?: string;
@@ -71,6 +72,7 @@ export default function FactoryWorkView({
   onApply: (item: FactoryWorkItem, payload: { status: string; price?: FactoryPriceResult }) => Promise<boolean> | boolean;
   /** 디자인 보기(선택) */
   onOpenDesign?: (item: FactoryWorkItem) => void;
+  canViewPrices?: boolean;
 }) {
   const [pending, setPending] = useState<FactoryWorkItem | null>(null);
   const [modalMode, setModalMode] = useState<'start' | 'edit'>('start');
@@ -78,7 +80,7 @@ export default function FactoryWorkView({
 
   const handleSelect = async (item: FactoryWorkItem, next: string) => {
     if (next === (item.factory_status || 'assigned')) return;
-    if (next === 'in_progress') {
+    if (next === 'in_progress' && canViewPrices) {
       if (item.factory_price_locked) {
         // 정산 확정(잠금)된 건은 확정 단가 그대로 → 모달 없이 바로 작업 시작
         await onApply(item, { status: 'in_progress' });
@@ -190,7 +192,7 @@ export default function FactoryWorkView({
                   </select>
 
                   {/* 단가: 확정값 우선, 없으면 기본(단가표) 단가를 '예정'으로 노출 */}
-                  {item.factory_amount != null && item.factory_amount > 0 ? (
+                  {canViewPrices && (item.factory_amount != null && item.factory_amount > 0 ? (
                     <span className="text-xs font-medium text-gray-700">
                       {won(item.factory_amount)}
                       {unit ? <span className="text-gray-400"> ({won(unit)}/장)</span> : null}
@@ -202,9 +204,9 @@ export default function FactoryWorkView({
                     <span className="text-xs text-gray-500">기본 {won(unit)}/장 (작업 시작 시 확정)</span>
                   ) : (
                     <span className="text-xs text-gray-400">작업 시작 시 단가 입력</span>
-                  )}
+                  ))}
 
-                  {item.factory_price_locked ? (
+                  {canViewPrices && (item.factory_price_locked ? (
                     <span className="inline-flex items-center gap-0.5 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] font-medium text-white">🔒 정산확정</span>
                   ) : (
                     <button
@@ -215,7 +217,7 @@ export default function FactoryWorkView({
                     >
                       단가 수정
                     </button>
-                  )}
+                  ))}
 
                   {busy && <span className="text-xs text-gray-400">처리 중...</span>}
                 </div>

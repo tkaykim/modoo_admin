@@ -8,6 +8,7 @@ import { LOGEN_CONTRACT_FARE } from '@/lib/logen';
 import { assertPhoneOrMessage, sanitizePhoneInput } from '@/lib/phone';
 import { NAVER_UNIFIED_ORDER_PREFIX, projectNaverOrdersForAdmin } from '@/lib/naver-commerce/unified-orders';
 import { randomBytes } from 'crypto';
+import { withFactorySettlements, withOrderFactorySettlements } from '@/lib/factory-settlements';
 
 export async function GET(request: Request) {
   try {
@@ -106,7 +107,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const regularOrders = data || [];
+    const regularOrders = await withOrderFactorySettlements(adminClient, (data || []) as unknown as Array<{order_items?: Array<{id: string; assigned_manufacturer_id?: string | null}>}>, profile);
     const canIncludeNaver = includeNaver
       && !isFactoryUser
       && !factoryId
@@ -189,6 +190,11 @@ export async function PATCH(request: Request) {
 
     const payload = await request.json().catch(() => null);
     const orderId = payload?.orderId;
+
+    if (!isSuperAdmin(profile.role) && !isFactoryUser &&
+      ['factoryAmount', 'factoryUnitPrice', 'factoryPriceMode', 'confirmFactoryPrice', 'lockFactoryPrice'].some(key => payload?.[key] !== undefined)) {
+      return NextResponse.json({ error: '공장 정산 단가는 슈퍼관리자만 관리할 수 있습니다.' }, { status: 403 });
+    }
 
     if (!orderId || typeof orderId !== 'string') {
       return NextResponse.json({ error: '주문 ID가 필요합니다.' }, { status: 400 });
@@ -355,7 +361,8 @@ export async function PATCH(request: Request) {
         .eq('id', orderId)
         .single();
 
-      return NextResponse.json({ data: updatedOrder });
+      const scopedOrder = updatedOrder ? { ...updatedOrder, order_items: updatedOrder.order_items.filter((i: { assigned_manufacturer_id?: string | null }) => i.assigned_manufacturer_id === profile.manufacturer_id) } : null;
+      return NextResponse.json({ data: scopedOrder ? (await withOrderFactorySettlements(adminClient, [scopedOrder], profile))[0] : null });
     }
 
     // 관리자: 공장 단가 정산 확정(잠금) / 해제 — 잠금되면 공장은 단가 수정 불가.
@@ -381,10 +388,10 @@ export async function PATCH(request: Request) {
     const manufacturerId = payload?.factoryId ?? null;
 
     // Factory-specific fields
-    const deadlineInput = payload?.deadline ?? null;
-    const factoryAmountInput = payload?.factoryAmount ?? null;
-    const factoryPaymentDateInput = payload?.factoryPaymentDate ?? null;
-    const factoryPaymentStatusInput = payload?.factoryPaymentStatus ?? null;
+    const deadlineInput = payload?.deadline;
+    const factoryAmountInput = payload?.factoryAmount;
+    const factoryPaymentDateInput = payload?.factoryPaymentDate;
+    const factoryPaymentStatusInput = payload?.factoryPaymentStatus;
     const orderStatusInput = payload?.orderStatus ?? null;
     const factoryStatusInput = payload?.factoryStatus ?? null;
 
@@ -886,7 +893,8 @@ export async function PATCH(request: Request) {
       .eq('id', orderId)
       .single();
 
-    return NextResponse.json({ data: finalOrder || data });
+    const resultOrder = finalOrder || data;
+    return NextResponse.json({ data: resultOrder ? (await withOrderFactorySettlements(adminClient, [resultOrder], profile))[0] : null });
   } catch (error) {
     const message = error instanceof Error ? error.message : '주문 업데이트에 실패했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -965,13 +973,18 @@ export async function DELETE(request: Request) {
       .select('*')
       .eq('order_id', orderId);
 
+    const preservedItems = await withFactorySettlements(adminClient, existingItems || [], profile);
+    const { data: legacySettlement, error: legacyError } = await adminClient.from('order_factory_legacy_settlements')
+      .select('factory_amount').eq('order_id', orderId).maybeSingle();
+    if (legacyError) throw new Error('정산 감사 기록을 읽지 못해 삭제를 중단했습니다.');
+
     const { error: logError } = await adminClient.from('order_deletion_logs').insert({
       order_id: orderId,
       deleted_by: user.id,
       reason,
       snapshot: {
-        order: existingOrder,
-        order_items: existingItems ?? [],
+        order: { ...existingOrder, factory_amount: legacySettlement?.factory_amount ?? existingOrder.factory_amount },
+        order_items: preservedItems,
       },
     });
 

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { redactShippingCosts } from '@/lib/shipping-cost-access';
 import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
 
     const result = await inquirySlipNo([...queryFixNos, ...suffixedIds]);
     if (result.sttsCd === 'FAIL') {
-      return NextResponse.json({ error: result.sttsMsg, logenResponse: result }, { status: 500 });
+      return NextResponse.json({ error: result.sttsMsg, logenResponse: redactShippingCosts(result, profile.role) }, { status: 500 });
     }
 
     if (result.data && Array.isArray(result.data)) {
@@ -148,7 +149,7 @@ export async function POST(request: Request) {
       data: {
         updated,
         total: orderIds.length,
-        logenResponse: result,
+        logenResponse: redactShippingCosts(result, profile.role),
       },
     });
   } catch (err: any) {

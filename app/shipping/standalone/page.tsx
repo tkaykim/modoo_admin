@@ -6,6 +6,8 @@ import { Truck, Plus, Printer, RefreshCw, X, Loader2, Search } from 'lucide-reac
 import { fetcher } from '@/lib/fetcher';
 import { formatKstDateTimeCompact, getKstYYYYMMDD } from '@/lib/kst';
 import type { Factory } from '@/types/types';
+import { useAuthStore } from '@/store/useAuthStore';
+import { isSuperAdmin } from '@/lib/auth-helpers';
 
 type Party = { name: string; addr: string; tel: string };
 type Source = 'company' | 'manufacturer' | 'custom';
@@ -40,10 +42,13 @@ const statusColor = (s: string) =>
 const CATEGORIES = ['재고확보', '자재이동', '공장간 이동', '사무용품', '샘플', '기타'];
 
 export default function StandaloneShippingPage() {
-  const { data: shipments, mutate: refetch } = useSWR<ManualShipment[]>(
+  const canViewCosts = isSuperAdmin(useAuthStore(state => state.user?.role));
+  const { data: shipmentResponse, mutate: refetch } = useSWR<{data: ManualShipment[]; contractFare?: number}>(
     '/api/admin/shipping/standalone?status=all',
-    (url: string) => fetcher(url).then((r: { data: ManualShipment[] }) => r.data || [])
+    fetcher
   );
+  const shipments = shipmentResponse?.data;
+  const contractFare = shipmentResponse?.contractFare;
   const { data: factories } = useSWR<Factory[]>(
     '/api/admin/manufacturers',
     (url: string) => fetcher(url).then((r: { data: Factory[] }) => r.data || [])
@@ -62,9 +67,8 @@ export default function StandaloneShippingPage() {
   const [receiverForm, setReceiverForm] = useState<Party>({ name: '', addr: '', tel: '' });
   const [fareTy, setFareTy] = useState<'010' | '020' | '030' | '040'>('010');
   const [qty, setQty] = useState(1);
-  // 로젠 dlvFare = 총 운임(계약운임 3,000 × 박스 수). 박스 수와 안 맞으면 발행에서 제외되므로
-  // 사용자가 직접 고치기 전까지는 박스 수에 연동해 자동 계산한다.
-  const [deliveryFee, setDeliveryFee] = useState(3000);
+  // Contract freight is returned only to super admins; other roles use server defaults.
+  const [deliveryFee, setDeliveryFee] = useState(0);
   const [deliveryFeeTouched, setDeliveryFeeTouched] = useState(false);
   const [goodsNm, setGoodsNm] = useState('');
   const [category, setCategory] = useState('재고확보');
@@ -97,7 +101,7 @@ export default function StandaloneShippingPage() {
   const resetForm = () => {
     setSenderSource('company'); setSenderManufacturerId(''); setSenderForm(COMPANY);
     setReceiverSource('manufacturer'); setReceiverManufacturerId(''); setReceiverForm({ name: '', addr: '', tel: '' });
-    setFareTy('010'); setQty(1); setDeliveryFee(3000); setGoodsNm(''); setCategory('재고확보'); setMemo('');
+    setFareTy('010'); setQty(1); setDeliveryFee(contractFare || 0); setDeliveryFeeTouched(false); setGoodsNm(''); setCategory('재고확보'); setMemo('');
     setSubmitError(null);
   };
 
@@ -113,7 +117,7 @@ export default function StandaloneShippingPage() {
         body: JSON.stringify({
           sender: { ...senderForm, manufacturerId: senderSource === 'manufacturer' ? senderManufacturerId : null },
           receiver: { ...receiverForm, manufacturerId: receiverSource === 'manufacturer' ? receiverManufacturerId : null },
-          fareTy, qty, deliveryFee, goodsNm: goodsNm.trim(), category, memo: memo.trim() || null,
+          fareTy, qty, ...(canViewCosts && deliveryFeeTouched ? { deliveryFee } : {}), goodsNm: goodsNm.trim(), category, memo: memo.trim() || null,
         }),
       });
       const json = await res.json();
@@ -300,15 +304,15 @@ export default function StandaloneShippingPage() {
                   <input type="number" min={1} value={qty} onChange={(e) => {
                     const next = Math.max(1, Number(e.target.value) || 1);
                     setQty(next);
-                    if (!deliveryFeeTouched) setDeliveryFee(3000 * next);
+                    if (!deliveryFeeTouched) setDeliveryFee((contractFare || 0) * next);
                   }}
                     className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">총 운임 (원) = 3,000 × 박스</label>
-                  <input type="number" min={0} value={deliveryFee} onChange={(e) => { setDeliveryFeeTouched(true); setDeliveryFee(Math.max(0, Number(e.target.value) || 0)); }}
+                {canViewCosts && <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">총 운임 (원)</label>
+                  <input type="number" min={0} value={deliveryFeeTouched ? deliveryFee : (contractFare || 0) * qty} onChange={(e) => { setDeliveryFeeTouched(true); setDeliveryFee(Math.max(0, Number(e.target.value) || 0)); }}
                     className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
-                </div>
+                </div>}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">운임타입</label>
                   <select value={fareTy} onChange={(e) => setFareTy(e.target.value as '010' | '020' | '030' | '040')}

@@ -43,7 +43,6 @@ export async function GET(
         address_line_1,
         address_line_2,
         deadline,
-        factory_amount,
         factory_payment_date,
         factory_payment_status,
         factory_status,
@@ -77,8 +76,6 @@ export async function GET(
         custom_fonts,
         assigned_manufacturer_id,
         factory_status,
-        factory_amount,
-        factory_unit_price,
         factory_price_confirmed_at,
         factory_price_locked,
         products(product_code, title, configuration, size_options, base_price, manufacturers(id, name)),
@@ -136,13 +133,12 @@ export async function PATCH(
     }
 
     const payload = await request.json().catch(() => null);
+    if (['factoryAmount', 'factoryUnitPrice', 'factoryPriceMode', 'confirmFactoryPrice'].some(key => payload?.[key] !== undefined)) {
+      return NextResponse.json({ error: '단가 조회·수정은 공장 계정으로 로그인해 주세요.' }, { status: 403 });
+    }
     const factoryStatus = payload?.factoryStatus;
     const itemId = payload?.itemId;
-    const factoryAmount = payload?.factoryAmount;
-    const factoryUnitPrice = payload?.factoryUnitPrice;
-    const factoryPriceMode = payload?.factoryPriceMode;
     const factoryId = payload?.factory; // 선택: 공장 스코프
-    const confirmFactoryPrice = payload?.confirmFactoryPrice === true;
 
     const validStatuses = ['assigned', 'in_progress', 'completed', 'shipped'];
     if (!factoryStatus || !validStatuses.includes(factoryStatus)) {
@@ -186,54 +182,11 @@ export async function PATCH(
 
     // 품목 단위 업데이트 (신규 동작)
     if (itemId) {
-      // 대상 품목의 정산 확정(잠금) 상태 확인
-      const { data: lockRow } = await adminClient
-        .from('order_items')
-        .select('factory_price_locked')
-        .eq('id', itemId)
-        .eq('order_id', order.id)
-        .single();
-      const itemLocked = !!lockRow?.factory_price_locked;
-      const wantsPriceChange =
-        (factoryAmount !== undefined && factoryAmount !== null) ||
-        factoryUnitPrice !== undefined ||
-        factoryPriceMode !== undefined;
-
-      // 잠금된 단가는 공장이 수정 불가
-      if (itemLocked && wantsPriceChange) {
-        return NextResponse.json(
-          { error: '관리자가 정산 확정한 단가입니다. 수정하려면 관리자에게 요청해 주세요.', code: 'FACTORY_PRICE_LOCKED' },
-          { status: 403 }
-        );
-      }
-      // 단가 확정 게이트 (잠금된 건은 확정값 사용 → 게이트 생략)
-      if (!itemLocked && factoryStatus === 'in_progress' && !confirmFactoryPrice) {
-        return NextResponse.json(
-          { error: '작업 시작 전 정산 단가를 확인해 주세요.', code: 'FACTORY_PRICE_REQUIRED' },
-          { status: 400 }
-        );
-      }
-
+      // Shared links may change operational status, never confirm or edit prices.
       const itemUpdate: Record<string, unknown> = {
         factory_status: factoryStatus,
         updated_at: new Date().toISOString(),
       };
-      if (!itemLocked) {
-        if (factoryAmount !== undefined && factoryAmount !== null) {
-          itemUpdate.factory_amount = factoryAmount;
-        }
-        if (factoryUnitPrice !== undefined) {
-          itemUpdate.factory_unit_price = factoryUnitPrice;
-        }
-        if (factoryPriceMode !== undefined) {
-          itemUpdate.factory_price_mode = factoryPriceMode;
-        }
-        if (confirmFactoryPrice) {
-          // 비로그인 링크 확정 — 주체(by)는 없음, 시각만 기록
-          itemUpdate.factory_price_confirmed_at = new Date().toISOString();
-        }
-      }
-
       let q = adminClient
         .from('order_items')
         .update(itemUpdate)
@@ -241,7 +194,7 @@ export async function PATCH(
         .eq('order_id', order.id);
       if (factoryId) q = q.eq('assigned_manufacturer_id', factoryId);
 
-      const { data: updatedItems, error: updErr } = await q.select('id, factory_status, factory_amount');
+      const { data: updatedItems, error: updErr } = await q.select('id, factory_status');
       if (updErr) {
         return NextResponse.json({ error: updErr.message }, { status: 500 });
       }

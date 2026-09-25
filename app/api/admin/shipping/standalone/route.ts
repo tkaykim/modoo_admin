@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { isAdminLike } from '@/lib/auth-helpers';
+import { isAdminLike, isSuperAdmin } from '@/lib/auth-helpers';
+import { redactShippingCosts } from '@/lib/shipping-cost-access';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { registerOrder, inquirySlipNo, trackCargoLast, LOGEN_FARE_TY, LOGEN_CONTRACT_FARE, LOGEN_BOX_TY_CD, type RegisterOrderInput } from '@/lib/logen';
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
     if (status !== 'all') q = q.eq('status', status);
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ data: data || [] });
+    return NextResponse.json({ data: redactShippingCosts(data || [], profile.role), ...(isSuperAdmin(profile.role) ? { contractFare: LOGEN_CONTRACT_FARE } : {}) });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || '조회 실패' }, { status: 500 });
   }
@@ -50,6 +51,9 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
+    if (!isSuperAdmin(profile.role) && body?.deliveryFee !== undefined) {
+      return NextResponse.json({ error: '계약 운임 수정은 슈퍼관리자만 가능합니다.' }, { status: 403 });
+    }
     const sender = body?.sender as { name?: string; addr?: string; tel?: string; manufacturerId?: string } | undefined;
     const receiver = body?.receiver as { name?: string; addr?: string; tel?: string; manufacturerId?: string } | undefined;
     const fareTy: string = /^0[1234]0$/.test(body?.fareTy) ? body.fareTy : LOGEN_FARE_TY;
@@ -95,11 +99,11 @@ export async function POST(request: Request) {
     };
     const result = await registerOrder([payload]);
     if (result.sttsCd === 'FAIL') {
-      return NextResponse.json({ error: result.sttsMsg, logenResponse: result }, { status: 500 });
+      return NextResponse.json({ error: result.sttsMsg, logenResponse: redactShippingCosts(result, profile.role) }, { status: 500 });
     }
     const ok = Array.isArray(result.data) && result.data[0]?.resultCd === 'TRUE';
     if (!ok) {
-      return NextResponse.json({ error: '로젠 접수에 실패했습니다.', logenResponse: result }, { status: 500 });
+      return NextResponse.json({ error: '로젠 접수에 실패했습니다.', logenResponse: redactShippingCosts(result, profile.role) }, { status: 500 });
     }
 
     // 2) DB 기록
@@ -137,7 +141,7 @@ export async function POST(request: Request) {
       }, { status: 500 });
     }
 
-    return NextResponse.json({ data: inserted });
+    return NextResponse.json({ data: redactShippingCosts(inserted, profile.role) });
   } catch (e: any) {
     console.error('Standalone shipping register error:', e);
     return NextResponse.json({ error: e?.message || '접수 중 오류 발생' }, { status: 500 });
