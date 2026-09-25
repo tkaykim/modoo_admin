@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireMarketingAccess } from '@/lib/admin/require-marketing-access';
 import { campaigns, revenue, funnel, traffic } from '@/lib/ga4/reports';
 import { createAdminClient } from '@/lib/supabase-admin';
+import { isSuperAdmin } from '@/lib/auth-helpers';
 
 // DB 실매출 (KST 기준 최근 N일). order_profit_summary 정의와 동일: payment 완료 & 취소/환불 제외.
 async function fetchDbRevenue(days: number): Promise<{
@@ -104,7 +105,7 @@ export async function GET(req: NextRequest) {
       funnel(days),
       traffic(days),
       fetchDbRevenue(days),
-      fetchDbProfit(days),
+      isSuperAdmin(auth.role) ? fetchDbProfit(days) : Promise.resolve(null),
     ]);
 
     const cs = campaignsRows as unknown as CampaignRow[];
@@ -156,10 +157,12 @@ export async function GET(req: NextRequest) {
           totalTransactions,
           dbRevenue: dbRevenue.total,
           dbTransactions: dbRevenue.transactions,
-          dbNetRevenue: dbProfit.netRevenue,
-          dbGrossProfit: dbProfit.grossProfit,
-          dbItemCost: dbProfit.itemCost,
-          dbPrintCost: dbProfit.printCost,
+          ...(dbProfit ? {
+            dbNetRevenue: dbProfit.netRevenue,
+            dbGrossProfit: dbProfit.grossProfit,
+            dbItemCost: dbProfit.itemCost,
+            dbPrintCost: dbProfit.printCost,
+          } : {}),
           paidSessions,
           organicSessions,
         },
