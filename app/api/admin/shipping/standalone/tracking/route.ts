@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { redactShippingCosts } from '@/lib/shipping-cost-access';
 import { isAdminLike } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
@@ -27,7 +28,7 @@ export async function POST(request: Request) {
     }
 
     const result = await trackCargo(trackingNumbers);
-    if (result.sttsCd === 'FAIL') return NextResponse.json({ error: result.sttsMsg, logenResponse: result }, { status: 500 });
+    if (result.sttsCd === 'FAIL') return NextResponse.json({ error: result.sttsMsg, logenResponse: redactShippingCosts(result, profile.role) }, { status: 500 });
 
     const delivered: string[] = [];
     if (Array.isArray(result.data)) {
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
       await adminClient.from('manual_shipments').update({ status: 'delivered' }).in('tracking_number', delivered).eq('status', 'shipping');
     }
 
-    return NextResponse.json({ data: { tracking: result.data, deliveredCount: delivered.length } });
+    return NextResponse.json({ data: { tracking: redactShippingCosts(result.data, profile.role), deliveredCount: delivered.length } });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || '추적 실패' }, { status: 500 });
   }

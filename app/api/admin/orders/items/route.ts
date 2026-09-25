@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { resolveColorByHex } from '@/lib/colorLookup';
 import { randomBytes } from 'crypto';
+import { withFactorySettlements } from '@/lib/factory-settlements';
 
 const toNumber = (value: unknown) => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -208,7 +209,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ data: data || [] });
+    return NextResponse.json({ data: await withFactorySettlements(adminClient, data || [], authResult.profile) });
   } catch (error) {
     const message = error instanceof Error ? error.message : '주문 상품을 불러오지 못했습니다.';
     return NextResponse.json({ error: message }, { status: 500 });

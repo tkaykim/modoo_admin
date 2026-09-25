@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { isSuperAdmin } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
+import { withFactorySettlements } from '@/lib/factory-settlements';
 
 /**
  * 공장 지급 관리 API (super_admin 전용).
@@ -62,14 +63,25 @@ export async function GET(request: Request) {
         'id, order_id, product_title, design_title, quantity, factory_amount, factory_status, factory_payment_status, factory_payment_date, factory_price_locked, assigned_manufacturer_id, deadline, created_at'
       )
       .not('assigned_manufacturer_id', 'is', null)
-      .gt('factory_amount', 0)
-      .order('deadline', { ascending: true, nullsFirst: false });
+      .order('deadline', { ascending: true, nullsFirst: false })
+      .order('id', { ascending: true });
 
     if (factoryId) q = q.eq('assigned_manufacturer_id', factoryId);
     // status 필터는 목록에만 적용(집계는 항상 전체 기준) — 아래 JS에서 처리.
 
-    const { data: items, error } = await q;
+    const pageSize = 500;
+    const { data: firstPage, error } = await q.range(0, pageSize - 1);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const sharedItems = [...(firstPage || [])];
+    let pageLength = firstPage?.length || 0;
+    while (pageLength === pageSize) {
+      const offset = sharedItems.length;
+      const page = await q.range(offset, offset + pageSize - 1);
+      if (page.error) return NextResponse.json({ error: page.error.message }, { status: 500 });
+      sharedItems.push(...(page.data || []));
+      pageLength = page.data?.length || 0;
+    }
+    const items = (await withFactorySettlements(admin, sharedItems || [], { role: 'super_admin' })).filter(i => Number(i.factory_amount || 0) > 0);
 
     // 공장 정보·정산 설정 별도 조회(조인 의존 회피)
     const factoryIds = [...new Set((items || []).map((i) => i.assigned_manufacturer_id).filter(Boolean))] as string[];

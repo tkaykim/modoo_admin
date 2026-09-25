@@ -6,6 +6,8 @@ import { X, Factory as FactoryIcon, Copy, Info, DollarSign } from 'lucide-react'
 import { extractVariants } from '@/lib/orderUtils';
 import OrderItemArtworksModal from '@/components/orders/OrderItemArtworksModal';
 import OrderItemThumbnail from '@/components/orders/OrderItemThumbnail';
+import { useAuthStore } from '@/store/useAuthStore';
+import { isSuperAdmin } from '@/lib/auth-helpers';
 
 interface ItemAllocationState {
   orderItemId: string;
@@ -29,6 +31,7 @@ export default function FactoryAllocationModal({
   onClose,
   onSuccess,
 }: FactoryAllocationModalProps) {
+  const canViewCosts = isSuperAdmin(useAuthStore(state => state.user?.role));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
@@ -74,7 +77,7 @@ export default function FactoryAllocationModal({
     );
 
     // When a factory is selected, prefetch its pricing rows for UX hint.
-    if (field === 'assigned_manufacturer_id' && typeof value === 'string' && value && !pricingByFactory[value]) {
+    if (canViewCosts && field === 'assigned_manufacturer_id' && typeof value === 'string' && value && !pricingByFactory[value]) {
       fetch(`/api/admin/factory-print-pricing?factory_id=${value}`)
         .then(async (res) => {
           if (!res.ok) return;
@@ -120,7 +123,7 @@ export default function FactoryAllocationModal({
           items: validItems.map((a) => ({
             orderItemId: a.orderItemId,
             assigned_manufacturer_id: a.assigned_manufacturer_id,
-            factory_amount: a.factory_amount ? Number(a.factory_amount) : null,
+            ...(canViewCosts ? { factory_amount: a.factory_amount ? Number(a.factory_amount) : null } : {}),
             deadline: a.deadline || null,
             factory_payment_date: a.factory_payment_date || null,
             factory_payment_status: a.factory_payment_status || 'pending',
@@ -240,7 +243,7 @@ export default function FactoryAllocationModal({
                             전체 적용
                           </button>
                         )}
-                        <button
+                        {canViewCosts && <button
                           type="button"
                           onClick={() => setArtworksModalForItemId(item.id)}
                           className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 rounded hover:bg-emerald-100 transition-colors"
@@ -248,7 +251,7 @@ export default function FactoryAllocationModal({
                         >
                           <DollarSign className="w-3 h-3" />
                           인쇄 배정
-                        </button>
+                        </button>}
                       </div>
                     </div>
 
@@ -272,7 +275,7 @@ export default function FactoryAllocationModal({
                         </select>
                       </div>
 
-                      <div>
+                      {canViewCosts && <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">금액</label>
                         <div className="relative">
                           <input
@@ -303,7 +306,7 @@ export default function FactoryAllocationModal({
                             </p>
                           );
                         })()}
-                      </div>
+                      </div>}
 
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">마감일</label>

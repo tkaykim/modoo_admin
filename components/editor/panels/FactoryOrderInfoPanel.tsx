@@ -10,7 +10,7 @@ import OrderAttachmentSection from '@/components/orders/OrderAttachmentSection';
 import { extractVariants } from '@/lib/orderUtils';
 import { formatKstDateShort } from '@/lib/kst';
 import { orderCategoryLabel } from '@/lib/order-category';
-import { isAdminLike } from '@/lib/auth-helpers';
+import { isAdminLike, isSuperAdmin } from '@/lib/auth-helpers';
 import FactoryPriceConfirmModal, { type FactoryPriceResult } from '@/components/factory/FactoryPriceConfirmModal';
 import OrderItemThumbnail from '@/components/orders/OrderItemThumbnail';
 import VarsityPersonalizationSummary from '@/components/orders/VarsityPersonalizationSummary';
@@ -27,6 +27,7 @@ export default function FactoryOrderInfoPanel({
 }: FactoryOrderInfoPanelProps) {
   const router = useRouter();
   const { user } = useAuthStore();
+  const canViewCosts = isSuperAdmin(user?.role) || user?.role === 'factory';
 
   const [order, setOrder] = useState<Order | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
@@ -121,12 +122,12 @@ export default function FactoryOrderInfoPanel({
 
   // "작업중" 전환은 항상 단가 확정 모달을 거친다 (금액 0이든 아니든). 그 외 상태는 즉시 변경.
   const handleStatusSelect = useCallback((newStatus: string) => {
-    if (newStatus === 'in_progress') {
+    if (newStatus === 'in_progress' && canViewCosts) {
       setShowPriceModal(true);
       return;
     }
     handleFactoryStatusChange(newStatus);
-  }, [handleFactoryStatusChange]);
+  }, [handleFactoryStatusChange, canViewCosts]);
 
   const handleConfirmPrice = useCallback(async (result: FactoryPriceResult) => {
     const ok = await handleFactoryStatusChange('in_progress', {
@@ -226,12 +227,12 @@ export default function FactoryOrderInfoPanel({
                   </span>
                 </div>
 
-                <div className="flex items-start gap-1.5">
+                {canViewCosts && <div className="flex items-start gap-1.5">
                   <span className="text-[11px] text-gray-400 shrink-0 w-16">금액</span>
                   <span className="text-[11px] font-semibold text-gray-800">
                     {currentItem.factory_amount ? `${currentItem.factory_amount.toLocaleString()}원` : '-'}
                   </span>
-                </div>
+                </div>}
 
                 <div className="flex items-start gap-1.5">
                   <span className="text-[11px] text-gray-400 shrink-0 w-16">결제 예정일</span>

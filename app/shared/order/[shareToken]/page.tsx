@@ -617,6 +617,7 @@ export default function SharedOrderPage() {
             {/* 작업 목록 — 로그인/링크 공통 컴포넌트 (동일 경험) */}
             <div className="bg-white border border-gray-200 rounded-lg p-4">
               <FactoryWorkView
+                canViewPrices={false}
                 title="주문 상품"
                 updatingItemId={updatingItemId}
                 items={items.map((item): FactoryWorkItem => ({
@@ -683,7 +684,7 @@ export default function SharedOrderPage() {
               <h2 className="text-base font-semibold text-gray-900 mb-2">작업 상태</h2>
               <p className="text-sm text-gray-600">
                 각 상품 카드에서 작업 상태를 변경할 수 있습니다.<br />
-                &quot;작업중&quot;으로 바꿀 때 정산 단가를 한 번 확인합니다.
+                정산 단가 조회·수정은 공장 계정으로 로그인한 뒤 이용해 주세요.
               </p>
             </div>
 
