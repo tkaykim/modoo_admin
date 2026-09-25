@@ -110,7 +110,7 @@ export default function OrderProfitSection({ order, orderItems }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!isSuperAdmin && !isFactory) return;
+    if (!isSuperAdmin) return;
     setLoading(true);
     setError(null);
     try {

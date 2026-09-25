@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAdminLike } from '@/lib/auth-helpers';
+import { isSuperAdmin } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 
@@ -17,8 +17,8 @@ const requireAdmin = async () => {
   const { data: profile, error: profileError } = await supabase
     .from('profiles').select('role').eq('id', user.id).single();
   if (profileError) return { error: NextResponse.json({ error: profileError.message }, { status: 403 }) };
-  if (!profile || !isAdminLike(profile.role)) {
-    return { error: NextResponse.json({ error: '관리자 권한이 필요합니다.' }, { status: 403 }) };
+  if (!profile || !isSuperAdmin(profile.role)) {
+    return { error: NextResponse.json({ error: '슈퍼관리자 권한이 필요합니다.' }, { status: 403 }) };
   }
   return { user };
 };

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAdminLike } from '@/lib/auth-helpers';
+import { isAdminLike, isSuperAdmin } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 import {
@@ -21,7 +21,7 @@ const requireAdmin = async () => {
   if (!profile || !isAdminLike(profile.role)) {
     return { error: NextResponse.json({ error: '관리자 권한이 필요합니다.' }, { status: 403 }) };
   }
-  return { user };
+  return { user, role: profile.role };
 };
 
 interface ParamsContext {
@@ -54,7 +54,7 @@ export async function POST(request: Request, _context: ParamsContext) {
     const widthCm = Number(body?.width_cm);
     const heightCm = Number(body?.height_cm);
     const appliedQuantity = Number(body?.applied_quantity);
-    const factoryId = typeof body?.factory_id === 'string' && body.factory_id ? body.factory_id : null;
+    const factoryId = isSuperAdmin(authResult.role) && typeof body?.factory_id === 'string' && body.factory_id ? body.factory_id : null;
 
     if (typeof printMethodId !== 'string' || !printMethodId) {
       return NextResponse.json({ error: 'print_method_id가 필요합니다.' }, { status: 400 });
