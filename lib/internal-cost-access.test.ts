@@ -6,6 +6,8 @@ import ts from 'typescript';
 import {isSuperAdmin} from './auth-helpers';
 
 const endpoints:Record<string,string[]>={
+ 'users/route.ts':['PATCH'],
+ 'factory-accounts/route.ts':['POST'],
  'factory-print-pricing/route.ts':['GET','POST','PATCH','DELETE'],
  'factory-print-pricing/bulk/route.ts':['PUT'],
  'factory-print-pricing/lookup/route.ts':['GET'],

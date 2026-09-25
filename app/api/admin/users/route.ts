@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
+import { isSuperAdmin, isBackofficeOperatorRole } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 
@@ -129,8 +129,8 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: profileError.message }, { status: 403 });
     }
 
-    if (!profile || (!isAdminLike(profile.role))) {
-      return NextResponse.json({ error: '관리자 권한이 필요합니다.' }, { status: 403 });
+    if (!profile || !isSuperAdmin(profile.role)) {
+      return NextResponse.json({ error: '슈퍼관리자 권한이 필요합니다.' }, { status: 403 });
     }
 
     const payload = await request.json().catch(() => null);
