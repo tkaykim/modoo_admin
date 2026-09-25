@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { isAdminLike, isBackofficeOperatorRole } from '@/lib/auth-helpers';
+import { isSuperAdmin } from '@/lib/auth-helpers';
 import { createClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 
-async function requireAdmin() {
+async function requireSuperAdmin() {
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return { error: NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 }) };
@@ -12,8 +12,8 @@ async function requireAdmin() {
     .select('role')
     .eq('id', user.id)
     .single();
-  if (profileError || !profile || (!isAdminLike(profile.role))) {
-    return { error: NextResponse.json({ error: '관리자 권한이 필요합니다.' }, { status: 403 }) };
+  if (profileError || !profile || !isSuperAdmin(profile.role)) {
+    return { error: NextResponse.json({ error: '슈퍼관리자 권한이 필요합니다.' }, { status: 403 }) };
   }
   return { user, profile };
 }
@@ -21,7 +21,7 @@ async function requireAdmin() {
 // GET ?ids=a,b,c — return suggested unit_cost per item from product_costs lookup
 export async function GET(request: Request) {
   try {
-    const authResult = await requireAdmin();
+    const authResult = await requireSuperAdmin();
     if (authResult.error) return authResult.error;
 
     const url = new URL(request.url);
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
 // POST — confirm purchase order: 단가표 lookup 기반 base cost + 사용자 입력 ± 조정 + status='ordered'
 export async function POST(request: Request) {
   try {
-    const authResult = await requireAdmin();
+    const authResult = await requireSuperAdmin();
     if (authResult.error) return authResult.error;
     const { user } = authResult;
 
