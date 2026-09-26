@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   summarizeEntries,
@@ -15,7 +15,7 @@ const sources = {
 const cell = (v: unknown) =>
   '"' +
   String(v ?? "")
-    .replace(/^[=+@-]/, "'$&")
+    .replace(/^[\t\r\n =+@-]/, "'$&")
     .replaceAll('"', '""') +
   '"';
 export default function ProfitReport() {
@@ -390,8 +390,9 @@ export default function ProfitReport() {
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
               <p>
                 {total.count}건 집계 · 미확인 항목이 있는 거래{" "}
-                {total.incomplete}건 · 추정 금액이 있는 거래 {total.estimated}
-                건.
+                {total.incomplete}건
+                {estimates && <> · 추정 금액이 있는 거래 {total.estimated}건</>}
+                .
               </p>
               <p className="mt-1">
                 {estimates
@@ -524,76 +525,132 @@ export default function ProfitReport() {
                   {visible.length}건
                 </span>
               </div>
-              <div className="divide-y">
-                {visible.slice(safePage * 40, safePage * 40 + 40).map((e) => (
-                  <article
-                    key={e.id}
-                    className={`p-4 ${e.duplicate ? "opacity-60" : ""}`}
-                  >
-                    <button
-                      aria-expanded={open === e.id}
-                      onClick={() => setOpen(open === e.id ? "" : e.id)}
-                      className="flex w-full flex-wrap items-start justify-between gap-3 text-left"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs text-gray-500">
-                          {e.date} · {sources[e.source]} ·{" "}
-                          {e.quantity ? `${won(e.quantity)}벌` : "수량 미확인"}
-                          {e.duplicate ? " · 합계 제외" : ""}
-                        </div>
-                        <div className="mt-1 break-words font-medium">
-                          {e.title}
-                        </div>
-                        <div className="mt-1 text-xs text-amber-800">
-                          {e.missing.length
-                            ? `미확인 ${e.missing.length}항목`
-                            : e.estimatedCost || e.estimatedRevenue
-                              ? "추정 포함"
-                              : "등록 근거 있음"}
-                        </div>
-                      </div>
-                      <div className="text-right text-sm tabular-nums">
-                        <div>
-                          매출{" "}
-                          {e.revenue === null
-                            ? "미확인"
-                            : won(estimates ? e.revenue : e.recordedRevenue) +
-                              "원"}
-                        </div>
-                        <div className="text-gray-600">
-                          비용 {won(estimates ? e.cost : e.recordedCost)}원
-                        </div>
-                      </div>
-                    </button>
-                    {open === e.id && (
-                      <div className="mt-4 space-y-3 border-t pt-3 text-sm">
-                        <Link
-                          href={e.link}
-                          className="break-all text-blue-700 underline"
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      {[
+                        "기준일",
+                        "출처",
+                        "거래명",
+                        "수량",
+                        "매출",
+                        "비용",
+                        "상태",
+                        "근거",
+                      ].map((h) => (
+                        <th
+                          key={h}
+                          scope="col"
+                          className="whitespace-nowrap px-3 py-2 text-left"
                         >
-                          {e.id} · 원본 보기
-                        </Link>
-                        <p>
-                          등록 비용 {won(e.recordedCost)}원 / 비용 보완{" "}
-                          {won(e.costSupplement)}원 / VAT 가정{" "}
-                          {won(e.vatSupplement)}원.
-                        </p>
-                        {e.missing.length > 0 && (
-                          <ul className="list-disc space-y-1 pl-5 text-rose-800">
-                            {e.missing.map((s, i) => (
-                              <li key={i}>{s}</li>
-                            ))}
-                          </ul>
-                        )}
-                        <ul className="list-disc space-y-1 pl-5 text-gray-600">
-                          {e.basis.map((s, i) => (
-                            <li key={i}>{s}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </article>
-                ))}
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visible
+                      .slice(safePage * 40, safePage * 40 + 40)
+                      .map((e) => (
+                        <Fragment key={e.id}>
+                          <tr
+                            className={
+                              e.duplicate
+                                ? "border-t text-gray-400"
+                                : "border-t"
+                            }
+                          >
+                            <td className="whitespace-nowrap px-3 py-2">
+                              {e.date}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2">
+                              {sources[e.source]}
+                            </td>
+                            <td
+                              className="max-w-80 truncate px-3 py-2"
+                              title={e.title}
+                            >
+                              <Link
+                                className="text-blue-700 underline"
+                                href={e.link}
+                              >
+                                {e.title}
+                              </Link>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-right">
+                              {e.quantity ? won(e.quantity) : "미확인"}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                              {e.revenue === null
+                                ? "미확인"
+                                : won(
+                                    estimates ? e.revenue : e.recordedRevenue,
+                                  ) + "원"}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                              {won(estimates ? e.cost : e.recordedCost)}원
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-amber-800">
+                              {e.duplicate
+                                ? "합계 제외"
+                                : e.missing.length
+                                  ? "미확인 " + e.missing.length + "항목"
+                                  : e.estimatedCost || e.estimatedRevenue
+                                    ? "추정 포함"
+                                    : "등록 근거"}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2">
+                              <button
+                                aria-label={e.title + " 근거"}
+                                aria-expanded={open === e.id}
+                                onClick={() =>
+                                  setOpen(open === e.id ? "" : e.id)
+                                }
+                                className="text-blue-700 underline"
+                              >
+                                {open === e.id ? "접기" : "펼치기"}
+                              </button>
+                            </td>
+                          </tr>
+                          {open === e.id && (
+                            <tr className="border-t bg-gray-50">
+                              <td colSpan={8} className="space-y-3 p-4">
+                                <Link
+                                  className="break-all text-blue-700 underline"
+                                  href={e.link}
+                                >
+                                  {e.id} · 원본 보기
+                                </Link>
+                                <p>
+                                  등록 비용 {won(e.recordedCost)}원 / 비용 보완{" "}
+                                  {won(e.costSupplement)}원 / VAT 가정{" "}
+                                  {won(e.vatSupplement)}원.
+                                </p>
+                                {e.missing.length > 0 && (
+                                  <ul className="list-disc space-y-1 pl-5 text-rose-800">
+                                    {e.missing.map((m, i) => (
+                                      <li key={i}>{m}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                                <ul className="list-disc space-y-1 pl-5 text-gray-600">
+                                  {e.basis.map((b, i) => (
+                                    <li key={i}>{b}</li>
+                                  ))}
+                                </ul>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      ))}
+                  </tbody>
+                </table>
+                {!visible.length && (
+                  <p className="p-6 text-gray-500">
+                    조건에 맞는 거래가 없습니다.
+                  </p>
+                )}
               </div>
               <div className="flex items-center justify-between border-t p-4 text-sm">
                 <button
