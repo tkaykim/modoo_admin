@@ -11,6 +11,7 @@ type Row = {
   total_item_cost: number | null;
   total_print_cost: number | null;
   total_factory_amount: number | null;
+  total_factory_overlap_excluded: number | null;
   customer_delivery_fee: number | null;
   internal_shipping_cost: number | null;
   gross_profit: number | null;
@@ -59,16 +60,17 @@ export default function ProfitReport() {
         item: a.item + Number(r.total_item_cost || 0),
         print: a.print + Number(r.total_print_cost || 0),
         factory: a.factory + Number(r.total_factory_amount || 0),
+        factoryOverlap: a.factoryOverlap + Number(r.total_factory_overlap_excluded || 0),
         ship: a.ship + Number(r.internal_shipping_cost || 0),
         gp: a.gp + Number(r.gross_profit || 0),
       }),
-      { revenue: 0, item: 0, print: 0, factory: 0, ship: 0, gp: 0 }
+      { revenue: 0, item: 0, print: 0, factory: 0, factoryOverlap: 0, ship: 0, gp: 0 }
     );
   }, [rows]);
 
   const csv = () => {
-    const head = ['order_id', 'created_at', 'net_revenue', 'item_cost', 'print_cost', 'factory_amount', 'internal_shipping', 'gross_profit'].join(',');
-    const body = rows.map((r) => [r.order_id, r.created_at, r.net_revenue, r.total_item_cost, r.total_print_cost, r.total_factory_amount, r.internal_shipping_cost, r.gross_profit].join(',')).join('\n');
+    const head = ['order_id', 'created_at', 'net_revenue', 'item_cost', 'print_cost', 'additional_factory_amount', 'factory_overlap_excluded', 'internal_shipping', 'gross_profit'].join(',');
+    const body = rows.map((r) => [r.order_id, r.created_at, r.net_revenue, r.total_item_cost, r.total_print_cost, r.total_factory_amount, r.total_factory_overlap_excluded, r.internal_shipping_cost, r.gross_profit].join(',')).join('\n');
     const blob = new Blob([head + '\n' + body], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -97,16 +99,17 @@ export default function ProfitReport() {
         <Stat label="순매출" v={totals.revenue} />
         <Stat label="제품원가" v={-totals.item} />
         <Stat label="인쇄비" v={-totals.print} />
-        <Stat label="공장비" v={-totals.factory} />
+        <Stat label="추가 공장비" v={-totals.factory} />
         <Stat label="내부배송" v={-totals.ship} />
         <Stat label="GP" v={totals.gp} highlight />
       </div>
+      {totals.factoryOverlap > 0 && <p className="mb-3 text-xs text-amber-800">인쇄비와 겹치는 공장 작업비 원본 {totals.factoryOverlap.toLocaleString('ko-KR')}원은 GP에서 중복 제외했습니다.</p>}
 
       {error && <div className="text-red-600 mb-2">{error}</div>}
       {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
         <table className="w-full text-sm bg-white border">
           <thead className="text-xs bg-gray-50">
-            <tr><th>주문</th><th>일시</th><th className="text-right">순매출</th><th className="text-right">제품원가</th><th className="text-right">인쇄비</th><th className="text-right">공장비</th><th className="text-right">내부배송</th><th className="text-right">GP</th></tr>
+            <tr><th>주문</th><th>일시</th><th className="text-right">순매출</th><th className="text-right">제품원가</th><th className="text-right">인쇄비</th><th className="text-right">추가 공장비</th><th className="text-right">중복 제외</th><th className="text-right">내부배송</th><th className="text-right">GP</th></tr>
           </thead>
           <tbody>
             {rows.map((r) => (
@@ -117,11 +120,12 @@ export default function ProfitReport() {
                 <td className="text-right">{Number(r.total_item_cost || 0).toLocaleString('ko-KR')}</td>
                 <td className="text-right">{Number(r.total_print_cost || 0).toLocaleString('ko-KR')}</td>
                 <td className="text-right">{Number(r.total_factory_amount || 0).toLocaleString('ko-KR')}</td>
+                <td className="text-right text-amber-700">{Number(r.total_factory_overlap_excluded || 0).toLocaleString('ko-KR')}</td>
                 <td className="text-right">{Number(r.internal_shipping_cost || 0).toLocaleString('ko-KR')}</td>
                 <td className="text-right font-semibold">{Number(r.gross_profit || 0).toLocaleString('ko-KR')}</td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={8} className="text-gray-500 py-2 text-center">없음</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={9} className="text-gray-500 py-2 text-center">없음</td></tr>}
           </tbody>
         </table>
       )}

@@ -45,3 +45,31 @@ BEGIN
     END;
   END IF;
 END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM public.order_profit_summary v
+    CROSS JOIN LATERAL (
+      SELECT
+        COALESCE(sum(s.factory_amount) FILTER (
+          WHERE NOT EXISTS (
+            SELECT 1 FROM public.order_item_print_costs p WHERE p.order_item_id=s.order_item_id
+          )
+        ), 0::numeric) AS effective,
+        COALESCE(sum(s.factory_amount) FILTER (
+          WHERE EXISTS (
+            SELECT 1 FROM public.order_item_print_costs p WHERE p.order_item_id=s.order_item_id
+          )
+        ), 0::numeric) AS overlap
+      FROM public.order_item_factory_settlements s
+      JOIN public.order_items i ON i.id=s.order_item_id
+      WHERE i.order_id=v.order_id
+    ) expected
+    WHERE v.total_factory_amount IS DISTINCT FROM expected.effective
+       OR v.total_factory_overlap_excluded IS DISTINCT FROM expected.overlap
+  ) THEN
+    RAISE EXCEPTION 'Factory cost overlap is counted twice';
+  END IF;
+END $$;
