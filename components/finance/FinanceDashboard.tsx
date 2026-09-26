@@ -11,6 +11,7 @@ type Summary = {
   total_item_cost: number | null;
   total_print_cost: number | null;
   total_factory_amount: number | null;
+  total_factory_overlap_excluded: number | null;
   internal_shipping_cost: number | null;
   gross_profit: number | null;
   created_at: string | null;
@@ -27,7 +28,7 @@ export default function FinanceDashboard() {
       try {
         const { data, error } = await supabase
           .from('order_profit_summary')
-          .select('order_id, net_revenue, total_item_cost, total_print_cost, total_factory_amount, internal_shipping_cost, gross_profit, created_at')
+          .select('order_id, net_revenue, total_item_cost, total_print_cost, total_factory_amount, total_factory_overlap_excluded, internal_shipping_cost, gross_profit, created_at')
           .order('created_at', { ascending: false })
           .limit(30);
         if (error) throw error;
@@ -47,10 +48,11 @@ export default function FinanceDashboard() {
         item: acc.item + Number(r.total_item_cost || 0),
         print: acc.print + Number(r.total_print_cost || 0),
         factory: acc.factory + Number(r.total_factory_amount || 0),
+        factoryOverlap: acc.factoryOverlap + Number(r.total_factory_overlap_excluded || 0),
         ship: acc.ship + Number(r.internal_shipping_cost || 0),
         gp: acc.gp + Number(r.gross_profit || 0),
       }),
-      { revenue: 0, item: 0, print: 0, factory: 0, ship: 0, gp: 0 }
+      { revenue: 0, item: 0, print: 0, factory: 0, factoryOverlap: 0, ship: 0, gp: 0 }
     );
   }, [rows]);
 
@@ -79,10 +81,11 @@ export default function FinanceDashboard() {
             <Stat label="순매출" v={totals.revenue} />
             <Stat label="제품원가" v={-totals.item} />
             <Stat label="인쇄비" v={-totals.print} />
-            <Stat label="공장비" v={-totals.factory} />
+            <Stat label="추가 공장비" v={-totals.factory} />
             <Stat label="내부배송" v={-totals.ship} />
             <Stat label="GP" v={totals.gp} highlight />
           </div>
+          {totals.factoryOverlap > 0 && <p className="mt-3 text-xs text-amber-800">인쇄비와 겹치는 공장 작업비 원본 {totals.factoryOverlap.toLocaleString('ko-KR')}원은 GP에서 중복 제외했습니다.</p>}
         </div>
       )}
     </div>

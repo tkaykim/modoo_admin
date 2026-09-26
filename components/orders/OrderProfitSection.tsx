@@ -5,6 +5,7 @@ import { Plus, Trash2, Loader2, TrendingUp, TrendingDown, ShoppingBag, Printer, 
 import { createClient } from '@/lib/supabase-client';
 import { useAuthStore } from '@/store/useAuthStore';
 import type { Order, OrderItem } from '@/types/types';
+import { effectiveFactoryCost } from '@/lib/effective-costs';
 
 type PrintCostRow = {
   id: string;
@@ -155,7 +156,21 @@ export default function OrderProfitSection({ order, orderItems }: Props) {
     const itemCost = itemCosts.reduce((s, r) => s + Number(r.total_cost || 0), 0);
     const adjustmentSum = adjustments.reduce((s, r) => s + Number(r.amount || 0), 0);
     const printCost = printCosts.reduce((s, r) => s + Number(r.total_cost || 0), 0);
-    const factory = orderItems.reduce((s, oi) => s + Number(oi.factory_amount || 0), 0);
+    const printCostByItem = new Map<string, number>();
+    for (const row of printCosts) {
+      printCostByItem.set(row.order_item_id, (printCostByItem.get(row.order_item_id) || 0) + Number(row.total_cost || 0));
+    }
+    const factorySplit = orderItems.reduce(
+      (sum, item) => {
+        const split = effectiveFactoryCost(Number(item.factory_amount || 0), printCostByItem.get(item.id) || 0);
+        return {
+          effective: sum.effective + split.effective,
+          overlapExcluded: sum.overlapExcluded + split.overlapExcluded,
+        };
+      },
+      { effective: 0, overlapExcluded: 0 }
+    );
+    const factory = factorySplit.effective;
     const internalShipping = shippingLegs.reduce((s, r) => s + Number(r.amount || 0), 0);
     const revenue = Number(order.total_amount || 0)
       - Number(order.coupon_discount || 0)
@@ -165,7 +180,7 @@ export default function OrderProfitSection({ order, orderItems }: Props) {
     const totalCost = itemCost + adjustmentSum + printCost + factory + internalShipping;
     const gp = revenue - totalCost;
     const margin = revenue > 0 ? (gp / revenue) * 100 : 0;
-    return { itemCost, adjustmentSum, printCost, factory, internalShipping, revenue, customerDelivery, totalCost, gp, margin };
+    return { itemCost, adjustmentSum, printCost, factory, factoryOverlapExcluded: factorySplit.overlapExcluded, internalShipping, revenue, customerDelivery, totalCost, gp, margin };
   }, [itemCosts, adjustments, printCosts, orderItems, shippingLegs, order]);
 
   return (
@@ -239,7 +254,7 @@ export default function OrderProfitSection({ order, orderItems }: Props) {
   );
 }
 
-function ProfitSummary({ totals }: { totals: { revenue: number; itemCost: number; adjustmentSum: number; printCost: number; factory: number; internalShipping: number; customerDelivery: number; totalCost: number; gp: number; margin: number } }) {
+function ProfitSummary({ totals }: { totals: { revenue: number; itemCost: number; adjustmentSum: number; printCost: number; factory: number; factoryOverlapExcluded: number; internalShipping: number; customerDelivery: number; totalCost: number; gp: number; margin: number } }) {
   const profitable = totals.gp >= 0;
   return (
     <div className={`rounded-lg border-2 p-4 ${profitable ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
@@ -272,13 +287,18 @@ function ProfitSummary({ totals }: { totals: { revenue: number; itemCost: number
           <div className="text-[10px] text-gray-500">{totals.totalCost > 0 ? Math.abs((totals.adjustmentSum / totals.totalCost) * 100).toFixed(0) : 0}%</div>
         </div>
         <CostBreakdown label="인쇄비" value={totals.printCost} share={totals.totalCost > 0 ? (totals.printCost / totals.totalCost) * 100 : 0} />
-        <CostBreakdown label="공장 가공비" value={totals.factory} share={totals.totalCost > 0 ? (totals.factory / totals.totalCost) * 100 : 0} />
+        <CostBreakdown label="추가 공장 가공비" value={totals.factory} share={totals.totalCost > 0 ? (totals.factory / totals.totalCost) * 100 : 0} />
         <CostBreakdown label="내부 배송" value={totals.internalShipping} share={totals.totalCost > 0 ? (totals.internalShipping / totals.totalCost) * 100 : 0} />
         <div className="opacity-60">
           <div className="text-[11px] text-gray-500">소비자 배송비 (참고)</div>
           <div className="font-medium text-gray-700">{won(totals.customerDelivery)}</div>
         </div>
       </div>
+      {totals.factoryOverlapExcluded > 0 && (
+        <p className="mt-2 text-xs text-amber-800">
+          인쇄비와 겹치는 공장 작업비 원본 {won(totals.factoryOverlapExcluded)}은 손익에서 중복 제외했습니다.
+        </p>
+      )}
     </div>
   );
 }
@@ -361,6 +381,7 @@ function ItemCard({
   }, [item]);
 
   const printSubtotal = printCostRows.reduce((s, r) => s + Number(r.total_cost || 0), 0);
+  const factorySplit = effectiveFactoryCost(Number(item.factory_amount || 0), printSubtotal);
   const itemRevenue = Number(item.price_per_item || 0) * Number(item.quantity || 0);
 
   const lookupCostFromMaster = useCallback(async () => {
@@ -489,7 +510,7 @@ function ItemCard({
         {/* 공장 가공비 */}
         <div className="bg-gray-50 rounded p-2">
           <div className="flex items-center justify-between mb-0.5">
-            <div className="text-[11px] text-gray-500">공장 가공비</div>
+            <div className="text-[11px] text-gray-500">공장 작업비 원본</div>
             {!editingFactoryAmount && (
               <button onClick={() => { setFactoryAmountDraft(String(item.factory_amount || 0)); setEditingFactoryAmount(true); }} className="text-gray-400 hover:text-gray-700" title="수정">
                 <Pencil className="w-3 h-3" />
@@ -515,7 +536,9 @@ function ItemCard({
           ) : (
             <>
               <div className="font-semibold text-gray-900">{won(Number(item.factory_amount || 0))}</div>
-              <div className="text-[10px] text-gray-500 mt-0.5">공장 배정 또는 여기서 수정</div>
+              <div className="text-[10px] text-gray-500 mt-0.5">
+                {factorySplit.overlapExcluded > 0 ? '인쇄비에 포함 · 손익 중복 제외' : '추가 공장 가공비로 손익 반영'}
+              </div>
             </>
           )}
         </div>
@@ -523,7 +546,7 @@ function ItemCard({
         {/* 항목 마진 */}
         {isSuperAdmin && (() => {
           const adjSum = itemAdjustments.reduce((s, a) => s + Number(a.amount || 0), 0);
-          const margin = itemRevenue - Number(itemCost?.total_cost || 0) - adjSum - printSubtotal - Number(item.factory_amount || 0);
+          const margin = itemRevenue - Number(itemCost?.total_cost || 0) - adjSum - printSubtotal - factorySplit.effective;
           return (
             <div className={`rounded p-2 ${margin >= 0 ? 'bg-emerald-50' : 'bg-rose-50'}`}>
               <div className="text-[11px] text-gray-600 mb-0.5">항목 마진</div>
