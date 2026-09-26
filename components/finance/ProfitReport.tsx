@@ -19,15 +19,16 @@ type Row = {
   work_cost_unrecorded_items?: number;
 };
 type OrderState = { id: string; payment_status: string; order_status: string };
+const kstToday = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
 export default function ProfitReport() {
   const supabase = useMemo(() => createClient(), []);
   const [from, setFrom] = useState(() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 1);
+    const d = new Date(`${kstToday()}T00:00:00Z`);
+    d.setUTCMonth(d.getUTCMonth() - 1);
     return d.toISOString().slice(0, 10);
   });
-  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [to, setTo] = useState(kstToday);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,8 +37,8 @@ export default function ProfitReport() {
     setLoading(true);
     setError(null);
     try {
-      const rangeStart = new Date(from).toISOString();
-      const rangeEnd = new Date(to + 'T23:59:59').toISOString();
+      const rangeStart = new Date(`${from}T00:00:00+09:00`).toISOString();
+      const rangeEnd = new Date(`${to}T23:59:59.999+09:00`).toISOString();
       const [profit, orders, items, prints, factories] = await Promise.all([
         supabase.from('order_profit_summary').select('*').gte('created_at', rangeStart).lte('created_at', rangeEnd).order('created_at', { ascending: false }).limit(10000),
         supabase.from('orders').select('id,payment_status,order_status').gte('created_at', rangeStart).lte('created_at', rangeEnd).limit(10000),
@@ -89,7 +90,7 @@ export default function ProfitReport() {
   const monthly = useMemo(() => {
     const map = new Map<string, {orders: number; revenue: number; apparel: number; adjustments: number; print: number; factory: number; shipping: number; profit: number; unrecorded: number}>();
     for (const row of rows) {
-      const month = (row.created_at || '').slice(0, 7);
+      const month = row.created_at ? new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit'}).format(new Date(row.created_at)) : '';
       if (!month) continue;
       const value = map.get(month) || {orders: 0, revenue: 0, apparel: 0, adjustments: 0, print: 0, factory: 0, shipping: 0, profit: 0, unrecorded: 0};
       value.orders++;
@@ -159,7 +160,7 @@ export default function ProfitReport() {
             {rows.map((r) => (
               <tr key={r.order_id} className="border-t">
                 <td className="font-mono text-xs">{r.order_id}</td>
-                <td className="text-xs">{r.created_at ? new Date(r.created_at).toLocaleDateString('ko-KR') : '-'}</td>
+                <td className="text-xs">{r.created_at ? new Date(r.created_at).toLocaleDateString('ko-KR', {timeZone: 'Asia/Seoul'}) : '-'}</td>
                 <td className="text-right">{Number(r.net_revenue || 0).toLocaleString('ko-KR')}</td>
                 <td className="text-right">{Number(r.total_item_cost || 0).toLocaleString('ko-KR')}</td>
                 <td className="text-right">{Number(r.total_cost_adjustments || 0).toLocaleString('ko-KR')}</td>
