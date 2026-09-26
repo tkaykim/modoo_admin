@@ -5,7 +5,7 @@ import { isSuperAdmin } from '@/lib/auth-helpers';
 import { summarizeLegacyCash, type CashAllocation } from '@/lib/cost-reconciliation';
 
 export const dynamic = 'force-dynamic';
-type LegacyCase = {case_key:string;title:string;period_start:string;period_end:string;quantity:number|null;quantity_basis:string|null;notes:string;evidence:{erp_project?:{id:number;name:string};erp_entries?:{id:number;name:string;kind:string;amount:number;actual_amount:number|null;status:string}[];files?:{original_path:string;sha256:string}[]}};
+type LegacyCase = {case_key:string;title:string;period_start:string;period_end:string;quantity:number|null;quantity_basis:string|null;notes:string;evidence:{erp_project?:{id:number;name:string};erp_entries?:{id:number;name:string;kind:string;amount:number;actual_amount:number|null;status:string}[];files?:{original_path:string;sha256:string}[];bongjeya_invoice_rows?:{sha256:string;invoice_date:string;row:number;label:string;quantity:number;unit_amount:number;quoted_amount:number;filename:string;cost_class:string}[];supplier_cost_recoveries?:{transaction_key:string;date:string;amount:number;status:string;reason:string}[]}};
 type BankRow = {transaction_key:string;transacted_at:string;counterparty_text:string;memo:string|null};
 const won=(value:number)=>`${value.toLocaleString('ko-KR')}원`;
 
@@ -44,6 +44,7 @@ export default async function CostReconciliationPage() {
       <p>과거 주문은 증빙에서 복원한 작업 묶음이며, 현재 발주·배송 주문을 새로 생성하지 않습니다.</p>
       <p>입출금 차이는 최종 손익이 아닙니다.</p>
       <p>수량·부가세·누락 비용과 ERP 합산 이체가 확인되기 전에는 기존 손익에 더하지 않습니다.</p>
+      <p>공급처 환급은 고객 매출과 구분하며, 아래 입출금 차이에 합산하지 않고 작업 근거에 별도로 표시합니다.</p>
     </section>
     <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {[['은행 거래',bankCount.count],['청구행 주문 연결',invoiceCount.count],['ERP 증빙',erpCount.count],['ERP·기존 주문 연결',erpOrderCount.count]].map(([label,value])=><div key={String(label)} className="rounded-lg border bg-white p-4"><div className="text-sm text-gray-600">{label}</div><div className="text-2xl font-semibold mt-1">{Number(value||0).toLocaleString('ko-KR')}건</div></div>)}
@@ -65,6 +66,11 @@ export default async function CostReconciliationPage() {
         <td className="p-3 min-w-80"><strong>{c.title}</strong><div className="text-gray-600 text-xs mt-1">{c.period_start} ~ {c.period_end}</div><details className="mt-2"><summary className="cursor-pointer text-blue-700">근거·미확인 항목</summary><div className="space-y-2 mt-2 max-w-xl"><p>{c.notes}</p>{c.quantity_basis&&<p>{c.quantity_basis}</p>}
           {c.evidence.erp_project&&<p>ERP #{c.evidence.erp_project.id}: {c.evidence.erp_project.name}</p>}
           {cash.estimatedCost>0&&<p className="text-amber-800">비용 출금 중 추정 귀속: {won(cash.estimatedCost)}</p>}
+          {(c.evidence.bongjeya_invoice_rows||[]).length>0&&<details><summary className="cursor-pointer">공급처 제작 명세서 ({c.evidence.bongjeya_invoice_rows?.length}행)</summary>
+            <p className="my-2 text-xs text-gray-600">청구 당시 단가입니다.</p><p className="mb-2 text-xs text-gray-600">완제품에 포함된 자수·전사와 수선비를 구분하며, 부가세가 별도 표기되지 않은 금액을 임의로 공급가로 환산하지 않습니다.</p>
+            <ul className="space-y-2">{c.evidence.bongjeya_invoice_rows?.map(r=><li key={`${r.sha256}:${r.row}`} className="border-l-2 pl-2"><strong>{r.invoice_date} {r.label}</strong><div>{r.quantity} × {won(r.unit_amount)} = {won(r.quoted_amount)}{r.cost_class==='rework'?' (수선·재제작)':''}</div><div className="text-xs text-gray-500 break-all">{r.filename} · {r.row}행</div></li>)}</ul>
+          </details>}
+          {(c.evidence.supplier_cost_recoveries||[]).map(r=><div key={r.transaction_key} className="rounded border border-blue-200 bg-blue-50 p-2"><strong>공급처 환급 {won(r.amount)} ({r.status==='confirmed'?'확인':'검토 중'})</strong><p>{r.date} · {r.reason}</p><p className="text-xs">고객 매출 및 표의 입출금 차이에 미합산한 별도 회수액입니다.</p></div>)}
           <ul className="space-y-1">{rows.map(r=>{const tx=txByKey.get(r.transaction_key);return <li key={r.transaction_key}>{tx?.transacted_at?new Date(tx.transacted_at).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'}):''} {tx?.counterparty_text} {won(Number(r.amount_gross))}<span className="block text-xs text-gray-500">{r.reason}</span></li>;})}</ul>
           {(c.evidence.erp_entries||[]).length>0&&<details><summary className="cursor-pointer">ERP 기록 금액 (은행 금액에 중복 합산하지 않음)</summary><ul>{c.evidence.erp_entries?.map(e=><li key={e.id}>#{e.id} {e.name}: {won(Number(e.actual_amount??e.amount))} ({e.status})</li>)}</ul></details>}
           {(c.evidence.files||[]).map(f=><p key={f.sha256} className="text-xs break-all text-gray-500">시안·명단 원본: {f.original_path}</p>)}

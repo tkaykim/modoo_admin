@@ -15,6 +15,10 @@ Client INSERT/UPDATE/DELETE and anonymous SELECT are revoked.
 - Legacy cases are historical work groups, not production orders; unknown quantities remain null.
 - Cash allocations cannot exceed the associated source transaction, including across split cases.
 - Cash receipts, invoice values, and ERP amounts are different measurements, not additive revenue.
+- Supplier invoice rows in private case evidence retain document hashes, line numbers, historical unit prices, bundled manufacturing amounts, and rework classification.
+- Revised, duplicate, and balance-only statements are retained as non-additive evidence.
+- Supplier cost recoveries are displayed separately from customer receipts and the allocated-cash difference; they must not be classified as sales.
+- VAT is not inferred when source statements do not separately state it.
 - Historical print and factory ledgers can contain overlapping costs and unit-versus-total differences; do not add invoice allocations to those ledgers.
 
 ## Operations
@@ -22,6 +26,8 @@ Client INSERT/UPDATE/DELETE and anonymous SELECT are revoked.
 Evidence ingestion runs from the orchestrator worker, using its existing server-only credentials.
 The `modoo-reconcile-*` scripts validate original hashes, bank footer totals, unique keys, source relationships, and unchanged cost ledgers before insertion.
 The import is insert-only on existing evidence keys and conditionally updates only previously unmatched source-line associations.
+The supplier-document enrichment worker may update reconstructed cases and allocation explanations only after an optimistic before-value comparison.
+It retains the prior record and a private before snapshot, and never changes an existing allocated amount automatically.
 It never creates live orders or sends customer notifications.
 Source files, payloads, operational snapshots, and credentials are excluded from this public repository.
 
