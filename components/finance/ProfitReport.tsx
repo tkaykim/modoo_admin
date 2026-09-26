@@ -1,190 +1,642 @@
-'use client';
-
-import { useEffect, useMemo, useState } from 'react';
-import { Loader2, TrendingUp, Download } from 'lucide-react';
-import { createClient } from '@/lib/supabase-client';
-
-type Row = {
-  order_id: string;
-  created_at: string | null;
-  net_revenue: number | null;
-  total_item_cost: number | null;
-  total_cost_adjustments: number | null;
-  total_print_cost: number | null;
-  total_factory_amount: number | null;
-  total_factory_overlap_excluded: number | null;
-  customer_delivery_fee: number | null;
-  internal_shipping_cost: number | null;
-  gross_profit: number | null;
-  work_cost_unrecorded_items?: number;
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  summarizeEntries,
+  type FinanceOverview,
+  type FinanceEntry,
+} from "@/lib/finance-overview";
+const won = (n: number) => Math.round(n).toLocaleString("ko-KR");
+const sources = {
+  order: "현재 주문",
+  legacy: "과거 간이주문",
+  erp: "ERP 복원",
 };
-type OrderState = { id: string; payment_status: string; order_status: string };
-const kstToday = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-
+const cell = (v: unknown) =>
+  '"' +
+  String(v ?? "")
+    .replace(/^[=+@-]/, "'$&")
+    .replaceAll('"', '""') +
+  '"';
 export default function ProfitReport() {
-  const supabase = useMemo(() => createClient(), []);
-  const [from, setFrom] = useState(() => {
-    const d = new Date(`${kstToday()}T00:00:00Z`);
-    d.setUTCMonth(d.getUTCMonth() - 1);
-    return d.toISOString().slice(0, 10);
-  });
-  const [to, setTo] = useState(kstToday);
-  const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = async () => {
+  const [data, setData] = useState<FinanceOverview | null>(null),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState("");
+  const [from, setFrom] = useState(""),
+    [to, setTo] = useState(""),
+    [estimates, setEstimates] = useState(true),
+    [tab, setTab] = useState("profit");
+  const [source, setSource] = useState("all"),
+    [search, setSearch] = useState(""),
+    [onlyMissing, setOnlyMissing] = useState(false),
+    [page, setPage] = useState(0),
+    [open, setOpen] = useState("");
+  async function load() {
     setLoading(true);
-    setError(null);
+    setError("");
     try {
-      const rangeStart = new Date(`${from}T00:00:00+09:00`).toISOString();
-      const rangeEnd = new Date(`${to}T23:59:59.999+09:00`).toISOString();
-      const [profit, orders, items, prints, factories] = await Promise.all([
-        supabase.from('order_profit_summary').select('*').gte('created_at', rangeStart).lte('created_at', rangeEnd).order('created_at', { ascending: false }).limit(10000),
-        supabase.from('orders').select('id,payment_status,order_status').gte('created_at', rangeStart).lte('created_at', rangeEnd).limit(10000),
-        supabase.from('order_items').select('id,order_id').gte('created_at', rangeStart).lte('created_at', rangeEnd).limit(10000),
-        supabase.from('order_item_print_costs').select('order_item_id').limit(10000),
-        supabase.from('order_item_factory_settlements').select('order_item_id,factory_amount').gt('factory_amount', 0).limit(10000),
-      ]);
-      if (profit.error) throw profit.error;
-      if (orders.error) throw orders.error;
-      if (items.error) throw items.error;
-      if (prints.error) throw prints.error;
-      if (factories.error) throw factories.error;
-      const paid = new Set(((orders.data || []) as OrderState[]).filter(o => o.payment_status === 'completed' && o.order_status !== 'cancelled').map(o => o.id));
-      const priced = new Set([...(prints.data || []).map((r: {order_item_id: string}) => r.order_item_id), ...(factories.data || []).map((r: {order_item_id: string}) => r.order_item_id)]);
-      const unrecorded = new Map<string, number>();
-      for (const item of (items.data || []) as {id: string; order_id: string}[]) {
-        if (paid.has(item.order_id) && !priced.has(item.id)) unrecorded.set(item.order_id, (unrecorded.get(item.order_id) || 0) + 1);
-      }
-      setRows(((profit.data || []) as Row[]).filter(row => paid.has(row.order_id)).map(row => ({...row, work_cost_unrecorded_items: unrecorded.get(row.order_id) || 0})));
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : '로드 실패');
+      const r = await fetch("/api/admin/finance/overview", {
+        cache: "no-store",
+      });
+      const d = await r.json();
+      if (!r.ok) throw Error(d.error || "조회 실패");
+      setData(d);
+      const months = [
+        ...d.entries.map((e: FinanceEntry) => e.date.slice(0, 7)),
+        ...d.bankMonths.map((m: { month: string }) => m.month),
+      ]
+        .filter(Boolean)
+        .sort();
+      setFrom((v) => v || months[0] || "");
+      setTo((v) => v || months.at(-1) || "");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "조회 실패");
+      setData(null);
     } finally {
       setLoading(false);
     }
-  };
-
+  }
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void load();
   }, []);
-
-  const totals = useMemo(() => {
-    return rows.reduce(
-      (a, r) => ({
-        revenue: a.revenue + Number(r.net_revenue || 0),
-        item: a.item + Number(r.total_item_cost || 0),
-        adjustments: a.adjustments + Number(r.total_cost_adjustments || 0),
-        print: a.print + Number(r.total_print_cost || 0),
-        factory: a.factory + Number(r.total_factory_amount || 0),
-        factoryOverlap: a.factoryOverlap + Number(r.total_factory_overlap_excluded || 0),
-        ship: a.ship + Number(r.internal_shipping_cost || 0),
-        gp: a.gp + Number(r.gross_profit || 0),
-        unrecorded: a.unrecorded + Number(r.work_cost_unrecorded_items || 0),
-      }),
-      { revenue: 0, item: 0, adjustments: 0, print: 0, factory: 0, factoryOverlap: 0, ship: 0, gp: 0, unrecorded: 0 }
-    );
-  }, [rows]);
-
+  const entries = useMemo(
+    () =>
+      (data?.entries || []).filter(
+        (e) =>
+          e.date.slice(0, 7) >= from &&
+          e.date.slice(0, 7) <= to &&
+          (source === "all" || e.source === source),
+      ),
+    [data, from, to, source],
+  );
+  const total = summarizeEntries(entries, estimates);
   const monthly = useMemo(() => {
-    const map = new Map<string, {orders: number; revenue: number; apparel: number; adjustments: number; print: number; factory: number; shipping: number; profit: number; unrecorded: number}>();
-    for (const row of rows) {
-      const month = row.created_at ? new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit'}).format(new Date(row.created_at)) : '';
-      if (!month) continue;
-      const value = map.get(month) || {orders: 0, revenue: 0, apparel: 0, adjustments: 0, print: 0, factory: 0, shipping: 0, profit: 0, unrecorded: 0};
-      value.orders++;
-      value.revenue += Number(row.net_revenue || 0);
-      value.apparel += Number(row.total_item_cost || 0);
-      value.adjustments += Number(row.total_cost_adjustments || 0);
-      value.print += Number(row.total_print_cost || 0);
-      value.factory += Number(row.total_factory_amount || 0);
-      value.shipping += Number(row.internal_shipping_cost || 0);
-      value.profit += Number(row.gross_profit || 0);
-      value.unrecorded += Number(row.work_cost_unrecorded_items || 0);
-      map.set(month, value);
+    const groups = new Map<string, FinanceEntry[]>();
+    for (const e of entries) {
+      const m = e.date.slice(0, 7);
+      groups.set(m, [...(groups.get(m) || []), e]);
     }
-    return [...map].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [rows]);
-
-  const csv = () => {
-    const head = ['order_id', 'created_at', 'net_revenue', 'item_cost', 'cost_adjustments', 'print_cost', 'additional_factory_amount', 'factory_overlap_excluded', 'internal_shipping', 'gross_profit', 'provisional_margin_percent', 'work_cost_unrecorded_items'].join(',');
-    const body = rows.map((r) => [r.order_id, r.created_at, r.net_revenue, r.total_item_cost, r.total_cost_adjustments, r.total_print_cost, r.total_factory_amount, r.total_factory_overlap_excluded, r.internal_shipping_cost, r.gross_profit, Number(r.net_revenue || 0) > 0 ? (100 * Number(r.gross_profit || 0) / Number(r.net_revenue)).toFixed(1) : '', r.work_cost_unrecorded_items].join(',')).join('\n');
-    const blob = new Blob([head + '\n' + body], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    return [...groups]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, rows]) => ({
+        month,
+        ...summarizeEntries(rows, estimates),
+      }));
+  }, [entries, estimates]);
+  const visible = entries.filter(
+    (e) =>
+      (!onlyMissing || e.missing.length > 0) &&
+      (!search ||
+        `${e.title} ${e.id}`.toLowerCase().includes(search.toLowerCase())),
+  );
+  const bank = (data?.bankMonths || []).filter(
+    (m) => m.month >= from && m.month <= to,
+  );
+  const cash = bank.reduce(
+    (s, m) => ({
+      deposit: s.deposit + m.deposit,
+      withdrawal: s.withdrawal + m.withdrawal,
+      count: s.count + m.count,
+      allocated: s.allocated + m.allocated,
+    }),
+    { deposit: 0, withdrawal: 0, count: 0, allocated: 0 },
+  );
+  const max = Math.max(1, ...monthly.flatMap((m) => [m.revenue, m.cost])),
+    safePage = Math.min(page, Math.max(0, Math.ceil(visible.length / 40) - 1));
+  function exportCsv() {
+    const rows =
+      tab === "cash"
+        ? [
+            ["월", "입금", "출금", "현금 증감", "거래수", "연결수"],
+            ...bank.map((m) => [
+              m.month,
+              m.deposit,
+              m.withdrawal,
+              m.deposit - m.withdrawal,
+              m.count,
+              m.allocated,
+            ]),
+          ]
+        : [
+            [
+              "거래",
+              "출처",
+              "기준일",
+              "거래명",
+              "수량",
+              "등록 매출",
+              "추정 매출",
+              "등록 비용",
+              "비용 보완",
+              "VAT 가정",
+              "비교 매출",
+              "비교 비용",
+              "중복 제외",
+              "미확인",
+              "근거",
+            ],
+            ...visible.map((e) => [
+              e.id,
+              sources[e.source],
+              e.date,
+              e.title,
+              e.quantity,
+              e.recordedRevenue,
+              e.estimatedRevenue,
+              e.recordedCost,
+              e.costSupplement,
+              e.vatSupplement,
+              estimates ? e.revenue : e.recordedRevenue,
+              estimates ? e.cost : e.recordedCost,
+              e.duplicate ? "제외" : "",
+              e.missing.join("; "),
+              e.basis.join("; "),
+            ]),
+          ];
+    const url = URL.createObjectURL(
+      new Blob(
+        ["\uFEFF" + rows.map((row) => row.map(cell).join(",")).join("\r\n")],
+        { type: "text/csv;charset=utf-8" },
+      ),
+    );
+    const a = document.createElement("a");
     a.href = url;
-    a.download = `profit_${from}_${to}.csv`;
+    a.download = `modoo-${tab}-${from}-${to}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  };
-
+  }
   return (
-    <div className="max-w-6xl mx-auto p-4">
-      <div className="flex items-center gap-2 mb-4">
-        <TrendingUp className="w-6 h-6 text-amber-700" />
-        <h1 className="text-xl font-bold">손익 리포트</h1>
+    <main className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
+      <header className="flex flex-wrap justify-between gap-3">
+        <div>
+          <p className="text-sm text-amber-800">
+            모두의 유니폼 · 슈퍼관리자 전용
+          </p>
+          <h1 className="mt-1 text-2xl font-bold">통합 매출·손익</h1>
+          <p className="mt-2 text-sm text-gray-600">
+            현재 주문과 과거 간이주문을 함께 봅니다.
+            <br />
+            근거가 있는 추정치를 보완하고, 남은 미확인 항목을 표시합니다.
+          </p>
+        </div>
+        <div className="flex gap-3 text-sm">
+          <Link
+            className="text-blue-700 underline"
+            href="/finance/reconciliation"
+          >
+            원본 증빙
+          </Link>
+          <Link
+            className="text-blue-700 underline"
+            href="/finance/profit/registered"
+          >
+            기존 원장 손익
+          </Link>
+          <button disabled={loading} onClick={load}>
+            새로고침
+          </button>
+        </div>
+      </header>
+      <div
+        className="flex gap-1 rounded-xl bg-gray-100 p-1"
+        role="tablist"
+        aria-label="재무 보기"
+      >
+        {[
+          ["profit", "매출·비용·잠정 손익"],
+          ["cash", "실제 계좌 입출금"],
+        ].map(([k, v]) => (
+          <button
+            key={k}
+            role="tab"
+            aria-selected={tab === k}
+            onClick={() => setTab(k)}
+            className={`flex-1 rounded-lg p-3 text-sm font-semibold ${tab === k ? "bg-white shadow-sm" : "text-gray-600"}`}
+          >
+            {v}
+          </button>
+        ))}
       </div>
-
-      <div className="bg-white border rounded p-3 mb-3 flex items-center gap-2 flex-wrap">
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="border rounded px-2 py-1" />
-        <span>~</span>
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="border rounded px-2 py-1" />
-        <button onClick={load} className="bg-amber-600 text-white rounded px-3 py-1 hover:bg-amber-700">조회</button>
-        <button onClick={csv} className="bg-gray-700 text-white rounded px-3 py-1 hover:bg-gray-800 ml-auto"><Download className="w-3 h-3 inline" /> CSV</button>
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-white p-4">
+        <label className="text-sm">
+          시작 월{" "}
+          <input
+            aria-label="시작 월"
+            type="month"
+            value={from}
+            onChange={(e) => {
+              setFrom(e.target.value);
+              setPage(0);
+            }}
+            className="rounded border p-2"
+          />
+        </label>
+        <label className="text-sm">
+          종료 월{" "}
+          <input
+            aria-label="종료 월"
+            type="month"
+            value={to}
+            onChange={(e) => {
+              setTo(e.target.value);
+              setPage(0);
+            }}
+            className="rounded border p-2"
+          />
+        </label>
+        {tab === "profit" && (
+          <>
+            <select
+              aria-label="거래 출처"
+              value={source}
+              onChange={(e) => {
+                setSource(e.target.value);
+                setPage(0);
+              }}
+              className="rounded border p-2 text-sm"
+            >
+              <option value="all">모든 거래</option>
+              {Object.entries(sources).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={estimates}
+                onChange={(e) => setEstimates(e.target.checked)}
+              />
+              추정 보완 포함
+            </label>
+          </>
+        )}
+        <button
+          disabled={!data || loading}
+          onClick={exportCsv}
+          className="ml-auto rounded-lg bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-40"
+        >
+          CSV 내려받기
+        </button>
       </div>
-
-      <p className="mb-3 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded p-3">결제 완료·미취소 주문만 집계합니다. 의류는 누락분에 현재 공급가 추정이 포함되어 있고, 인쇄·공장 작업·배송비 누락 및 부가세 기준 차이로 아래 손익률은 잠정치입니다. 과거 수기 작업은 중복 방지를 위해 별도 표시합니다.</p>
-      <div className="grid grid-cols-2 md:grid-cols-8 gap-2 mb-3 bg-amber-50 border border-amber-200 rounded p-3">
-        <Stat label="순매출" v={totals.revenue} />
-        <Stat label="제품원가" v={-totals.item} />
-        <Stat label="원가 가감" v={-totals.adjustments} />
-        <Stat label="인쇄비" v={-totals.print} />
-        <Stat label="추가 공장비" v={-totals.factory} />
-        <Stat label="내부배송" v={-totals.ship} />
-        <Stat label="GP" v={totals.gp} highlight />
-        <div><div className="text-[11px] text-gray-500">잠정 마진율</div><div className="font-semibold text-amber-700 text-lg">{totals.revenue > 0 ? (100 * totals.gp / totals.revenue).toFixed(1) : '-'}%</div></div>
-      </div>
-      {totals.factoryOverlap > 0 && <p className="mb-3 text-xs text-amber-800">인쇄비와 겹치는 공장 작업비 원본 {totals.factoryOverlap.toLocaleString('ko-KR')}원은 GP에서 중복 제외했습니다.</p>}
-      <p className="mb-3 text-sm text-amber-900">선택 기간에 인쇄비·공장 작업비가 모두 미기록된 품목: {totals.unrecorded.toLocaleString('ko-KR')}개. 무인쇄 판매도 포함될 수 있어 누락 확정 건수는 아닙니다.</p>
-
-      <div className="mb-4 overflow-x-auto rounded border bg-white"><h2 className="p-3 font-semibold">월별 매출·비용·잠정 손익</h2><table className="w-full text-sm"><thead className="bg-gray-50"><tr>{['월','주문','매출','의류','원가 가감','인쇄','추가 공장비','배송','비용 합계','잠정 GP','잠정 마진율','작업비 미기록 품목'].map(h => <th className="p-2 text-right whitespace-nowrap" key={h}>{h}</th>)}</tr></thead><tbody>{monthly.map(([month, value]) => <tr className="border-t" key={month}><td className="p-2 whitespace-nowrap">{month}</td><td className="p-2 text-right">{value.orders}</td>{[value.revenue,value.apparel,value.adjustments,value.print,value.factory,value.shipping,value.apparel+value.adjustments+value.print+value.factory+value.shipping,value.profit].map((n, i) => <td className="p-2 text-right whitespace-nowrap" key={i}>{n.toLocaleString('ko-KR')}</td>)}<td className="p-2 text-right">{value.revenue > 0 ? (100 * value.profit / value.revenue).toFixed(1) : '-'}%</td><td className="p-2 text-right">{value.unrecorded}</td></tr>)}</tbody></table></div>
-
-      {error && <div className="text-red-600 mb-2">{error}</div>}
-      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
-        <table className="w-full text-sm bg-white border">
-          <thead className="text-xs bg-gray-50">
-            <tr><th>주문</th><th>일시</th><th className="text-right">순매출</th><th className="text-right">제품원가</th><th className="text-right">원가 가감</th><th className="text-right">인쇄비</th><th className="text-right">추가 공장비</th><th className="text-right">중복 제외</th><th className="text-right">내부배송</th><th className="text-right">GP</th><th className="text-right">잠정 마진율</th></tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.order_id} className="border-t">
-                <td className="font-mono text-xs">{r.order_id}</td>
-                <td className="text-xs">{r.created_at ? new Date(r.created_at).toLocaleDateString('ko-KR', {timeZone: 'Asia/Seoul'}) : '-'}</td>
-                <td className="text-right">{Number(r.net_revenue || 0).toLocaleString('ko-KR')}</td>
-                <td className="text-right">{Number(r.total_item_cost || 0).toLocaleString('ko-KR')}</td>
-                <td className="text-right">{Number(r.total_cost_adjustments || 0).toLocaleString('ko-KR')}</td>
-                <td className="text-right">{Number(r.total_print_cost || 0).toLocaleString('ko-KR')}</td>
-                <td className="text-right">{Number(r.total_factory_amount || 0).toLocaleString('ko-KR')}</td>
-                <td className="text-right text-amber-700">{Number(r.total_factory_overlap_excluded || 0).toLocaleString('ko-KR')}</td>
-                <td className="text-right">{Number(r.internal_shipping_cost || 0).toLocaleString('ko-KR')}</td>
-                <td className="text-right font-semibold">{Number(r.gross_profit || 0).toLocaleString('ko-KR')}</td>
-                <td className="text-right">{Number(r.net_revenue || 0) > 0 ? (100 * Number(r.gross_profit || 0) / Number(r.net_revenue)).toFixed(1) : '-'}%</td>
-              </tr>
-            ))}
-            {rows.length === 0 && <tr><td colSpan={11} className="text-gray-500 py-2 text-center">없음</td></tr>}
-          </tbody>
-        </table>
+      {error && (
+        <p role="alert" className="rounded bg-red-50 p-4 text-red-800">
+          {error}
+        </p>
       )}
-    </div>
+      {loading && (
+        <p role="status" className="p-8 text-center text-gray-500">
+          주문·과거 거래·계좌 내역을 모으고 있습니다.
+        </p>
+      )}
+      {!loading && data && from > to && (
+        <p role="alert" className="text-red-700">
+          시작 월이 종료 월보다 늦습니다.
+        </p>
+      )}
+      {!loading &&
+        data &&
+        from <= to &&
+        (tab === "cash" ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Metric label="계좌 입금" value={won(cash.deposit) + "원"} />
+              <Metric label="계좌 출금" value={won(cash.withdrawal) + "원"} />
+              <Metric
+                label="현금 증감"
+                value={won(cash.deposit - cash.withdrawal) + "원"}
+              />
+            </div>
+            <p className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+              은행 거래일 기준입니다.
+              <br />
+              계좌의 전체 입출금에는 자금 이동·환급·미분류 거래가 포함되므로
+              매출·사업비용과 같지 않습니다.
+              <br />
+              자료 범위: {data.bankRange.from} ~ {data.bankRange.to} · 선택 기간{" "}
+              {cash.count}건 중 근거 연결 {cash.allocated}건.
+            </p>
+            <div className="overflow-x-auto rounded-xl border bg-white">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    {["월", "입금", "출금", "현금 증감", "거래", "미연결"].map(
+                      (h) => (
+                        <th
+                          key={h}
+                          className="whitespace-nowrap p-3 text-right"
+                        >
+                          {h}
+                        </th>
+                      ),
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {bank.map((m) => (
+                    <tr key={m.month} className="border-t">
+                      <td className="p-3">{m.month}</td>
+                      {[
+                        m.deposit,
+                        m.withdrawal,
+                        m.deposit - m.withdrawal,
+                        m.count,
+                        m.count - m.allocated,
+                      ].map((v, i) => (
+                        <td
+                          key={i}
+                          className="whitespace-nowrap p-3 text-right tabular-nums"
+                        >
+                          {won(v)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!bank.length && (
+                <p className="p-6 text-gray-500">
+                  선택 기간의 은행 자료가 없습니다.
+                </p>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <Metric
+                label={estimates ? "매출 · 확인·추정 합계" : "매출 · 등록액"}
+                value={won(total.revenue) + "원"}
+              />
+              <Metric
+                label={estimates ? "비용 · 추정 보완 포함" : "비용 · 등록액"}
+                value={won(total.cost) + "원"}
+              />
+              <Metric label="잠정 차이" value={won(total.profit) + "원"} />
+              <Metric
+                label={
+                  total.unknownRevenue
+                    ? "매출 파악 거래의 잠정 마진"
+                    : "잠정 마진율"
+                }
+                value={
+                  total.comparableMargin === null
+                    ? "—"
+                    : total.comparableMargin.toFixed(1) + "%"
+                }
+              />
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+              <p>
+                {total.count}건 집계 · 미확인 항목이 있는 거래{" "}
+                {total.incomplete}건 · 추정 금액이 있는 거래 {total.estimated}
+                건.
+              </p>
+              <p className="mt-1">
+                {estimates
+                  ? "의류·인쇄·공장 공급가에 VAT 10%를 가정하고, 미기록 인쇄·배송비와 연결 ERP 금액을 보완했습니다."
+                  : "등록액만 표시합니다. 기존 원장에도 과거 백필 추정과 VAT 기준 혼합이 남아 있습니다."}
+                <br />
+                인쇄방법이 없으면 DTF, 치수가 없으면 해당 공장 단가표 중앙값을
+                가정합니다.
+                <br />이 추정과 원가 누락이 남아 있어 마진은 확정 수익률이
+                아닙니다.
+                <br />
+                과거 거래는 작업 시작 월, 현재 주문은 결제월 기준입니다.
+                <br />
+                결제수수료·광고비·일반 운영비는 포함하지 않습니다.
+              </p>
+              {total.unknownRevenue > 0 && (
+                <p className="mt-2 font-semibold">
+                  매출이 없거나 일부만 연결된 {total.unknownRevenue}건이
+                  있습니다.
+                  <br />위 마진율은 이 거래들을 제외한 {total.comparableCount}건
+                  기준입니다.
+                  <br />
+                  제외된 거래의 비용 {won(total.unknownRevenueCost)}원은 전체
+                  비용과 잠정 차이에 계속 포함됩니다.
+                </p>
+              )}
+            </div>
+            <section className="rounded-xl border bg-white p-4">
+              <h2 className="font-semibold">월별 매출·비용 추이</h2>
+              <div className="mt-4 space-y-3">
+                {monthly.map((m) => (
+                  <div
+                    key={m.month}
+                    className="grid grid-cols-[64px_1fr] gap-3 text-xs"
+                  >
+                    <span className="pt-1 text-gray-600">{m.month}</span>
+                    <div className="space-y-1">
+                      <div
+                        title={`매출 ${won(m.revenue)}원`}
+                        className="h-3 rounded-r bg-amber-500"
+                        style={{ width: `${(100 * m.revenue) / max}%` }}
+                      />
+                      <div
+                        title={`비용 ${won(m.cost)}원`}
+                        className="h-3 rounded-r bg-slate-400"
+                        style={{
+                          width: `${(100 * Math.max(0, m.cost)) / max}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-gray-500">
+                주황: 매출 · 회색: 비용 · 아래 표에서 금액을 확인할 수 있습니다.
+              </p>
+            </section>
+            <div className="overflow-x-auto rounded-xl border bg-white">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    {[
+                      "월",
+                      "거래",
+                      "매출",
+                      "비용",
+                      "잠정 차이",
+                      "잠정 마진",
+                      "미확인",
+                    ].map((h) => (
+                      <th key={h} className="whitespace-nowrap p-3 text-right">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthly.map((m) => (
+                    <tr key={m.month} className="border-t">
+                      <td className="p-3">{m.month}</td>
+                      {[m.count, m.revenue, m.cost, m.profit].map((v, i) => (
+                        <td
+                          key={i}
+                          className="whitespace-nowrap p-3 text-right tabular-nums"
+                        >
+                          {won(v)}
+                        </td>
+                      ))}
+                      <td className="p-3 text-right">
+                        {m.comparableMargin === null
+                          ? "—"
+                          : m.comparableMargin.toFixed(1) + "%"}
+                        {m.unknownRevenue > 0 && (
+                          <span className="block whitespace-nowrap text-xs text-amber-800">
+                            매출 미확인 {m.unknownRevenue}건 제외
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3 text-right">{m.incomplete}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <section className="rounded-xl border bg-white">
+              <div className="flex flex-wrap items-center gap-3 border-b p-4">
+                <h2 className="font-semibold">거래별 내역과 남은 확인 사항</h2>
+                <input
+                  aria-label="거래 검색"
+                  placeholder="거래명·주문번호 검색"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(0);
+                  }}
+                  className="min-w-0 rounded border p-2 text-sm"
+                />
+                <label className="text-sm">
+                  <input
+                    type="checkbox"
+                    checked={onlyMissing}
+                    onChange={(e) => {
+                      setOnlyMissing(e.target.checked);
+                      setPage(0);
+                    }}
+                  />{" "}
+                  미확인 항목만
+                </label>
+                <span className="ml-auto text-sm text-gray-500">
+                  {visible.length}건
+                </span>
+              </div>
+              <div className="divide-y">
+                {visible.slice(safePage * 40, safePage * 40 + 40).map((e) => (
+                  <article
+                    key={e.id}
+                    className={`p-4 ${e.duplicate ? "opacity-60" : ""}`}
+                  >
+                    <button
+                      aria-expanded={open === e.id}
+                      onClick={() => setOpen(open === e.id ? "" : e.id)}
+                      className="flex w-full flex-wrap items-start justify-between gap-3 text-left"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs text-gray-500">
+                          {e.date} · {sources[e.source]} ·{" "}
+                          {e.quantity ? `${won(e.quantity)}벌` : "수량 미확인"}
+                          {e.duplicate ? " · 합계 제외" : ""}
+                        </div>
+                        <div className="mt-1 break-words font-medium">
+                          {e.title}
+                        </div>
+                        <div className="mt-1 text-xs text-amber-800">
+                          {e.missing.length
+                            ? `미확인 ${e.missing.length}항목`
+                            : e.estimatedCost || e.estimatedRevenue
+                              ? "추정 포함"
+                              : "등록 근거 있음"}
+                        </div>
+                      </div>
+                      <div className="text-right text-sm tabular-nums">
+                        <div>
+                          매출{" "}
+                          {e.revenue === null
+                            ? "미확인"
+                            : won(estimates ? e.revenue : e.recordedRevenue) +
+                              "원"}
+                        </div>
+                        <div className="text-gray-600">
+                          비용 {won(estimates ? e.cost : e.recordedCost)}원
+                        </div>
+                      </div>
+                    </button>
+                    {open === e.id && (
+                      <div className="mt-4 space-y-3 border-t pt-3 text-sm">
+                        <Link
+                          href={e.link}
+                          className="break-all text-blue-700 underline"
+                        >
+                          {e.id} · 원본 보기
+                        </Link>
+                        <p>
+                          등록 비용 {won(e.recordedCost)}원 / 비용 보완{" "}
+                          {won(e.costSupplement)}원 / VAT 가정{" "}
+                          {won(e.vatSupplement)}원.
+                        </p>
+                        {e.missing.length > 0 && (
+                          <ul className="list-disc space-y-1 pl-5 text-rose-800">
+                            {e.missing.map((s, i) => (
+                              <li key={i}>{s}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <ul className="list-disc space-y-1 pl-5 text-gray-600">
+                          {e.basis.map((s, i) => (
+                            <li key={i}>{s}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+              <div className="flex items-center justify-between border-t p-4 text-sm">
+                <button
+                  disabled={safePage === 0}
+                  onClick={() => setPage(safePage - 1)}
+                  className="disabled:opacity-30"
+                >
+                  이전
+                </button>
+                <span>
+                  {safePage + 1} / {Math.max(1, Math.ceil(visible.length / 40))}
+                </span>
+                <button
+                  disabled={(safePage + 1) * 40 >= visible.length}
+                  onClick={() => setPage(safePage + 1)}
+                  className="disabled:opacity-30"
+                >
+                  다음
+                </button>
+              </div>
+            </section>
+          </>
+        ))}
+      {data && (
+        <p className="text-xs text-gray-500">
+          조회 시각:{" "}
+          {new Date(data.generatedAt).toLocaleString("ko-KR", {
+            timeZone: "Asia/Seoul",
+          })}{" "}
+          · 추정은 보고서 계산에 적용되며 기존 주문·발주·원가 원장을 덮어쓰지
+          않습니다.
+        </p>
+      )}
+    </main>
   );
 }
-
-function Stat({ label, v, highlight }: { label: string; v: number; highlight?: boolean }) {
+function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <div className="text-[11px] text-gray-500">{label}</div>
-      <div className={`font-semibold ${highlight ? 'text-amber-700 text-lg' : 'text-gray-900'}`}>{v.toLocaleString('ko-KR')}원</div>
+    <div className="rounded-xl border bg-white p-4">
+      <p className="text-xs text-gray-600">{label}</p>
+      <p className="mt-2 break-words text-xl font-bold tabular-nums md:text-2xl">
+        {value}
+      </p>
     </div>
   );
 }
