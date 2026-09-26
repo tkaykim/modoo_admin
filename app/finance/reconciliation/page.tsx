@@ -5,7 +5,7 @@ import { isSuperAdmin } from '@/lib/auth-helpers';
 import { summarizeLegacyCash, type CashAllocation, type LegacyCostAdjustment } from '@/lib/cost-reconciliation';
 
 export const dynamic = 'force-dynamic';
-type LegacyCase = {case_key:string;title:string;period_start:string;period_end:string;quantity:number|null;quantity_basis:string|null;notes:string;evidence:{erp_project?:{id:number;name:string};erp_entries?:{id:number;name:string;kind:string;amount:number;actual_amount:number|null;status:string}[];files?:{original_path:string;sha256:string}[];bongjeya_invoice_rows?:{sha256:string;invoice_date:string;row:number;label:string;quantity:number;unit_amount:number;quoted_amount:number;filename:string;cost_class:string}[];supplier_cost_recoveries?:{transaction_key:string;date:string;amount:number;status:string;reason:string}[]}};
+type LegacyCase = {case_key:string;title:string;period_start:string;period_end:string;quantity:number|null;quantity_basis:string|null;status:string;notes:string;evidence:{financial_basis?:string;erp_paid_revenue_gross?:number;erp_paid_cost_gross?:number;erp_project?:{id:number;name:string};erp_entries?:{id:number;name:string;kind:string;amount:number;actual_amount:number|null;status:string}[];files?:{original_path:string;sha256:string}[];bongjeya_invoice_rows?:{sha256:string;invoice_date:string;row:number;label:string;quantity:number;unit_amount:number;quoted_amount:number;filename:string;cost_class:string}[];supplier_cost_recoveries?:{transaction_key:string;date:string;amount:number;status:string;reason:string}[]}};
 type BankRow = {transaction_key:string;transacted_at:string;counterparty_text:string;memo:string|null};
 const won=(value:number)=>`${value.toLocaleString('ko-KR')}원`;
 
@@ -39,14 +39,43 @@ export default async function CostReconciliationPage() {
     const current=invoiceRows.get(row.source_line_id)||{orderId:row.order_id,label:evidence.item_name,filename:evidence.invoice_filename,page:evidence.page_number,line:evidence.line_number,quantity:0,net:0,oldPrint:evidence.original_print_cost,oldFactory:evidence.original_factory_cost};
     current.quantity+=Number(row.allocated_quantity);current.net+=Number(row.amount_net);invoiceRows.set(row.source_line_id,current);
   }
+  const historical=((cases.data||[]) as LegacyCase[]).map(c=>{
+    const rows=(allocations.data||[]).filter(a=>a.case_key===c.case_key) as CashAllocation[];
+    const caseAdjustments=(legacyCostAdjustments.data||[]).filter(a=>a.case_key===c.case_key) as LegacyCostAdjustment[];
+    return {caseData:c,rows,caseAdjustments,cash:summarizeLegacyCash(rows,caseAdjustments),erpBasis:c.evidence.financial_basis==='erp_paid_entries_not_bank_reconciled',erpRevenue:Number(c.evidence.erp_paid_revenue_gross||0),erpCost:Number(c.evidence.erp_paid_cost_gross||0)};
+  });
+  const cashHistorical=historical.filter(h=>!h.erpBasis);
+  const erpHistorical=historical.filter(h=>h.erpBasis);
+  const monthMap=new Map<string,{orders:number;knownQuantity:number;unknownQuantity:number;receipts:number;costs:number;refunds:number;difference:number;withoutReceipts:number;estimates:number}>();
+  for(const entry of cashHistorical){
+    const month=entry.caseData.period_start.slice(0,7);
+    const m=monthMap.get(month)||{orders:0,knownQuantity:0,unknownQuantity:0,receipts:0,costs:0,refunds:0,difference:0,withoutReceipts:0,estimates:0};
+    m.orders++;m.knownQuantity+=entry.caseData.quantity||0;m.unknownQuantity+=entry.caseData.quantity===null?1:0;
+    m.receipts+=entry.cash.receipt;m.costs+=entry.cash.cost;m.refunds+=entry.cash.refund;m.difference+=entry.cash.cashDifference;
+    m.withoutReceipts+=entry.cash.receipt===0?1:0;m.estimates+=entry.cash.estimatedCost;
+    monthMap.set(month,m);
+  }
+  const months=[...monthMap].sort((a,b)=>a[0].localeCompare(b[0]));
+  const totalObserved=cashHistorical.reduce((a,h)=>({receipts:a.receipts+h.cash.receipt,costs:a.costs+h.cash.cost,difference:a.difference+h.cash.cashDifference}),{receipts:0,costs:0,difference:0});
+  const erpMonthMap=new Map<string,{orders:number;revenue:number;cost:number}>();
+  for(const entry of erpHistorical){const month=entry.caseData.period_start.slice(0,7);const m=erpMonthMap.get(month)||{orders:0,revenue:0,cost:0};m.orders++;m.revenue+=entry.erpRevenue;m.cost+=entry.erpCost;erpMonthMap.set(month,m);}
   return <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
     <header><Link href="/finance" className="text-sm text-blue-700">재무 대시보드</Link><h1 className="text-2xl font-bold mt-2">원가 증빙·과거 주문</h1><p className="mt-2 text-sm text-gray-600">슈퍼관리자 전용입니다.</p></header>
     <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm space-y-1">
       <p>과거 주문은 증빙에서 복원한 작업 묶음이며, 현재 발주·배송 주문을 새로 생성하지 않습니다.</p>
-      <p>입출금 차이는 최종 손익이 아닙니다.</p>
+      <p>아래 간이주문은 당시 통장·ERP·거래명세서·카톡으로 복원했습니다. 입출금 차이는 최종 손익이 아닙니다.</p>
       <p>수량·부가세·누락 비용과 ERP 합산 이체가 확인되기 전에는 기존 손익에 더하지 않습니다.</p>
       <p>공급처 환급은 고객 매출과 구분하며, 아래 입출금 차이에 합산하지 않고 작업 근거에 별도로 표시합니다.</p>
     </section>
+    <section className="rounded-lg border bg-white p-4 space-y-3"><div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="font-bold text-lg">과거 간이주문 월별 현황</h2><Link href="/finance/profit" className="text-sm text-blue-700">현재 주문 월별 손익 보기</Link></div>
+      <p className="text-sm text-gray-600">작업 시작 월에 배치한 관측 입출금입니다. 통장 입금이 일부만 연결된 작업과 부가세 혼합 금액이 있어 정식 매출·마진율과 합산하지 않습니다.</p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">{[['은행 연결 간이주문',`${cashHistorical.length}건`],['연결 입금',won(totalObserved.receipts)],['연결 지출·보상',won(totalObserved.costs)],['관측 현금차이',won(totalObserved.difference)]].map(([label,value])=><div key={label} className="rounded bg-gray-50 p-3"><div className="text-xs text-gray-500">{label}</div><strong>{value}</strong></div>)}</div>
+      <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-100"><tr>{['작업월','건수','확인 수량','연결 입금','연결 지출·보상','관측 차이','입금 미연결'].map(h=><th key={h} className="p-2 text-right whitespace-nowrap">{h}</th>)}</tr></thead><tbody>{months.map(([month,m])=><tr key={month} className="border-t"><td className="p-2">{month}</td><td className="p-2 text-right">{m.orders}</td><td className="p-2 text-right whitespace-nowrap">{m.knownQuantity.toLocaleString('ko-KR')}벌{m.unknownQuantity>0?` + ${m.unknownQuantity}건 미확인`:''}</td>{[m.receipts,m.costs,m.difference].map((value,i)=><td key={i} className="p-2 text-right whitespace-nowrap">{won(value)}</td>)}<td className="p-2 text-right">{m.withoutReceipts}건</td></tr>)}</tbody></table></div>
+    </section>
+    {erpHistorical.length>0&&<section className="rounded-lg border bg-white p-4 space-y-3"><h2 className="font-bold text-lg">사이트 개설 전 ERP 간이주문 후보 {erpHistorical.length}건</h2>
+      <p className="text-sm text-amber-900">ERP의 paid 항목만 모았습니다. 은행과 주문별 매칭이 확정되지 않았고 일부 제작비가 빠져 있을 수 있으므로 위 은행 집계·현재 주문 손익과 합산하지 않습니다.</p>
+      <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-100"><tr>{['작업월','후보 건수','ERP 매출 기록','ERP 지출 기록','기록상 차이'].map(h=><th key={h} className="p-2 text-right whitespace-nowrap">{h}</th>)}</tr></thead><tbody>{[...erpMonthMap].sort((a,b)=>a[0].localeCompare(b[0])).map(([month,m])=><tr key={month} className="border-t"><td className="p-2">{month}</td><td className="p-2 text-right">{m.orders}</td>{[m.revenue,m.cost,m.revenue-m.cost].map((n,i)=><td className="p-2 text-right whitespace-nowrap" key={i}>{won(n)}</td>)}</tr>)}</tbody></table></div>
+    </section>}
     <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {[['은행 거래',bankCount.count],['청구행 주문 연결',invoiceCount.count],['ERP 증빙',erpCount.count],['ERP·기존 주문 연결',erpOrderCount.count]].map(([label,value])=><div key={String(label)} className="rounded-lg border bg-white p-4"><div className="text-sm text-gray-600">{label}</div><div className="text-2xl font-semibold mt-1">{Number(value||0).toLocaleString('ko-KR')}건</div></div>)}
     </section>
@@ -61,10 +90,10 @@ export default async function CostReconciliationPage() {
         {[...invoiceRows].map(([id,r])=>{const delta=(adjustments.data||[]).filter(a=>a.source_line_id===id).reduce((s,a)=>s+Number(a.amount_net),0);return <tr key={id} className="border-t align-top"><td className="p-2 min-w-64"><strong>{r.label}</strong><div>{r.orderId}</div><div className="text-xs text-gray-500 mt-1">{r.filename} p.{r.page} 행{r.line}</div></td><td className="p-2">{r.quantity}</td>{[r.net,delta,r.net+delta,r.oldPrint,r.oldFactory].map((v,index)=><td key={index} className="p-2 text-right whitespace-nowrap tabular-nums">{won(v)}</td>)}</tr>;})}
       </tbody></table></div>
     </details></section>
-    <section><h2 className="font-bold text-lg mb-3">복원한 과거 작업 {(cases.data||[]).length}건</h2>
-      <div className="overflow-x-auto border rounded-lg"><table className="w-full text-sm bg-white"><thead className="bg-gray-100 text-left"><tr>{['작업·관측 기간','확인 수량','입금','비용(출금+보상)','환불','관측 차이'].map(h=><th key={h} className="p-3 whitespace-nowrap">{h}</th>)}</tr></thead>
-      <tbody>{((cases.data||[]) as LegacyCase[]).map(c=>{const rows=(allocations.data||[]).filter(a=>a.case_key===c.case_key) as CashAllocation[];const caseAdjustments=(legacyCostAdjustments.data||[]).filter(a=>a.case_key===c.case_key) as LegacyCostAdjustment[];const cash=summarizeLegacyCash(rows,caseAdjustments);return <tr key={c.case_key} className="border-t align-top">
-        <td className="p-3 min-w-80"><strong>{c.title}</strong><div className="text-gray-600 text-xs mt-1">{c.period_start} ~ {c.period_end}</div><details className="mt-2"><summary className="cursor-pointer text-blue-700">근거·미확인 항목</summary><div className="space-y-2 mt-2 max-w-xl"><p>{c.notes}</p>{c.quantity_basis&&<p>{c.quantity_basis}</p>}
+    <section><h2 className="font-bold text-lg mb-3">복원한 과거 간이주문 {historical.length}건</h2>
+      <div className="overflow-x-auto border rounded-lg"><table className="w-full text-sm bg-white"><thead className="bg-gray-100 text-left"><tr>{['작업·관측 기간','확인 수량','입금','비용(출금+보상)','환불','관측 차이','ERP 매출 후보','ERP 지출 후보'].map(h=><th key={h} className="p-3 whitespace-nowrap">{h}</th>)}</tr></thead>
+      <tbody>{historical.map(({caseData:c,rows,caseAdjustments,cash,erpBasis,erpRevenue,erpCost})=>{return <tr key={c.case_key} className="border-t align-top">
+        <td className="p-3 min-w-80"><strong>{c.title}</strong>{erpBasis&&<span className="ml-2 text-xs text-amber-800">ERP 후보</span>}<div className="text-gray-600 text-xs mt-1">{c.period_start} ~ {c.period_end}</div><details className="mt-2"><summary className="cursor-pointer text-blue-700">근거·미확인 항목</summary><div className="space-y-2 mt-2 max-w-xl"><p>{c.notes}</p>{c.quantity_basis&&<p>{c.quantity_basis}</p>}
           {c.evidence.erp_project&&<p>ERP #{c.evidence.erp_project.id}: {c.evidence.erp_project.name}</p>}
           {cash.estimatedCost>0&&<p className="text-amber-800">추정 비용 반영: {won(cash.estimatedCost)}</p>}
           {caseAdjustments.map(a=><div key={`${a.case_key}:${a.cost_class}:${a.reason}`} className="rounded border border-rose-200 bg-rose-50 p-2"><strong>{a.cost_class==='customer_compensation'?'고객 보상 비용':'고객 환불 비용'} {won(Number(a.amount_gross))}</strong><p>{a.reason}</p><p className="text-xs">{a.is_estimate?'증빙의 약정 금액으로 추정 반영했습니다.':'확인 금액입니다.'}</p></div>)}
@@ -77,7 +106,7 @@ export default async function CostReconciliationPage() {
           {(c.evidence.erp_entries||[]).length>0&&<details><summary className="cursor-pointer">ERP 기록 금액 (은행 금액에 중복 합산하지 않음)</summary><ul>{c.evidence.erp_entries?.map(e=><li key={e.id}>#{e.id} {e.name}: {won(Number(e.actual_amount??e.amount))} ({e.status})</li>)}</ul></details>}
           {(c.evidence.files||[]).map(f=><p key={f.sha256} className="text-xs break-all text-gray-500">시안·명단 원본: {f.original_path}</p>)}
         </div></details></td><td className="p-3 whitespace-nowrap">{c.quantity===null?'미확인':`${c.quantity}벌`}</td>
-        {[cash.receipt,cash.cost,cash.refund,cash.cashDifference].map((v,index)=><td key={index} className="p-3 text-right whitespace-nowrap tabular-nums">{won(v)}</td>)}</tr>;})}</tbody></table></div>
+        {[cash.receipt,cash.cost,cash.refund,cash.cashDifference,erpRevenue,erpCost].map((v,index)=><td key={index} className="p-3 text-right whitespace-nowrap tabular-nums">{erpBasis&&index<4?'-':!erpBasis&&index>=4?'-':won(v)}</td>)}</tr>;})}</tbody></table></div>
     </section>
     <footer className="text-xs text-gray-600 space-y-1">{(documents.data||[]).map(d=><p key={d.source_filename}>{d.source_filename}: {d.row_count}행</p>)}</footer>
   </main>;
