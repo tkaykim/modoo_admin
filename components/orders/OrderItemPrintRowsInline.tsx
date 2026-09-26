@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import type { FactoryPrintMethodPricing, OrderItemArtwork } from '@/types/types';
+import type {
+  FactoryCostSource,
+  FactoryPrintMethodPricing,
+  OrderItemArtwork,
+} from '@/types/types';
+import { requiresFactoryCostReason } from '@/lib/factory-cost-adjustment';
 
 /**
  * 공장 배정 카드 안에 인라인으로 표시되는 인쇄 행 편집기.
@@ -31,6 +36,8 @@ interface RowDraft {
   factory_unit_price: string;
   additional_amount: string;
   factory_total: string;
+  factory_cost_source: FactoryCostSource;
+  note: string;
   totalManuallyEdited: boolean;
   saving: boolean;
 }
@@ -52,6 +59,8 @@ const rowFromDb = (
       ? String(a.additional_amount)
       : '',
   factory_total: a.factory_total !== null ? String(a.factory_total) : '',
+  factory_cost_source: a.factory_cost_source ?? 'auto_match',
+  note: a.note ?? '',
   totalManuallyEdited: false,
   saving: false,
 });
@@ -162,6 +171,13 @@ export default function OrderItemPrintRowsInline({
       : null;
 
   const persistRow = async (row: RowDraft) => {
+    if (
+      requiresFactoryCostReason(row.additional_amount, row.factory_cost_source) &&
+      !row.note.trim()
+    ) {
+      throw new Error('공장가를 가감하거나 직접 수정한 경우 사유를 입력하세요.');
+    }
+
     const pricing = findPricing(row);
     const body: Record<string, unknown> = {
       print_method_id: row.print_method_id || null,
@@ -173,7 +189,8 @@ export default function OrderItemPrintRowsInline({
       factory_unit_price: row.factory_unit_price === '' ? null : Number(row.factory_unit_price),
       additional_amount: row.additional_amount === '' ? null : Number(row.additional_amount),
       factory_total: row.factory_total === '' ? null : Number(row.factory_total),
-      factory_cost_source: row.totalManuallyEdited ? 'override' : 'auto_match',
+      factory_cost_source: row.factory_cost_source,
+      note: row.note.trim() || null,
     };
     if (row.dbId) {
       const res = await fetch(`/api/admin/order-items/${orderItemId}/artworks`, {
@@ -230,6 +247,7 @@ export default function OrderItemPrintRowsInline({
               factory_pricing_row_id: null,
               factory_unit_price: '',
               factory_total: '',
+              factory_cost_source: 'auto_match',
               totalManuallyEdited: false,
             }
           : r
@@ -294,6 +312,7 @@ export default function OrderItemPrintRowsInline({
         return {
           ...r,
           additional_amount: value,
+          factory_cost_source: add !== 0 ? 'override' : r.factory_cost_source,
           factory_total:
             !r.totalManuallyEdited && baseTotal !== null
               ? String(Math.round(baseTotal + add))
@@ -313,6 +332,7 @@ export default function OrderItemPrintRowsInline({
         return {
           ...r,
           factory_unit_price: value,
+          factory_cost_source: 'override',
           factory_total:
             !r.totalManuallyEdited && Number.isFinite(u) && Number.isFinite(q) && q > 0
               ? String(Math.round(u * q + a))
@@ -325,7 +345,14 @@ export default function OrderItemPrintRowsInline({
   const onTotalChange = (tempId: string, value: string) => {
     setRows((prev) =>
       prev.map((r) =>
-        r.tempId === tempId ? { ...r, factory_total: value, totalManuallyEdited: true } : r
+        r.tempId === tempId
+          ? {
+              ...r,
+              factory_total: value,
+              factory_cost_source: 'override',
+              totalManuallyEdited: true,
+            }
+          : r
       )
     );
   };
@@ -349,6 +376,8 @@ export default function OrderItemPrintRowsInline({
         factory_unit_price: '',
         additional_amount: '',
         factory_total: '',
+        factory_cost_source: 'auto_match',
+        note: '',
         totalManuallyEdited: false,
         saving: false,
       },
@@ -518,6 +547,23 @@ export default function OrderItemPrintRowsInline({
             <div className="col-span-1 flex items-end justify-end text-[9px] text-gray-400">
               {row.saving ? '저장중' : row.dbId ? '저장됨' : ''}
             </div>
+          </div>
+          <div>
+            <label className="block text-[9px] text-gray-500 mb-0.5">가감·협의 사유</label>
+            <input
+              type="text"
+              value={row.note}
+              onChange={(e) =>
+                setRows((prev) =>
+                  prev.map((r) =>
+                    r.tempId === row.tempId ? { ...r, note: e.target.value } : r
+                  )
+                )
+              }
+              onBlur={() => onBlurSave(row.tempId)}
+              placeholder="이미지 단순 할인, 벡터화·후작업 추가 등"
+              className="w-full px-1.5 py-1 border border-gray-300 rounded text-[11px]"
+            />
           </div>
         </div>
       ))}

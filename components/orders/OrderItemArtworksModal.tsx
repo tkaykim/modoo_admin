@@ -8,6 +8,7 @@ import type {
   FactoryPrintMethodPricing,
   OrderItemArtwork,
 } from '@/types/types';
+import { requiresFactoryCostReason } from '@/lib/factory-cost-adjustment';
 
 interface Props {
   orderItemId: string;
@@ -47,6 +48,8 @@ interface RowDraft {
   /** 최종 합계 (자동 = unit × qty + additional, 사용자 override 가능) */
   factory_total: string;
   factory_cost_source: '' | 'auto_match' | 'manual' | 'negotiated' | 'override';
+  /** 기본 공장가에서 가감하거나 협의가를 적용한 사유 */
+  note: string;
   /** 사용자가 합계를 수기로 만진 적이 있는지 (override 추적용) */
   totalManuallyEdited: boolean;
 }
@@ -64,6 +67,7 @@ const blankRow = (defaults: { applied_quantity?: number } = {}): RowDraft => ({
   additional_amount: '',
   factory_total: '',
   factory_cost_source: '',
+  note: '',
   totalManuallyEdited: false,
 });
 
@@ -81,6 +85,7 @@ const rowFromDb = (a: OrderItemArtwork & { additional_amount?: number | null }):
       : '',
   factory_total: a.factory_total !== null ? String(a.factory_total) : '',
   factory_cost_source: (a.factory_cost_source as RowDraft['factory_cost_source']) ?? '',
+  note: a.note ?? '',
   totalManuallyEdited: false,
 });
 
@@ -353,6 +358,16 @@ export default function OrderItemArtworksModal({
   };
 
   const handleSave = async () => {
+    const missingReason = rows.find(
+      (row) =>
+        requiresFactoryCostReason(row.additional_amount, row.factory_cost_source) &&
+        !row.note.trim()
+    );
+    if (missingReason) {
+      setError('공장가를 가감하거나 수기·협의가로 입력한 경우 사유를 입력하세요.');
+      return;
+    }
+
     setSaving(true);
     setError(null);
     try {
@@ -384,6 +399,7 @@ export default function OrderItemArtworksModal({
           additional_amount: r.additional_amount === '' ? null : Number(r.additional_amount),
           factory_total: r.factory_total === '' ? null : Number(r.factory_total),
           factory_cost_source: r.factory_cost_source || 'auto_match',
+          note: r.note.trim() || null,
         };
         if (r.dbId) {
           const res = await fetch(mutationUrl, {
@@ -627,6 +643,18 @@ export default function OrderItemArtworksModal({
                           <option value="override">override</option>
                         </select>
                       </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">
+                        가감·협의 사유
+                      </label>
+                      <input
+                        type="text"
+                        value={row.note}
+                        onChange={(e) => updateRow(row.tempId, { note: e.target.value }, false)}
+                        placeholder="예: 이미지 단순 -500원, 벡터화 +2,000원, 후작업 +3,000원"
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-xs"
+                      />
                     </div>
                   </div>
                 );
