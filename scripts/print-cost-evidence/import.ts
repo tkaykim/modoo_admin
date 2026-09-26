@@ -215,7 +215,12 @@ async function main(): Promise<void> {
   for (let offset = 0; offset < lineRows.length; offset += 100) {
     const { error } = await client
       .from('print_cost_source_lines')
-      .upsert(lineRows.slice(offset, offset + 100), { onConflict: 'document_id,line_number' });
+      .upsert(lineRows.slice(offset, offset + 100), {
+        onConflict: 'document_id,line_number',
+        // Source lines are immutable by document hash and line number.
+        // Preserve later reconciliation fields such as match_status and match_notes on reruns.
+        ignoreDuplicates: true,
+      });
     if (error) throw error;
   }
 
