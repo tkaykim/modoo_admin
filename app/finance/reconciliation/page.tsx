@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { isSuperAdmin } from '@/lib/auth-helpers';
-import { summarizeLegacyCash, type CashAllocation } from '@/lib/cost-reconciliation';
+import { summarizeLegacyCash, type CashAllocation, type LegacyCostAdjustment } from '@/lib/cost-reconciliation';
 
 export const dynamic = 'force-dynamic';
 type LegacyCase = {case_key:string;title:string;period_start:string;period_end:string;quantity:number|null;quantity_basis:string|null;notes:string;evidence:{erp_project?:{id:number;name:string};erp_entries?:{id:number;name:string;kind:string;amount:number;actual_amount:number|null;status:string}[];files?:{original_path:string;sha256:string}[];bongjeya_invoice_rows?:{sha256:string;invoice_date:string;row:number;label:string;quantity:number;unit_amount:number;quoted_amount:number;filename:string;cost_class:string}[];supplier_cost_recoveries?:{transaction_key:string;date:string;amount:number;status:string;reason:string}[]}};
@@ -15,9 +15,10 @@ export default async function CostReconciliationPage() {
   if(!user)redirect('/login');
   const {data:profile}=await db.from('profiles').select('role').eq('id',user.id).single();
   if(!isSuperAdmin(profile?.role))redirect('/dashboard');
-  const [cases,allocations,adjustments,documents,bankCount,invoiceCount,erpCount,erpOrderCount,bank,invoiceLinks]=await Promise.all([
+  const [cases,allocations,legacyCostAdjustments,adjustments,documents,bankCount,invoiceCount,erpCount,erpOrderCount,bank,invoiceLinks]=await Promise.all([
     db.from('legacy_order_cases').select('*').order('period_start'),
     db.from('legacy_order_cash_allocations').select('*').order('case_key').limit(1000),
+    db.from('legacy_order_cost_adjustments').select('*').order('case_key').limit(1000),
     db.from('cost_evidence_adjustments').select('*').order('created_at',{ascending:false}),
     db.from('cost_bank_source_documents').select('source_filename,period_start,period_end,row_count'),
     db.from('cost_bank_transactions').select('*',{count:'exact',head:true}),
@@ -27,7 +28,7 @@ export default async function CostReconciliationPage() {
     db.from('legacy_order_cash_allocations').select('transaction_key,cost_bank_transactions(transaction_key,transacted_at,counterparty_text,memo)').limit(1000),
     db.from('cost_evidence_links').select('source_line_id,order_id,allocated_quantity,amount_net,evidence',{count:'exact'}).eq('link_type','invoice_order').eq('status','confirmed').order('source_line_id').limit(1000),
   ]);
-  if([cases,allocations,adjustments,documents,bankCount,invoiceCount,erpCount,erpOrderCount,bank,invoiceLinks].some(r=>r.error) || (invoiceLinks.count||0)>(invoiceLinks.data?.length||0)) {
+  if([cases,allocations,legacyCostAdjustments,adjustments,documents,bankCount,invoiceCount,erpCount,erpOrderCount,bank,invoiceLinks].some(r=>r.error) || (invoiceLinks.count||0)>(invoiceLinks.data?.length||0)) {
     return <main className="max-w-6xl mx-auto p-6"><h1 className="text-xl font-bold">원가 증빙·과거 주문</h1><p role="alert" className="mt-4 text-red-700">자료를 조회하지 못했습니다.</p><p>잠시 후 다시 조회해 주세요.</p></main>;
   }
   const txByKey=new Map<string,BankRow>();
@@ -61,11 +62,12 @@ export default async function CostReconciliationPage() {
       </tbody></table></div>
     </details></section>
     <section><h2 className="font-bold text-lg mb-3">복원한 과거 작업 {(cases.data||[]).length}건</h2>
-      <div className="overflow-x-auto border rounded-lg"><table className="w-full text-sm bg-white"><thead className="bg-gray-100 text-left"><tr>{['작업·관측 기간','확인 수량','입금','비용 출금','환불','입출금 차이'].map(h=><th key={h} className="p-3 whitespace-nowrap">{h}</th>)}</tr></thead>
-      <tbody>{((cases.data||[]) as LegacyCase[]).map(c=>{const rows=(allocations.data||[]).filter(a=>a.case_key===c.case_key) as CashAllocation[];const cash=summarizeLegacyCash(rows);return <tr key={c.case_key} className="border-t align-top">
+      <div className="overflow-x-auto border rounded-lg"><table className="w-full text-sm bg-white"><thead className="bg-gray-100 text-left"><tr>{['작업·관측 기간','확인 수량','입금','비용(출금+보상)','환불','관측 차이'].map(h=><th key={h} className="p-3 whitespace-nowrap">{h}</th>)}</tr></thead>
+      <tbody>{((cases.data||[]) as LegacyCase[]).map(c=>{const rows=(allocations.data||[]).filter(a=>a.case_key===c.case_key) as CashAllocation[];const caseAdjustments=(legacyCostAdjustments.data||[]).filter(a=>a.case_key===c.case_key) as LegacyCostAdjustment[];const cash=summarizeLegacyCash(rows,caseAdjustments);return <tr key={c.case_key} className="border-t align-top">
         <td className="p-3 min-w-80"><strong>{c.title}</strong><div className="text-gray-600 text-xs mt-1">{c.period_start} ~ {c.period_end}</div><details className="mt-2"><summary className="cursor-pointer text-blue-700">근거·미확인 항목</summary><div className="space-y-2 mt-2 max-w-xl"><p>{c.notes}</p>{c.quantity_basis&&<p>{c.quantity_basis}</p>}
           {c.evidence.erp_project&&<p>ERP #{c.evidence.erp_project.id}: {c.evidence.erp_project.name}</p>}
-          {cash.estimatedCost>0&&<p className="text-amber-800">비용 출금 중 추정 귀속: {won(cash.estimatedCost)}</p>}
+          {cash.estimatedCost>0&&<p className="text-amber-800">추정 비용 반영: {won(cash.estimatedCost)}</p>}
+          {caseAdjustments.map(a=><div key={`${a.case_key}:${a.cost_class}:${a.reason}`} className="rounded border border-rose-200 bg-rose-50 p-2"><strong>{a.cost_class==='customer_compensation'?'고객 보상 비용':'고객 환불 비용'} {won(Number(a.amount_gross))}</strong><p>{a.reason}</p><p className="text-xs">{a.is_estimate?'증빙의 약정 금액으로 추정 반영했습니다.':'확인 금액입니다.'}</p></div>)}
           {(c.evidence.bongjeya_invoice_rows||[]).length>0&&<details><summary className="cursor-pointer">공급처 제작 명세서 ({c.evidence.bongjeya_invoice_rows?.length}행)</summary>
             <p className="my-2 text-xs text-gray-600">청구 당시 단가입니다.</p><p className="mb-2 text-xs text-gray-600">완제품에 포함된 자수·전사와 수선비를 구분하며, 부가세가 별도 표기되지 않은 금액을 임의로 공급가로 환산하지 않습니다.</p>
             <ul className="space-y-2">{c.evidence.bongjeya_invoice_rows?.map(r=><li key={`${r.sha256}:${r.row}`} className="border-l-2 pl-2"><strong>{r.invoice_date} {r.label}</strong><div>{r.quantity} × {won(r.unit_amount)} = {won(r.quoted_amount)}{r.cost_class==='rework'?' (수선·재제작)':''}</div><div className="text-xs text-gray-500 break-all">{r.filename} · {r.row}행</div></li>)}</ul>
