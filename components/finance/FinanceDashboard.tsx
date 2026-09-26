@@ -66,6 +66,7 @@ export default function FinanceDashboard() {
         <NavTile href="/finance/print-costs" icon={Printer} label="인쇄비 시세표" />
         <NavTile href="/finance/shipping" icon={Truck} label="내부 배송비" />
         <NavTile href="/finance/profit" icon={TrendingUp} label="손익 리포트" />
+        <NavTile href="/finance/reconciliation" icon={Wallet} label="원가 증빙·과거 주문" />
       </div>
 
       {loading && <div className="flex items-center gap-2 text-gray-600"><Loader2 className="w-4 h-4 animate-spin" /> 로딩...</div>}
